@@ -1,0 +1,12 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Mask|Image,Mask
+2|Picture|Image
+1|Text|TextMeshProUGUI
+1|SoftMask|SoftMask
+2|Picture|Image,SoftMaskable
+1|Text|TextMeshProUGUI
+1|RectMask2D|RectMask2D
+2|Picture|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

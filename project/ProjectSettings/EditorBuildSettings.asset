@@ -1,0 +1,368 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/UGUIBook/Demos.unity
+    guid: f51500baf9a3247009323dbbeff737bb
+  - enabled: 1
+    path: Assets/UGUIBook/Ch01/Scenes/Ch01_ClickCounter.unity
+    guid: 36bbf2daff0d74d129bdd3de2e954147
+  - enabled: 1
+    path: Assets/UGUIBook/Ch01/Scenes/Ch01_DrawOrder.unity
+    guid: 86230f6e57b4045b394b116dd1a12a68
+  - enabled: 1
+    path: Assets/UGUIBook/Ch01/Scenes/Ch01_Hello.unity
+    guid: 0abff9864b0a749e1b1c966729ed62d4
+  - enabled: 1
+    path: Assets/UGUIBook/Ch01/Scenes/Ch01_MainMenu.unity
+    guid: e2c8d47d3feee4034baaab8434d88a02
+  - enabled: 1
+    path: Assets/UGUIBook/Ch01/Scenes/Ch01_MenuFlow.unity
+    guid: 6fb27d8084de742bb8e854af594dd7ba
+  - enabled: 1
+    path: Assets/UGUIBook/Ch01/Scenes/Ch01_Pitfalls.unity
+    guid: 4a8514a53c20847eda34c38daa7de30b
+  - enabled: 1
+    path: Assets/UGUIBook/Ch02/Scenes/Ch02_Adaptive.unity
+    guid: 8fc3bdf97b776462cb3b8f0a363cbd75
+  - enabled: 1
+    path: Assets/UGUIBook/Ch02/Scenes/Ch02_RenderModes.unity
+    guid: 5a73af9020d064ae4aebf07fa2bbea53
+  - enabled: 1
+    path: Assets/UGUIBook/Ch02/Scenes/Ch02_Sandwich.unity
+    guid: 0d6ae84d12c794c7688e0f805b7f3f1d
+  - enabled: 1
+    path: Assets/UGUIBook/Ch02/Scenes/Ch02_Sorting.unity
+    guid: b7c25db71b83442f1831e3d0177f6d8e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch02/Scenes/Ch02_WorldSpace.unity
+    guid: 02dda33bbb8934c7981932ded5c7d951
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_AnchorPresets.unity
+    guid: 4f0ada483b8e948c692edf67f688604f
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_AppLayout.unity
+    guid: 0a58a5a84a22d406f8f9619793c475dc
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_Badges.unity
+    guid: 6b72c47664793476fb0fd361ec6cb836
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_Coords.unity
+    guid: 8ca36cc82b1ef4033a5a689be2908af8
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_RectOps.unity
+    guid: 2e947af95136643d6a4becbe16face6c
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_RectProbe.unity
+    guid: 29a1d747891204b09bef994061be7029
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_SafeArea.unity
+    guid: cdcf45ca5e0d0438aac3ee459c54361b
+  - enabled: 1
+    path: Assets/UGUIBook/Ch03/Scenes/Ch03_Tooltip.unity
+    guid: 8653c880327074ebf902bf61ee37e132
+  - enabled: 1
+    path: Assets/UGUIBook/Ch04/Scenes/Ch04_AlphaHit.unity
+    guid: d331b14c7078e409fb9562ffae34b574
+  - enabled: 1
+    path: Assets/UGUIBook/Ch04/Scenes/Ch04_Avatar.unity
+    guid: ec1fbc73d3822470fa956bb7f0f3a018
+  - enabled: 1
+    path: Assets/UGUIBook/Ch04/Scenes/Ch04_Cooldown.unity
+    guid: b5ab3f2d9d8004c9591aca9e65ced8e3
+  - enabled: 1
+    path: Assets/UGUIBook/Ch04/Scenes/Ch04_Dialog.unity
+    guid: 68fd2679109794e6092964be583848d4
+  - enabled: 1
+    path: Assets/UGUIBook/Ch04/Scenes/Ch04_HealthBar.unity
+    guid: 84f3dda9e0a2f4206b1cfd66a5fb0590
+  - enabled: 1
+    path: Assets/UGUIBook/Ch04/Scenes/Ch04_Parallax.unity
+    guid: 7726ec18686db48d689b9e1615ab064e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch05/Scenes/Ch05_Emoji.unity
+    guid: 3c29d1f279a2249278f68a1c00840bcd
+  - enabled: 1
+    path: Assets/UGUIBook/Ch05/Scenes/Ch05_Link.unity
+    guid: 3680d43718c96417c91524677987fb38
+  - enabled: 1
+    path: Assets/UGUIBook/Ch05/Scenes/Ch05_Number.unity
+    guid: f8ca0da4878ee40d49bb3d466da50453
+  - enabled: 1
+    path: Assets/UGUIBook/Ch05/Scenes/Ch05_Title.unity
+    guid: 4acfaa72cbfad487bb27f2a284d71a13
+  - enabled: 1
+    path: Assets/UGUIBook/Ch05/Scenes/Ch05_Typewriter.unity
+    guid: eae8b2c8e76af4a34bcc794bbc931c99
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_ButtonStates.unity
+    guid: 14843ec2aa4234a088089f94d59d0bdc
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_Closure.unity
+    guid: f1d607cb3e923467789119c5cec99e86
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_Cooldown.unity
+    guid: bdc05dc7da55844cfb4f2f694076e264
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_DoubleClick.unity
+    guid: f2ee6d46932c947d293d86c368d610a3
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_Gamepad.unity
+    guid: b9456cecffb93404c9f4f321c97edb87
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_HoldRepeat.unity
+    guid: 144a8c4a3aa00439484e856b5ba1391c
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_Navigation.unity
+    guid: f518a6ed4592c444295172fcb292cf0f
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_Press.unity
+    guid: 335bd49cac66b4faa86c098e28b49777
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_Radio.unity
+    guid: 38baa12af835b4ce985f783b5fe58972
+  - enabled: 1
+    path: Assets/UGUIBook/Ch06/Scenes/Ch06_Tabs.unity
+    guid: 6943e410bfcb44ccfb9b32a98d385a77
+  - enabled: 1
+    path: Assets/UGUIBook/Ch07/Scenes/Ch07_Loading.unity
+    guid: 2ed6c8bc9518843edb0c4acc0fa3112e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch07/Scenes/Ch07_RangeSlider.unity
+    guid: cfc784d9866644b868c76c10b08377e5
+  - enabled: 1
+    path: Assets/UGUIBook/Ch07/Scenes/Ch07_Settings.unity
+    guid: da2d7afafdfe04b4c9de337a00c6ddf2
+  - enabled: 1
+    path: Assets/UGUIBook/Ch07/Scenes/Ch07_SliderInput.unity
+    guid: 558b248dd517d4763838264d0484cccc
+  - enabled: 1
+    path: Assets/UGUIBook/Ch07/Scenes/Ch07_Switch.unity
+    guid: 900c911ce7b6e42a5abeb0625f118d42
+  - enabled: 1
+    path: Assets/UGUIBook/Ch07/Scenes/Ch07_Tabs.unity
+    guid: b53f625caa9b44e09b9193ad127cb549
+  - enabled: 1
+    path: Assets/UGUIBook/Ch07/Scenes/Ch07_ToggleGroup.unity
+    guid: 62602d1a8d7534da9a890d7595f12ee3
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_Chat.unity
+    guid: 429a620ed14b94d4c84f9a8b9c4fa45f
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_ContentTypes.unity
+    guid: e96237ad628004d1595d671dd348e1c6
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_Dropdown.unity
+    guid: 931c4aef91d754fe286cf49a296b59a0
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_Language.unity
+    guid: d8f2f484fe31f426d950af75c13bb066
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_Login.unity
+    guid: f1821e0d77ace4177ac954fe514e75ff
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_Search.unity
+    guid: 42ad0d3740b364a28a78d0aab37ab273
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_Stepper.unity
+    guid: e621848ccc65c411cb53559fb6b91641
+  - enabled: 1
+    path: Assets/UGUIBook/Ch08/Scenes/Ch08_Validation.unity
+    guid: c238eb945a4404b46b33fbccb79c5411
+  - enabled: 1
+    path: Assets/UGUIBook/Ch09/Scenes/Ch09_Carousel.unity
+    guid: 56958160a44bc4079a35b6cc54f6184b
+  - enabled: 1
+    path: Assets/UGUIBook/Ch09/Scenes/Ch09_Masks.unity
+    guid: c3b3b2552d8b14378ae5124ac1256bd0
+  - enabled: 1
+    path: Assets/UGUIBook/Ch09/Scenes/Ch09_Nested.unity
+    guid: 39da95bc90896453fb563891c6f39057
+  - enabled: 1
+    path: Assets/UGUIBook/Ch09/Scenes/Ch09_PullRefresh.unity
+    guid: 3b125626b10db46e08484555a56913da
+  - enabled: 1
+    path: Assets/UGUIBook/Ch09/Scenes/Ch09_ScrollTo.unity
+    guid: 5155f775f3ad44e1db5390ddd32f76c1
+  - enabled: 1
+    path: Assets/UGUIBook/Ch09/Scenes/Ch09_Shop.unity
+    guid: e92743b2141174227aee744d99a42234
+  - enabled: 1
+    path: Assets/UGUIBook/Ch10/Scenes/Ch10_AutoGrid.unity
+    guid: 7b7e3230dd0bf4ed5b79ab14e7ee7692
+  - enabled: 1
+    path: Assets/UGUIBook/Ch10/Scenes/Ch10_Chat.unity
+    guid: aca46813d8bb84157a97f147a9b9ff86
+  - enabled: 1
+    path: Assets/UGUIBook/Ch10/Scenes/Ch10_Flow.unity
+    guid: 3ac3e8e1b171146ee9c84de884dc89d6
+  - enabled: 1
+    path: Assets/UGUIBook/Ch10/Scenes/Ch10_Foldout.unity
+    guid: aa9601df0f7d341d9854ae9eff779634
+  - enabled: 1
+    path: Assets/UGUIBook/Ch10/Scenes/Ch10_Form.unity
+    guid: 9a7125243efa74d818ef62996ccb63a0
+  - enabled: 1
+    path: Assets/UGUIBook/Ch10/Scenes/Ch10_LayoutDelay.unity
+    guid: e96ae4edd17f04dd2a4ace0057d04ec4
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_Click3D.unity
+    guid: f5863b6c66815469f8fb00d241e7e26e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_ClickOutside.unity
+    guid: f581b4fac2c734489a9c262ceafb1ec7
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_DragWindow.unity
+    guid: de5d3e70815004a8284a74d782767ae2
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_EventLog.unity
+    guid: 21c7ab96d8c1347bf9b14aafde067364
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_InputSystem.unity
+    guid: dc65f51369efd47549c905e427aa042e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_Inventory.unity
+    guid: 8a0ea0a206b564a4e96f5cf214f0816a
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_Joystick.unity
+    guid: dd7c56085e37c44bea5c3499cf37f803
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_Pinch.unity
+    guid: 783326ee0e0794085b30f526ac5064b7
+  - enabled: 1
+    path: Assets/UGUIBook/Ch11/Scenes/Ch11_SwipeList.unity
+    guid: 28f42a0999a384faf98bce3309502895
+  - enabled: 1
+    path: Assets/UGUIBook/Ch12/Scenes/Ch12_BatchLab.unity
+    guid: b816d3c4c52b34c8a9c61bee390be073
+  - enabled: 1
+    path: Assets/UGUIBook/Ch12/Scenes/Ch12_RebuildLab.unity
+    guid: 00c492ff551054f998b12c4d78f484f0
+  - enabled: 1
+    path: Assets/UGUIBook/Ch13/Scenes/Ch13_Bezier.unity
+    guid: 5d43f7cd0445c416a843cc5a06b55cd3
+  - enabled: 1
+    path: Assets/UGUIBook/Ch13/Scenes/Ch13_Effects.unity
+    guid: 7e965c4ea34e140c2b0bf112b08a9292
+  - enabled: 1
+    path: Assets/UGUIBook/Ch13/Scenes/Ch13_OutlineCost.unity
+    guid: acea158c2cf324ba2a823aaa9d295756
+  - enabled: 1
+    path: Assets/UGUIBook/Ch13/Scenes/Ch13_Playground.unity
+    guid: 787c8ac35ee994b8d97988441d755e55
+  - enabled: 1
+    path: Assets/UGUIBook/Ch13/Scenes/Ch13_RadialMenu.unity
+    guid: 048b9567440b84d93936ec364fd73e0f
+  - enabled: 1
+    path: Assets/UGUIBook/Ch13/Scenes/Ch13_TMPAnim.unity
+    guid: ade279de6e7b0418695dc22b1f949288
+  - enabled: 1
+    path: Assets/UGUIBook/Ch14/Scenes/Ch14_Blur.unity
+    guid: 8dbdc982e981440f9b71648fb3a0c6fe
+  - enabled: 1
+    path: Assets/UGUIBook/Ch14/Scenes/Ch14_Guide.unity
+    guid: 899a55c84259a4173b17f185d7fa5d01
+  - enabled: 1
+    path: Assets/UGUIBook/Ch14/Scenes/Ch14_MaskCompat.unity
+    guid: b6ce3ba9ff2f44244bb1de4f6618a9a2
+  - enabled: 1
+    path: Assets/UGUIBook/Ch14/Scenes/Ch14_ShaderGallery.unity
+    guid: a011c47fb4d244de1add4a094b37621a
+  - enabled: 1
+    path: Assets/UGUIBook/Ch14/Scenes/Ch14_SoftMask.unity
+    guid: c48a86372c1cb4761a00e6f54e4e91fb
+  - enabled: 1
+    path: Assets/UGUIBook/Ch14/Scenes/Ch14_Stencil.unity
+    guid: 6026701c7ced04dd4897156fedf7a8e4
+  - enabled: 1
+    path: Assets/UGUIBook/Ch15/Scenes/Ch15_AnimatorCost.unity
+    guid: 659b6468eb65e4cd1a040a0d07577058
+  - enabled: 1
+    path: Assets/UGUIBook/Ch15/Scenes/Ch15_CoinFly.unity
+    guid: 4f19d812c9a3b4374b3fe54c250951aa
+  - enabled: 1
+    path: Assets/UGUIBook/Ch15/Scenes/Ch15_Feedback.unity
+    guid: 1a69a87674e65407dbe207f09d9a531e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch15/Scenes/Ch15_ListEnter.unity
+    guid: 99cbfaa55baaa40209c32bba95ac095e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch15/Scenes/Ch15_Popup.unity
+    guid: b6d109b399e48474e9e0edb4e200f284
+  - enabled: 1
+    path: Assets/UGUIBook/Ch15/Scenes/Ch15_Toast.unity
+    guid: 9311543acebc74a64972e11a47c43e8b
+  - enabled: 1
+    path: Assets/UGUIBook/Ch15/Scenes/Ch15_Transition.unity
+    guid: a1cef16d3f65842a08c456350ab2562c
+  - enabled: 1
+    path: Assets/UGUIBook/Ch16/Scenes/Ch16_UIFramework.unity
+    guid: 3f4c7d17955534b1c96e32a1ce5f112a
+  - enabled: 1
+    path: Assets/UGUIBook/Ch17/Scenes/Ch17_Dialogue.unity
+    guid: ebf07fa8f288049a4bcfbfff78c3e3a8
+  - enabled: 1
+    path: Assets/UGUIBook/Ch17/Scenes/Ch17_HUD.unity
+    guid: c98c649d8e36543b0a09dfdb25c8fd2e
+  - enabled: 1
+    path: Assets/UGUIBook/Ch17/Scenes/Ch17_Minimap.unity
+    guid: 3b032420a05ff41c3bf2f90b8cfc0416
+  - enabled: 1
+    path: Assets/UGUIBook/Ch17/Scenes/Ch17_Skills.unity
+    guid: 428fa1bd0e91742968763175df11ff9c
+  - enabled: 1
+    path: Assets/UGUIBook/Ch18/Scenes/Ch18_Bag.unity
+    guid: bb4d4da7a65794b66b542f0e82d2c3c6
+  - enabled: 1
+    path: Assets/UGUIBook/Ch18/Scenes/Ch18_Benchmark.unity
+    guid: 85e7448eb713145c2adac87d34b41afd
+  - enabled: 1
+    path: Assets/UGUIBook/Ch18/Scenes/Ch18_Chat.unity
+    guid: 50210c64cd2ce4170895ed535ca7f12b
+  - enabled: 1
+    path: Assets/UGUIBook/Ch18/Scenes/Ch18_FixedList.unity
+    guid: 06b995e3eccc5465f86a9914363a6fe7
+  - enabled: 1
+    path: Assets/UGUIBook/Ch18/Scenes/Ch18_Rank.unity
+    guid: 37d950c864e9048c5af1bbc27416252b
+  - enabled: 1
+    path: Assets/UGUIBook/Ch19/Scenes/Ch19_Localization.unity
+    guid: 91774178cdbde41408cfa3e183e094e0
+  - enabled: 1
+    path: Assets/UGUIBook/Ch19/Scenes/Ch19_ModelViewer.unity
+    guid: 61193be2277c04efb9ffbbeecfd82bde
+  - enabled: 1
+    path: Assets/UGUIBook/Ch19/Scenes/Ch19_ParticleSorting.unity
+    guid: 696ef3724df634237b4e328022726ee8
+  - enabled: 1
+    path: Assets/UGUIBook/Ch19/Scenes/Ch19_Responsive.unity
+    guid: 37bee6be7be7d4360b4f1cc49fc7543d
+  - enabled: 1
+    path: Assets/UGUIBook/Ch19/Scenes/Ch19_SafeArea.unity
+    guid: dd3c3eaacd38842bcb3e6a9590c5faa1
+  - enabled: 1
+    path: Assets/UGUIBook/Ch19/Scenes/Ch19_WorldSpace.unity
+    guid: 21194e383dc4148df978902c5053ed6c
+  - enabled: 1
+    path: Assets/UGUIBook/Ch20/Scenes/Ch20_DynamicStatic.unity
+    guid: 30571f47e923547d28541159795b0ca2
+  - enabled: 1
+    path: Assets/UGUIBook/Ch20/Scenes/Ch20_HideMethods.unity
+    guid: 7a810f47456554e8a94568275e656547
+  - enabled: 1
+    path: Assets/UGUIBook/Ch20/Scenes/Ch20_Overdraw.unity
+    guid: d2f556c216f534a3283061327576e542
+  - enabled: 1
+    path: Assets/UGUIBook/Ch20/Scenes/Ch20_PerfLab.unity
+    guid: 24539a484ddb44691a837f80ddfa6894
+  - enabled: 1
+    path: Assets/UGUIBook/Ch21/Scenes/Ch21_RaycastDebug.unity
+    guid: ba890ae519e5844cc9a2a88a3fd2715d
+  - enabled: 1
+    path: Assets/UGUIBook/Ch21/Scenes/Ch21_ToolsSandbox.unity
+    guid: ca2afe5db34704624adb89a0b0b72406
+  m_configObjects: {}

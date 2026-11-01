@@ -1,0 +1,25 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Menu|
+2|Button_打开弹窗|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_更多…|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_被遮住的按钮|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|!MoreMenu|Image,DismissOnOutsidePress
+3|List|VerticalLayoutGroup
+4|Button_分享|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+4|Button_收藏|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+4|Button_举报|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+1|Popup|
+2|Blocker|Image,PopupBlocker
+2|Panel|Image
+3|Text|TextMeshProUGUI
+3|Text|TextMeshProUGUI
+3|Button_领取|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

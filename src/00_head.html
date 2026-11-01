@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>UGUI 从入门到精通：Unity 界面开发实战全解</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 17mm 16mm;
+    @bottom-center { content: counter(page); font: 8.5pt "PingFang SC", sans-serif; color: #8a97a3; }
+    @top-right { content: "UGUI 从入门到精通"; font: 7.5pt "PingFang SC", sans-serif; color: #b3bec8; letter-spacing: .2em; } }
+  @page :first { margin: 0; @bottom-center { content: none; } @top-right { content: none; } }
+  @page part { margin: 0; @bottom-center { content: none; } @top-right { content: none; } }
+  :root { --main: #5b4bd6; --main-dk: #3a2ca0; --accent: #ff8a3d; --ink: #1f2436; --text: #24303b; --muted: #6b7987;
+          --soft: #f1f0fb; --line: #e0deef; --warn: #b9472f; --ok: #2e7d57; --code-bg: #f6f8fa; }
+  * { box-sizing: border-box; }
+  html, body { background: #fff; }
+  body { font-family: "PingFang SC", "Hiragino Sans GB", sans-serif; color: var(--text);
+         font-size: 10pt; line-height: 1.72; margin: 0; text-align: justify; }
+  h1, h2, h3, h4, .serif { font-family: "Songti SC", "STSong", serif; }
+  p { margin: 0 0 6pt; orphans: 2; widows: 2; }
+  a { color: var(--main-dk); text-decoration: none; }
+  .page { page-break-before: always; }
+  b, strong { color: var(--ink); }
+  code { font-family: "SF Mono", Menlo, monospace; font-size: 8.6pt; background: var(--code-bg); border: 1px solid #e3e8ed;
+         border-radius: 3px; padding: 0 3pt; color: #8a2f4a; word-break: break-all; }
+  .menu { font-size: 9pt; background: #f2efe8; border-radius: 3px; padding: 0 4pt; color: #5b4a2e; white-space: nowrap; }
+  kbd { font: 8.5pt "SF Mono", Menlo, monospace; border: 1px solid #c9d2da; border-bottom-width: 2px; border-radius: 3px; padding: 0 3pt; }
+  sup, sub { line-height: 0; }
+
+  /* ---------- 封面 ---------- */
+  .cover { height: 297mm; width: 210mm; position: relative; overflow: hidden; color: #fff;
+           background: radial-gradient(120% 80% at 80% 20%, #3b2f8f 0%, #17142e 55%, #0e0c1f 100%); }
+  .cover .hero { position: absolute; left: 24mm; right: 24mm; top: 158mm; aspect-ratio: 960 / 585; background-size: cover; background-position: center;
+                 border-radius: 3mm; border: 1px solid rgba(255,255,255,.18); box-shadow: 0 14mm 24mm -8mm rgba(0,0,0,.65); }
+  .cover .grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+                 linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 10mm 10mm; }
+  .cover .inner { position: absolute; left: 22mm; right: 22mm; top: 30mm; }
+  .cover .edition { font-size: 10pt; letter-spacing: .32em; color: #c9c2ff; }
+  .cover h1 { font-size: 50pt; line-height: 1.15; margin: 14mm 0 5mm; font-weight: 900; letter-spacing: .03em; }
+  .cover h1 em { font-style: normal; color: var(--accent); }
+  .cover .sub { font-family: "Songti SC", serif; font-size: 17pt; color: #e4e0ff; }
+  .cover .tag { margin-top: 10mm; font-size: 10.5pt; line-height: 2; color: #cfc9f2; max-width: 150mm; }
+  .cover .chips { margin-top: 8mm; display: flex; gap: 6pt; flex-wrap: wrap; }
+  .cover .chips span { border: 1px solid rgba(255,255,255,.35); border-radius: 12px; padding: 1pt 9pt; font-size: 9pt; color: #efedff; }
+  .cover .author { position: absolute; left: 22mm; bottom: 24mm; font-family: "Songti SC", serif; font-size: 17pt; letter-spacing: .2em; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+  .cover .year { position: absolute; right: 22mm; bottom: 25mm; font-size: 9.5pt; letter-spacing: .25em; color: #e4e0ff; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+
+  /* ---------- 分部页 ---------- */
+  .part { page: part; page-break-before: always; height: 297mm; width: 210mm; position: relative; overflow: hidden; color: #fff;
+          padding: 72mm 26mm 0; background: linear-gradient(160deg, #5b4bd6 0%, #3a2ca0 60%, #221a66 100%); }
+  .part .grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px); background-size: 12mm 12mm; }
+  .part .ring { position: absolute; right: -60mm; bottom: -60mm; width: 180mm; height: 180mm; border-radius: 50%; border: 20mm solid rgba(255,138,61,.35); }
+  .part .pn { position: relative; font-family: "Songti SC", serif; font-size: 13pt; letter-spacing: .4em; color: #ffd2b8; }
+  .part h2 { position: relative; font-size: 52pt; margin: 6mm 0 4mm; letter-spacing: .08em; line-height: 1.15; }
+  .part .ps { position: relative; font-family: "Songti SC", serif; font-size: 16pt; margin-bottom: 14mm; color: #e2deff; }
+  .part ul { position: relative; list-style: none; padding: 0; margin: 0; font-size: 11.5pt; line-height: 2.2; }
+  .part ul li::before { content: "▸ "; color: var(--accent); }
+
+  /* ---------- 前言 & 目录 ---------- */
+  .front h1, .toc h1 { font-size: 24pt; color: var(--ink); margin: 4mm 0 6mm; padding-bottom: 3mm; border-bottom: 3px solid var(--main); }
+  .front p { font-size: 10.3pt; }
+  .toc ol { list-style: none; padding: 0; margin: 0; }
+  .toc li { display: flex; align-items: baseline; padding: 2.6pt 0; border-bottom: 1px dotted #c5d1da; font-size: 10.2pt; break-inside: avoid; }
+  .toc li.pt { border-bottom: 0; padding: 8pt 0 2pt; font-family: "Songti SC", serif; color: var(--main-dk); font-weight: 700; font-size: 11.5pt; letter-spacing: .08em; break-after: avoid; }
+  .toc li.pt small { font-family: "PingFang SC", sans-serif; font-weight: 400; color: var(--muted); font-size: 8.8pt; margin-left: 8pt; letter-spacing: 0; }
+  .toc li .n { width: 17mm; color: var(--main); font-weight: 700; font-family: "Songti SC", serif; flex: none; }
+  .toc li .t { flex: 1; }
+  .toc li .t small { color: var(--muted); font-size: 8.6pt; margin-left: 6pt; }
+  .toc li .p { color: var(--muted); font-size: 9.5pt; }
+
+  /* ---------- 章 ---------- */
+  .chapter { page-break-before: always; }
+  .chap-head { margin: 0 0 7mm; padding: 8mm 9mm 7mm; background: var(--ink); color: #fff; border-radius: 4px; position: relative; overflow: hidden; }
+  .chap-head::after { content: ""; position: absolute; right: -14mm; top: -14mm; width: 52mm; height: 52mm; border-radius: 50%; border: 7mm solid rgba(255,138,61,.45); }
+  .chap-head .num { font: 600 9pt "SF Mono", Menlo, monospace; color: #c9c2ff; letter-spacing: .25em; }
+  .chap-head .num b { color: var(--accent); font-family: "Songti SC", serif; letter-spacing: .1em; margin-left: 6pt; font-size: 10pt; }
+  .chap-head h2 { margin: 2mm 0 2mm; font-size: 23pt; line-height: 1.3; position: relative; z-index: 1; }
+  .chap-head .lead { font-size: 9.6pt; color: #d6d2f5; margin: 0; position: relative; z-index: 1; max-width: 150mm; }
+  .learn { display: grid; grid-template-columns: 1fr 1fr; gap: 2pt 8mm; margin: -2mm 0 6mm; padding: 6pt 10pt; background: var(--soft); border-radius: 4px; font-size: 9.2pt; break-inside: avoid; }
+  .learn .h { grid-column: 1 / -1; font-weight: 700; color: var(--main-dk); font-family: "Songti SC", serif; font-size: 10.5pt; }
+  .learn div:not(.h)::before { content: "✓ "; color: var(--ok); font-weight: 700; }
+
+  h3 { font-size: 14pt; color: var(--ink); margin: 14pt 0 6pt; line-height: 1.4; break-after: avoid; }
+  h3.sec { border-left: 4px solid var(--main); padding-left: 8pt; }
+  h3.case { border-bottom: 2px solid var(--line); padding-bottom: 3pt; }
+  h3.case .no { display: inline-block; font: 700 9.5pt "PingFang SC", sans-serif; color: #fff; background: var(--main); border-radius: 3px; padding: 1pt 7pt; margin-right: 6pt; vertical-align: 2pt; }
+  h3.case .lv { float: right; font: 400 8.5pt "PingFang SC", sans-serif; color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 0 7pt; margin-top: 5pt; }
+  h4 { font-size: 11.3pt; color: var(--main-dk); margin: 10pt 0 4pt; break-after: avoid; }
+  h4::before { content: "■ "; color: var(--accent); font-size: 8pt; vertical-align: 2pt; }
+  ul, ol { margin: 2pt 0 6pt; padding-left: 16pt; }
+  li { margin-bottom: 2pt; }
+  ol.steps { counter-reset: st; list-style: none; padding-left: 0; }
+  ol.steps > li { counter-increment: st; position: relative; padding-left: 20pt; margin-bottom: 3pt; }
+  ol.steps > li::before { content: counter(st); position: absolute; left: 0; top: 1pt; width: 14pt; height: 14pt; border-radius: 50%; background: var(--main); color: #fff; font-size: 8pt; text-align: center; line-height: 14pt; font-weight: 700; }
+
+  /* 代码 */
+  .codebox { overflow: hidden; margin: 5pt 0 8pt; border: 1px solid #dfe5ea; border-left: 3px solid var(--main); border-radius: 3px; background: var(--code-bg); }
+  .code-cap { font: 600 7.8pt "SF Mono", Menlo, monospace; color: var(--main-dk); background: #ebe9f8; padding: 2pt 8pt; border-bottom: 1px solid #dfe5ea; break-after: avoid; }
+  pre.code { margin: 0; padding: 5pt 8pt; font: 7.9pt/1.5 "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-all; color: #24292f; text-align: left; tab-size: 4; }
+  pre.code .c, pre.code .c1, pre.code .cm, pre.code .cs { color: #6a737d; font-style: italic; }
+  pre.code .cp, pre.code .cpf { color: #9a6700; }
+  pre.code .k, pre.code .kd, pre.code .kn, pre.code .kr, pre.code .kc { color: #cf222e; }
+  pre.code .kt { color: #0550ae; font-weight: 600; }
+  pre.code .nf, pre.code .fm { color: #8250df; }
+  pre.code .nb, pre.code .bp { color: #0a7f87; }
+  pre.code .s, pre.code .s1, pre.code .s2, pre.code .sc { color: #0a3069; }
+  pre.code .m, pre.code .mf, pre.code .mi, pre.code .mh { color: #0550ae; }
+  pre.code .nc, pre.code .nn { color: #953800; }
+  pre.code .o { color: #24292f; }
+
+  /* 图 */
+  section.chapter, .front, .toc { max-width: 100%; overflow-wrap: anywhere; }
+  figure { margin: 8pt 0 10pt; text-align: center; break-inside: avoid; }
+  figure img { max-width: 100%; border-radius: 3px; display: block; margin: 0 auto; }
+  figure.shot img { box-shadow: 0 0 0 1px #dfe5ea; }
+  figure svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  figcaption { font-size: 8.6pt; color: var(--muted); margin-top: 4pt; text-align: center; line-height: 1.5; }
+  figcaption b { color: var(--main-dk); margin-right: 4pt; }
+  .panels { display: flex; justify-content: space-around; font-size: 8.4pt; color: var(--muted); margin-top: 2pt; }
+
+  /* 提示框 */
+  .note { margin: 6pt 0 8pt; padding: 5pt 10pt; background: #f5f4fd; border-left: 3px solid var(--main); font-size: 9.3pt; border-radius: 2px; break-inside: avoid; }
+  .note > b:first-child { color: var(--main-dk); margin-right: 4pt; }
+  .note.tip { background: #f1f8f4; border-left-color: var(--ok); } .note.tip > b:first-child { color: var(--ok); }
+  .note.warn { background: #fcf2ef; border-left-color: var(--warn); } .note.warn > b:first-child { color: var(--warn); }
+  .note.deep { background: #fbf6ee; border-left-color: var(--accent); } .note.deep > b:first-child { color: #b5531f; }
+  .box { background: var(--soft); border: 1px solid var(--line); border-top: 4px solid var(--main); padding: 7pt 12pt 5pt; margin: 9pt 0; border-radius: 3px; break-inside: avoid; }
+  .box h4 { margin: 0 0 4pt; } .box h4::before { content: "▍"; color: var(--main); }
+  .box.accent { border-top-color: var(--accent); background: #fdf7f2; }
+  .formula { overflow: hidden; text-align: center; margin: 6pt 0 8pt; padding: 6pt 8pt; background: #fafbfc; border: 1px dashed #d2dce4; border-radius: 4px; font-size: 11pt; break-inside: avoid; }
+  math { font-size: 1.08em; }
+  math[display="block"] { margin: 4pt 0; }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; margin: 5pt 0 8pt; font-size: 8.9pt; line-height: 1.5; text-align: left; }
+  tr { break-inside: avoid; }
+  th { background: var(--ink); color: #fff; padding: 3.5pt 6pt; font-weight: 600; }
+  td { padding: 3.5pt 6pt; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:nth-child(even) td { background: #f7fafb; }
+  td code, th code { font-size: 8pt; }
+  td.k { color: var(--main-dk); font-weight: 600; white-space: nowrap; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6mm; }
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 0 5mm; margin: 6pt 0; }
+  .cmp > div { border-radius: 4px; padding: 6pt 9pt; font-size: 9.2pt; break-inside: avoid; }
+  .cmp .good { background: #f1f8f4; border: 1px solid #b9dcc8; } .cmp .bad { background: #fcf2ef; border: 1px solid #ecc5bb; }
+  .cmp h5 { margin: 0 0 3pt; font-size: 10pt; }
+  .summary { margin: 12pt 0 4pt; padding: 7pt 11pt; border: 1.5px solid var(--main); border-radius: 4px; break-inside: avoid; font-size: 9.4pt; }
+  .summary h4 { margin: 0 0 3pt; } .summary ul { margin: 0; }
+  .exercise { margin: 8pt 0; padding: 6pt 11pt; background: #fdf7f2; border-radius: 4px; font-size: 9.3pt; break-inside: avoid; }
+  .exercise h4 { margin: 0 0 3pt; color: #b5531f; } .exercise h4::before { color: #b5531f; }
+
+  .colophon { padding-top: 70mm; font-size: 9.6pt; color: #444; }
+  .colophon .t { font-family: "Songti SC", serif; font-size: 16pt; color: var(--ink); margin-bottom: 4pt; }
+  .colophon hr { border: 0; border-top: 1px solid var(--line); margin: 8mm 0; }
+
+  /* ---------- UGUI 书新增 ---------- */
+  .scene { display: flex; align-items: center; gap: 6pt; margin: 4pt 0 8pt; padding: 3pt 9pt; background: #f1f0fb; border: 1px solid #dcd8f5; border-radius: 4px; font-size: 8.8pt; color: var(--main-dk); break-inside: avoid; }
+  .scene::before { content: "▶ 配套场景"; font-weight: 700; color: #fff; background: var(--main); border-radius: 3px; padding: 0 6pt; font-size: 8pt; flex: none; }
+  .scene code { background: transparent; border: 0; color: var(--main-dk); }
+  .tree { font: 8.4pt/1.62 "SF Mono", Menlo, "PingFang SC", monospace; background: #2b2b2e; color: #d4d4d4; border-radius: 4px; padding: 6pt 10pt; margin: 6pt auto 4pt; max-width: 120mm; text-align: left; break-inside: avoid; }
+  .tree .tt { font: 600 7.6pt "PingFang SC", sans-serif; color: #9a9aa3; border-bottom: 1px solid #444; margin: -2pt -4pt 4pt; padding: 0 4pt 3pt; letter-spacing: .1em; }
+  .tree .r { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tree .r i { font-style: normal; color: #6f6f78; }
+  .tree .r .ic { display: inline-block; width: 9pt; height: 9pt; border-radius: 2px; background: #8fb3ff; margin-right: 4pt; vertical-align: -1pt; }
+  .tree .r.off { color: #7b7b82; } .tree .r.off .ic { background: #5d6a80; }
+  .tree .r small { color: #c9a26b; margin-left: 6pt; font-size: 7.4pt; }
+  figure .tree { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 1pt 10pt; font-size: 9pt; margin: 4pt 0 8pt; }
+  .kv > :nth-child(odd) { color: var(--main-dk); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!--FRONT-->
+<section class="cover">
+  <div class="grid"></div>
+  <div class="hero" style="background-image:url('img/cover-hero.jpg')"></div>
+  <div class="inner">
+    <div class="edition">UNITY 2022.3 LTS · UGUI · TEXTMESH PRO</div>
+    <h1>UGUI<br><em>从入门</em>到精通</h1>
+    <div class="sub">Unity 界面开发实战全解</div>
+    <div class="tag">从第一个按钮讲起：Canvas、RectTransform、全部控件、自动布局、事件系统、源码原理、自定义 Graphic 与 Shader、UI 框架、实战界面、性能优化与调试技巧。每个案例都有可运行的配套场景和源代码。</div>
+    <div class="chips"><span>零基础起步</span><span>控件全覆盖</span><span>源码原理</span><span>性能优化</span><span>配套工程</span></div>
+  </div>
+  <div class="author">麦冬 著</div>
+  <div class="year">2026 年版</div>
+</section>
+
+<!--FRONTMATTER-->
+
+<section class="page toc">
+  <h1>目录</h1>
+  <!--TOC-->
+</section>
+<!--/FRONT-->

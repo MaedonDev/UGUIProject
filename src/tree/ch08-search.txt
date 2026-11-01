@@ -1,0 +1,19 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|SearchPanel|SearchFilter
+2|Shadow|Image
+2|Bg|Image
+2|SearchBox|Image
+3|Icon_search|Image
+3|InputField|Image,TMP_InputField
+4|Text Area|RectMask2D
+5|Placeholder|TextMeshProUGUI,LayoutElement
+5|Text|TextMeshProUGUI
+3|IconButton_close|Image,Button
+4|Icon_close|Image
+2|Count|TextMeshProUGUI
+2|List|GridLayoutGroup
+2|!ItemTemplate|Image
+3|Icon|Image
+3|Label|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,25 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Skill_item_sword|Image,Button,SkillCooldown
+2|Ring|Image
+2|Icon|Image
+2|CooldownMask|Image
+2|ReadyFlash|Image
+2|Countdown|TextMeshProUGUI
+1|Skill_item_shield|Image,Button,SkillCooldown
+2|Ring|Image
+2|Icon|Image
+2|CooldownMask|Image
+2|ReadyFlash|Image
+2|Countdown|TextMeshProUGUI
+1|Skill_item_potion_red|Image,Button,SkillCooldown
+2|Ring|Image
+2|Icon|Image
+2|CooldownMask|Image
+2|ReadyFlash|Image
+2|Countdown|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

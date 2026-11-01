@@ -1,0 +1,12 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Ripple_0|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Ripple_1|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Ripple_2|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Flag|Image
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

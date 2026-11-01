@@ -1,0 +1,20 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Legend|HorizontalLayoutGroup
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+2|Swatch|Image
+3|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

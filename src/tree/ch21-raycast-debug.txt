@@ -1,0 +1,26 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ShopCard|
+2|Shadow|Image
+2|Bg|Image
+2|Title|TextMeshProUGUI
+2|Items|HorizontalLayoutGroup
+3|Slot_item_gem|Image
+4|Icon_item_gem|Image
+3|Slot_item_coin|Image
+4|Icon_item_coin|Image
+3|Slot_item_potion_blue|Image
+4|Icon_item_potion_blue|Image
+3|Slot_item_scroll|Image
+4|Icon_item_scroll|Image
+2|Price|TextMeshProUGUI
+2|BuyButton|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+3|Icon_bag|Image
+2|TipsOverlay|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|RaycastDebugger (Overlay)|Canvas,CanvasScaler,RaycastDebugger
+1|Panel|Image
+2|Text|TextMeshProUGUI
+1|Highlight|Image

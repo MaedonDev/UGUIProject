@@ -1,0 +1,22 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Potion_0|Image,UIParamEffect
+1|Gem_0|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Potion_1|Image,UIParamEffect
+1|Gem_1|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Potion_2|Image,UIParamEffect
+1|Gem_2|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Potion_3|Image,UIParamEffect
+1|Gem_3|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Potion_4|Image,UIParamEffect
+1|Gem_4|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Potion_5|Image,UIParamEffect
+1|Gem_5|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

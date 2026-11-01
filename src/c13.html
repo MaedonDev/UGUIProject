@@ -1,0 +1,350 @@
+<section class="chapter" id="c13" data-title="自定义 Graphic 与网格效果" data-sub="OnPopulateMesh、VertexHelper 与 BaseMeshEffect">
+<div class="chap-head"><div class="num">CHAPTER 13<b>第 13 章</b></div><h2>自定义 Graphic 与网格效果</h2><p class="lead">Image、Text、RawImage 看起来千差万别，在 UGUI 眼里却是同一回事：每个 Graphic 交出一份由顶点和三角形组成的网格，再配一个材质和一张贴图。只要学会自己“交网格”，圆角矩形、圆环进度、雷达图、折线图、节点连线这些控件都不再需要美术切图；学会在别人的网格上动手脚，渐变、倾斜、镜像、逐字动画也都是几十行代码的事。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>Graphic 的网格从生成到提交的完整流程（DoMeshGeneration 源码）</div><div>UIVertex 各字段、VertexHelper 的 API、三角形索引与 UV 的含义</div><div>用 OnPopulateMesh 写出圆角矩形、圆环、雷达图、折线图、贝塞尔连线五个可直接用的组件</div><div>用“羽化顶点”给网格边缘做抗锯齿，并用低分辨率实拍放大看清效果</div><div>BaseMeshEffect：顶点渐变、倾斜、镜像；Shadow / Outline 为什么贵（实测顶点数与耗时）</div><div>TextMeshPro 的逐字顶点动画；自定义 Graphic 的遮罩兼容与精确射线命中</div></div>
+
+<h3 class="sec">13.1 Graphic 的网格从哪里来</h3>
+<p>第 12 章讲过，一个 Graphic 被标记为“顶点脏”（<code>SetVerticesDirty</code>）之后，会被登记到 <code>CanvasUpdateRegistry</code> 的图形重建队列；在这一帧 Canvas 渲染之前，队列里的每个元素都会收到 <code>Rebuild(CanvasUpdate.PreRender)</code>，进而调用 <code>UpdateGeometry()</code>。本章关心的就是 <code>UpdateGeometry</code> 里面发生了什么。打开 <code>Graphic.cs</code>，核心只有十几行：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Graphic.cs
+private void DoMeshGeneration()
+{
+    if (rectTransform != null &amp;&amp; rectTransform.rect.width &gt;= 0 &amp;&amp; rectTransform.rect.height &gt;= 0)
+        OnPopulateMesh(s_VertexHelper);
+    else
+        s_VertexHelper.Clear(); // clear the vertex helper so invalid graphics dont draw.
+
+    var components = ListPool&lt;Component&gt;.Get();
+    GetComponents(typeof(IMeshModifier), components);
+
+    for (var i = 0; i &lt; components.Count; i++)
+        ((IMeshModifier)components[i]).ModifyMesh(s_VertexHelper);
+
+    ListPool&lt;Component&gt;.Release(components);
+
+    s_VertexHelper.FillMesh(workerMesh);
+    canvasRenderer.SetMesh(workerMesh);
+}
+</pre>
+<p>这段代码把网格的一生分成了四步，后面整章都围绕这四步展开：</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC">
+<defs><marker id="a13" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+<rect x="10" y="20" width="120" height="70" rx="10" fill="#5b4bd6"/><text x="70" y="50" fill="#fff" font-size="12" text-anchor="middle">① OnPopulateMesh</text><text x="70" y="72" fill="#fff" font-size="12" text-anchor="middle">子类往 vh 里</text><text x="70" y="86" fill="#fff" font-size="12" text-anchor="middle">“写”网格</text>
+<rect x="160" y="20" width="130" height="70" rx="10" fill="#ff8a3d"/><text x="225" y="50" fill="#fff" font-size="14" text-anchor="middle">② IMeshModifier</text><text x="225" y="72" fill="#fff" font-size="12" text-anchor="middle">效果组件</text><text x="225" y="86" fill="#fff" font-size="12" text-anchor="middle">依次“改”网格</text>
+<rect x="320" y="20" width="120" height="70" rx="10" fill="#1f2436"/><text x="380" y="50" fill="#fff" font-size="14" text-anchor="middle">③ FillMesh</text><text x="380" y="72" fill="#fff" font-size="12" text-anchor="middle">列表 → 共享的</text><text x="380" y="86" fill="#fff" font-size="12" text-anchor="middle">workerMesh</text>
+<rect x="470" y="20" width="120" height="70" rx="10" fill="#2fb36a"/><text x="530" y="50" fill="#fff" font-size="14" text-anchor="middle">④ SetMesh</text><text x="530" y="72" fill="#fff" font-size="12" text-anchor="middle">拷贝网格</text><text x="530" y="86" fill="#fff" font-size="12" text-anchor="middle">交给原生层</text>
+<line x1="130" y1="55" x2="158" y2="55" stroke="#7a8299" stroke-width="2" marker-end="url(#a13)"/><line x1="290" y1="55" x2="318" y2="55" stroke="#7a8299" stroke-width="2" marker-end="url(#a13)"/><line x1="440" y1="55" x2="468" y2="55" stroke="#7a8299" stroke-width="2" marker-end="url(#a13)"/>
+<rect x="10" y="120" width="580" height="96" rx="10" fill="#f6f5fc" stroke="#e0deef"/>
+<text x="26" y="146" font-size="13" fill="#1f2436">• s_VertexHelper、workerMesh 是 <tspan fill="#5b4bd6">static</tspan>：所有 Graphic 共用，用完即被拷走</text>
+<text x="26" y="170" font-size="13" fill="#1f2436">• 所以 OnPopulateMesh 开头必须 vh.Clear()，也不要缓存 vh</text>
+<text x="26" y="194" font-size="13" fill="#1f2436">• 自定义 Graphic 重写 ①，BaseMeshEffect 实现 ②，③④ 由 Graphic 完成</text>
+</svg><figcaption><b>图 13-1</b> Graphic 生成并提交网格的四个步骤</figcaption></figure>
+<p>默认的 <code>OnPopulateMesh</code> 画的是一个铺满 RectTransform 的四边形，Image 在没有 Sprite 时走的就是它：</p>
+<pre class="code" data-lang="csharp">// 摘自 Graphic.cs：默认实现，一个四边形
+protected virtual void OnPopulateMesh(VertexHelper vh)
+{
+    var r = GetPixelAdjustedRect();
+    var v = new Vector4(r.x, r.y, r.x + r.width, r.y + r.height);
+
+    Color32 color32 = color;
+    vh.Clear();
+    vh.AddVert(new Vector3(v.x, v.y), color32, new Vector2(0f, 0f));
+    vh.AddVert(new Vector3(v.x, v.w), color32, new Vector2(0f, 1f));
+    vh.AddVert(new Vector3(v.z, v.w), color32, new Vector2(1f, 1f));
+    vh.AddVert(new Vector3(v.z, v.y), color32, new Vector2(1f, 0f));
+
+    vh.AddTriangle(0, 1, 2);
+    vh.AddTriangle(2, 3, 0);
+}
+</pre>
+<p>这几行已经包含了写自定义 Graphic 需要的全部概念：顶点位置在哪个坐标系、颜色和 UV 是什么、三角形怎么用索引拼起来。下一节逐个拆开。</p>
+
+<h3 class="sec">13.2 UIVertex、VertexHelper 与三角形索引</h3>
+<h4>顶点里有什么</h4>
+<p>UGUI 的一个顶点用 <code>UIVertex</code> 结构表示。<code>VertexHelper</code> 内部并不存 <code>UIVertex</code> 数组，而是按字段拆成九个列表（位置、颜色、uv0~uv3、法线、切线、索引），这样 <code>FillMesh</code> 时可以直接 <code>mesh.SetVertices(list)</code>，少一次拷贝。各字段的用途如下：</p>
+<div class="kv">
+<span>position</span><span>顶点位置，<b>以本物体 RectTransform 的轴心为原点</b>的本地坐标，单位与 RectTransform 相同。<code>GetPixelAdjustedRect()</code> 返回的矩形就在这个坐标系里：轴心在中心时，矩形的 x、y 是负的半宽半高。</span>
+<span>color</span><span>顶点色（<code>Color32</code>）。UI/Default Shader 会把它乘到贴图颜色上，GPU 在三角形内部对它做插值——渐变“免费”的原因就在这里。</span>
+<span>uv0</span><span>贴图坐标，(0,0) 是贴图左下角、(1,1) 是右上角。Sprite 打进图集后，uv 只占图集的一小块，要用 <code>DataUtility.GetOuterUV(sprite)</code> 取它的实际范围。</span>
+<span>uv1 ~ uv3</span><span>额外的数据通道。默认 Canvas 不会把它们送进 Shader，要在 Canvas 的 <code>Additional Shader Channels</code> 里勾选。第 14 章会用 uv1 给每个元素传自己的参数。</span>
+<span>normal / tangent</span><span>法线和切线，只有受光照的 UI Shader 会用；普通 UI 保持默认值即可。</span>
+</div>
+<p><code>VertexHelper</code> 常用的 API 一共就这几个：</p>
+<div class="kv">
+<span>AddVert(pos, color, uv0)</span><span>追加一个顶点。顶点的<b>索引</b>就是它加入时的序号（第一个是 0）。</span>
+<span>AddTriangle(i0, i1, i2)</span><span>用三个索引组成一个三角形。共用顶点的相邻三角形只需引用同一个索引，顶点不用重复加。</span>
+<span>currentVertCount / currentIndexCount</span><span>当前顶点数和索引数（三角形数 = 索引数 ÷ 3）。往里追加一批顶点前先记下 <code>currentVertCount</code>，就知道这批顶点从几号开始。</span>
+<span>PopulateUIVertex / SetUIVertex</span><span>按索引读出、写回一个顶点。修改别人网格的效果组件主要靠它俩。</span>
+<span>GetUIVertexStream / AddUIVertexTriangleStream</span><span>把网格展开成“三角形流”（每 3 个顶点一个三角形，不再共用顶点）以及反过来。Shadow、Outline 用的就是它，13.5 节会看到它的代价。</span>
+<span>Clear</span><span>清空。共享的 VertexHelper 里可能还留着上一个 Graphic 的数据，一定要先清。</span>
+</div>
+
+<h3 class="case"><span class="no">案例 13.1</span>最小的自定义 Graphic：三色三角形<span class="lv">入门</span></h3>
+<p><b>目标</b>：继承 <code>MaskableGraphic</code>，重写 <code>OnPopulateMesh</code>，画出一个每个顶点颜色不同的三角形，直观看到“顶点 + 索引 + 插值”。</p>
+<p>为什么继承 <code>MaskableGraphic</code> 而不是 <code>Graphic</code>？因为 Mask、RectMask2D 的支持都写在 MaskableGraphic 里（13.7 节详述），Image 和 Text 也都继承它。自己写的 UI 图形没有理由放弃这些能力。</p>
+<pre class="code" data-file="Ch13/HelloTriangle.cs" data-region="hello"></pre>
+<p>把它挂到 Canvas 下的一个空物体上（<span class="menu">Add Component › UGUIBook › Ch13 › Hello Triangle</span>），就能在 Scene 视图里看到三角形。几个要点：</p>
+<ul>
+<li><b>坐标</b>用 <code>GetPixelAdjustedRect()</code> 推出来，而不是写死数字。这样改 RectTransform 的尺寸、锚点、轴心，三角形都会跟着变；当 Canvas 开了 Pixel Perfect 时它还会把矩形对齐到像素。</li>
+<li><b>颜色</b>乘上了 <code>color</code>（Graphic 自带的 Color 字段）。这样 Inspector 里的 Color、Button 的 Color Tint 过渡、CanvasGroup 都能影响它——自定义 Graphic 最容易忘的就是这一步。</li>
+<li><b>三角形朝向</b>无所谓。UI/Default Shader 里写了 <code>Cull Off</code>，顺时针、逆时针都会画出来。但在同一个组件里最好保持一致，将来换成带背面剔除的 Shader 时不至于一半消失。</li>
+<li><b>RequireComponent</b>：本章所有自定义 Graphic 都和 Image、Text 一样标注了 <code>[RequireComponent(typeof(CanvasRenderer))]</code>。不加的话，Graphic 会在第一次访问 <code>canvasRenderer</code> 时临时 AddComponent 一个；作者在批处理里搭景时就遇到过：场景销毁时 CanvasRenderer 先于 Graphic 被销毁，Graphic 的 OnDisable 再去访问它，报出 <code>MissingComponentException</code>。</li>
+</ul>
+<figure class="shot"><img src="img/ch13-vertex-basics.jpg"><figcaption><b>图 13-2</b> 左：Graphic 默认网格的顶点编号、UV 与两个三角形；右：HelloTriangle，三个顶点三种颜色，内部由 GPU 插值。红色线框由本章的 WireframeView 组件实时画出</figcaption></figure>
+<div class="box"><h4>工具：线框视图 WireframeView 与 MeshProbe</h4><p>书里所有线框图都是配套工程里的 <code>WireframeView</code> 组件画的：它挂在目标的子物体上，调用 <code>MeshProbe.Build</code> 拿到目标“将要提交”的网格，再把每个三角形的三条边画成细线、每个顶点画成小圆点（alpha 为 0 的羽化顶点画成蓝色）。<code>MeshProbe</code> 复刻了 DoMeshGeneration 的前两步：</p>
+<pre class="code" data-file="Ch13/MeshProbe.cs" data-region="probe"></pre>
+<p><code>OnPopulateMesh</code> 是 protected 的，这里用反射调用——这种写法只适合调试和教学，正式功能代码不要依赖反射调用引擎的保护成员。反射调用虚方法时会走虚分派，所以 Image、Text 和我们自己的子类都能得到各自的网格。</p></div>
+
+<h3 class="sec">13.3 画网格的小工具箱</h3>
+<div class="box"><h4>对照：Image 的网格有多少顶点</h4><p>了解内置组件生成多少顶点，有助于估算自定义组件的开销。Image 的四种 Type 生成的网格各不相同：Simple 是 4 个顶点 2 个三角形；Sliced（九宫格）是 4×4 = 16 个顶点、最多 9 个四边形，勾掉 Fill Center 时中间那块不生成；Tiled 按平铺次数生成，每一块一个四边形，平铺很密时顶点数可以上千；Filled 的 Radial 360 模式会把矩形切成最多 4 个象限分别裁剪。对比之下，本章的圆角矩形在 4 段/角时约 41 个顶点，圆环一百多个，雷达图几百个——都在同一个数量级，不必因为“自己画网格”就担心性能，真正要在意的是重建频率。</p></div>
+<p>本节的工具函数都遵循同一个约定：<b>先记下起始索引，再加顶点，最后用“起始索引 + 偏移”连三角形</b>。这样它们可以在一个 OnPopulateMesh 里任意组合、多次调用，互不干扰。</p>
+<p>后面的组件会反复用到几种基本操作：加顶点并拿到索引、在两排顶点之间铺三角形带、从中心点铺扇形、画有粗细的折线。把它们收进一个静态类 <code>UIMeshUtil</code>，每个组件的 <code>OnPopulateMesh</code> 就能只关心“形状”，不关心“三角形怎么连”。</p>
+<pre class="code" data-file="Ch13/UIMeshUtil.cs" data-region="vert"></pre>
+<p><code>Quad</code> 的顶点顺序和三角形 (0,1,2)、(2,3,0) 与 Graphic 默认实现完全相同，这不是巧合：很多现成的效果组件（包括 Unity 自己的 <code>PositionAsUV1</code>）都默认“每 4 个顶点是一个四边形”，保持同样的约定能减少意外。</p>
+<pre class="code" data-file="Ch13/UIMeshUtil.cs" data-region="strip"></pre>
+<p>三角形带（Strip）是本章出场最多的结构：两排数量相同的顶点 A₀…Aₙ、B₀…Bₙ，相邻两对之间拆成两个三角形。圆环是“内圈一排、外圈一排”，描边是“外轮廓一排、内轮廓一排”，抗锯齿羽化是“实色一排、透明一排”，粗线是“左边一排、右边一排”——全是同一个函数。扇形（Fan）则用于凸多边形的实心填充：从中心点出发，依次连向轮廓上相邻的两个点。</p>
+
+<h3 class="case"><span class="no">案例 13.2</span>无图圆角矩形 RoundedRect<span class="lv">进阶</span></h3>
+<p><b>目标</b>：一个不需要任何九宫格贴图的圆角矩形组件，圆角半径、每个角的分段数、描边宽度都能在 Inspector 里实时调；还可以给它一张 Sprite，把图片直接“裁”成圆角——圆角头像、圆角卡片封面不再需要 Mask。</p>
+<h4>思路</h4>
+<p>圆角矩形的外轮廓由四段 90° 圆弧组成，圆心分别在四个角向内缩进一个半径的位置。每段圆弧用 <code>segments</code> 段折线逼近，于是整个轮廓是 4 × (segments + 1) 个点组成的<b>凸多边形</b>。凸多边形的实心填充最简单：在中心加一个顶点，用扇形连到轮廓上每一对相邻点。描边模式则再生成一圈内轮廓，两圈之间铺三角形带。</p>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC">
+<rect x="40" y="30" width="250" height="180" rx="50" fill="#e0deef"/>
+<circle cx="90" cy="80" r="4" fill="#5b4bd6"/><circle cx="240" cy="80" r="4" fill="#5b4bd6"/><circle cx="90" cy="160" r="4" fill="#5b4bd6"/><circle cx="240" cy="160" r="4" fill="#5b4bd6"/>
+<path d="M240,80 L290,80 M240,80 L275.4,44.6 M240,80 L240,30" stroke="#5b4bd6" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="248" y="98" font-size="12" fill="#5b4bd6">圆心</text>
+<text x="300" y="60" font-size="12" fill="#1f2436">每个角 segments+1 个点</text>
+<g stroke="#e5484d" stroke-width="1.2" fill="none"><line x1="165" y1="120" x2="290" y2="80"/><line x1="165" y1="120" x2="275.4" y2="44.6"/><line x1="165" y1="120" x2="240" y2="30"/><line x1="165" y1="120" x2="90" y2="30"/><line x1="165" y1="120" x2="40" y2="80"/><line x1="165" y1="120" x2="40" y2="160"/><line x1="165" y1="120" x2="90" y2="210"/><line x1="165" y1="120" x2="240" y2="210"/></g>
+<circle cx="165" cy="120" r="5" fill="#e5484d"/><text x="150" y="140" font-size="12" fill="#e5484d">中心点</text>
+<text x="70" y="235" font-size="13" fill="#1f2436">实心：中心点 + 轮廓 → 扇形</text>
+<rect x="350" y="90" width="210" height="130" rx="40" fill="none" stroke="#5b4bd6" stroke-width="10"/>
+<rect x="350" y="90" width="210" height="130" rx="40" fill="none" stroke="#ff8a3d" stroke-width="1" transform="translate(0,0)" stroke-dasharray="3 3"/>
+<text x="360" y="245" font-size="13" fill="#1f2436">描边：外轮廓 + 内轮廓 → 三角形带</text>
+</svg><figcaption><b>图 13-3</b> 圆角矩形网格的两种构造方式（示意）</figcaption></figure>
+<pre class="code" data-file="Ch13/RoundedRect.cs" data-region="fields"></pre>
+<p>字段都通过属性访问，属性的 setter 里调用 <code>SetVerticesDirty()</code>（换 Sprite 时调用 <code>SetAllDirty()</code>，因为贴图也变了）。这是写 Graphic 的固定套路：<b>改了影响形状的参数就标顶点脏，改了影响材质/贴图的参数就标材质脏</b>，剩下的交给 CanvasUpdateRegistry 在本帧末尾统一重建，同一帧里改十次参数也只重建一次。</p>
+<p><code>mainTexture</code> 重写成“有 Sprite 就用它的贴图，否则用 <code>s_WhiteTexture</code>”。<code>s_WhiteTexture</code> 是 Graphic 里的一张 1×1 白图（<code>Texture2D.whiteTexture</code>），所有没有贴图的 Graphic 共用它，因此同一材质下的无图元素可以合批。</p>
+<pre class="code" data-file="Ch13/RoundedRect.cs" data-region="populate"></pre>
+<p>代码分三段：先生成外轮廓和每个点的法线（法线就是从圆角圆心指向该点的方向，后面羽化要沿它外扩）；再按模式铺实心扇形或描边带；最后加一圈 alpha 为 0 的羽化顶点。UV 由顶点在矩形中的相对位置换算到 Sprite 的 outer UV 范围，所以 Sprite 即使在图集里也能正确显示。</p>
+<figure class="shot"><img src="img/ch13-roundrect-wire.jpg"><figcaption><b>图 13-4</b> 同一个圆角矩形在 segments = 1 / 3 / 10 时的网格与实测顶点数。顶点数 = 1（中心）+ 4×(segments+1)（轮廓）+ 4×(segments+1)（羽化圈），轮廓上的蓝点就是羽化顶点</figcaption></figure>
+<p>图 13-4 里，segments = 1 时每个角只有一段直线，圆角退化成了切角；到 3 段已经比较圆；10 段在任何尺寸下都看不出棱角，代价是顶点数从 17 涨到 89。一般的按钮、卡片（半径 20~40 像素）用 4~6 段足够；只有大圆角、胶囊形状才需要更多。也可以按半径自动算段数（比如每 6 像素弧长一段），这是一个很好的练习。</p>
+
+<h4>抗锯齿：多一圈透明顶点</h4>
+<p>九宫格贴图的圆角边缘是美术画的半透明像素，天然平滑；而网格的边缘是几何边，光栅化时一个像素要么被三角形覆盖、要么不被覆盖，于是出现锯齿。MSAA 能缓解，但移动端 UI 往往关着它。本章组件用一个常见的小技巧：<b>在轮廓外侧再加一圈顶点，位置向外偏移约 1 个像素，颜色相同但 alpha = 0</b>。实色轮廓和透明轮廓之间铺一条窄窄的三角形带，GPU 在带内对 alpha 插值，边缘就有了约 1 像素的过渡。为了不改变视觉尺寸，实色边缘向内缩半个羽化宽度、透明边缘向外扩半个，羽化带正好“骑”在理论边界上。</p>
+<p>这种效果在正常截图里很难看清，下面用一个“低分辨率实拍放大”的办法：让一台小相机把圆环渲染到 64×48 像素的 RenderTexture（关闭 MSAA），再用 RawImage 以点采样放大十几倍显示。每个色块就是真实的一个像素：</p>
+<figure class="shot"><img src="img/ch13-feather.jpg"><figcaption><b>图 13-5</b> 同一个 40×40 像素的圆环（关闭 MSAA）放大显示：左边 feather = 0，边缘是一级一级的台阶；右边 feather = 1，边缘像素是半透明的过渡色</figcaption></figure>
+<div class="note warn"><b>注意</b>本书配套工程的 Quality Settings 开着 2× MSAA，相机会自动对 RenderTexture 也做多重采样，第一次实拍时作者看到的左图同样带过渡色。把小相机的 <code>allowMSAA</code> 设为 false 后才拍到真正的锯齿。分析 UI 边缘质量时，务必确认当前是否开着 MSAA。</div>
+<p>羽化宽度是本地单位，而“1 个像素”对应多少本地单位取决于 Canvas 的缩放系数。CanvasScaler 把 1920×1080 的参考分辨率缩放到 1280×720 的屏幕时，1 个本地单位只有 0.67 像素；要做到精确的 1 像素羽化，可以用 <code>1f / canvas.scaleFactor</code> 作为羽化宽度。本章组件取默认值 1，在常见缩放范围内效果都不错。</p>
+<figure class="shot"><img src="img/ch13-roundrect-styles.jpg"><figcaption><b>图 13-6</b> RoundedRect 的几种用法：不同半径（999 会被限制在短边一半，变成胶囊）、不同描边宽度、给 Sprite 直接裁圆角</figcaption></figure>
+<div class="scene">Ch13/Scenes/Ch13_Playground.unity</div>
+<p>配套场景 Ch13_Playground 里可以拖动滑块实时改半径、段数，右侧文字会显示当前顶点数和三角形数，线框可以开关。</p>
+<div class="note tip"><b>提示</b>“Sprite + 圆角”只适合 uv 是完整矩形的图：Sprite 的 Mesh Type 为 Full Rect、没有被 Tight 打包裁掉透明边。头像、卡片封面通常满足；不规则形状的图标则不适合。另外它和圆角 Mask 相比，不需要模板缓冲，也不需要额外的 Draw Call，第 14 章会详细比较几种圆形头像方案。</div>
+
+<h3 class="case"><span class="no">案例 13.3</span>圆环 / 扇形进度 RingProgress<span class="lv">进阶</span></h3>
+<p><b>目标</b>：技能冷却、下载进度、体力恢复都需要“圆环进度”。Image 的 Filled + Radial 360 可以做，但需要一张圆环贴图，两端是硬切口，颜色也不能沿弧渐变。我们写一个组件：底槽和进度弧画在同一个网格里，两端可以是半圆头，颜色可沿弧渐变；厚度大于等于半径时自动变成实心扇形，几个首尾相接就是饼图。</p>
+<pre class="code" data-file="Ch13/RingProgress.cs" data-region="fields"></pre>
+<h4>思路</h4>
+<p>一段“环带”就是内外两条同心圆弧之间的三角形带。外弧上第 i 个点在角度 a₀ + (a₁ − a₀)·i/seg、半径 R 处，内弧对应点在同一角度、半径 r 处；顶点色按 i/seg 在起止颜色之间插值，就得到沿弧渐变。内半径为 0 时，内弧所有点都落在圆心，三角形带自然退化成扇形，不需要单独的代码分支。</p>
+<p>角度的方向要注意：UI 坐标系 y 轴朝上，数学上角度增大是逆时针，所以“顺时针”要让角度递减（代码里 <code>dir = -1</code>）。起点默认 90°，也就是 12 点钟方向。段数按 <code>fill</code> 的比例缩减，避免 10% 的进度也生成整圈那么多顶点。</p>
+<pre class="code" data-file="Ch13/RingProgress.cs" data-region="populate"></pre>
+<p>两处细节值得一说。第一，整圆（fill = 1）时最后一个点和第一个点位置重合，代码用的仍是“开放”的三角形带而不是首尾相连，因为渐变时首尾颜色不同，共用一个顶点会把颜色抹平。第二，圆头是一个半圆扇形，圆心落在环厚度的中线上、朝弧的切线方向鼓出去；它的颜色取端点颜色，所以渐变环两端的圆头颜色也是对的。</p>
+<figure class="shot"><img src="img/ch13-ring.jpg"><figcaption><b>图 13-7</b> RingProgress 的三种用法：底槽 + 圆头的进度环、沿弧渐变、厚度 ≥ 半径时的扇形（四个首尾相接组成饼图）</figcaption></figure>
+<p>做冷却效果时，通常每帧把 <code>fill</code> 设成剩余时间比例。这会让这个元素每帧重建一次网格——一个圆环一百多个顶点，代价很小；但如果屏幕上同时有几十个冷却圈每帧在转，更省的做法是把进度交给 Shader（第 14 章的“顶点参数”方法），网格不动、只改一个数。</p>
+
+<h3 class="case"><span class="no">案例 13.4</span>雷达图（属性图）RadarChart<span class="lv">进阶</span></h3>
+<p><b>目标</b>：角色属性、装备评分常用的雷达图：背景是同心多边形网格和辐条，数据区是一个半透明多边形，带描边和顶点圆点。维度数任意（≥ 3），全部画在一个网格里，一个 Draw Call。</p>
+<pre class="code" data-file="Ch13/RadarChart.cs" data-region="fields"></pre>
+<p>第 i 根轴的方向是从起始角（默认 90°，正上方）开始顺时针每次转 360°/n。数据点 = 圆心 + 方向 × 半径 × 数值。网格线用后面要讲的 <code>PolyLine</code> 画闭合折线，辐条用简单的 <code>Line</code>。</p>
+<pre class="code" data-file="Ch13/RadarChart.cs" data-region="populate"></pre>
+<p>数据多边形往往不是凸的（某个属性很低时会凹进去），但它对圆心是“星形”的：从圆心出发的每条射线只穿过边界一次。所以从圆心做扇形三角化依然正确，不需要通用的耳切法。顶点圆点先画一个略大的白点、再画一个小的彩色点，得到“带白边的圆点”，这也是组合简单图形的常用办法。</p>
+<figure class="shot"><img src="img/ch13-radar.jpg"><figcaption><b>图 13-8</b> 5、6、8 个维度的雷达图。标签是普通 TMP 文字，位置用 <code>AxisDir(i)</code> 算出来</figcaption></figure>
+<p>雷达图的数值变化常常要做动画（比如换装备时属性从旧值过渡到新值），每帧调用 <code>SetValues</code> 重建网格即可。第 15 章的补间系统可以直接驱动它：用 <code>Tw.Value</code> 从 0 到 1 插值，在回调里把每个维度设为新旧值的插值。</p>
+
+<h3 class="case"><span class="no">案例 13.5</span>折线图 LineChart 与粗线的拐角<span class="lv">进阶</span></h3>
+<p><b>目标</b>：战绩走势、充值曲线这类小图表：可选平滑曲线、面积渐变填充、数据点和水平网格线。核心难点是“画一条有粗细的折线”。</p>
+<h4>粗线怎么画</h4>
+<p>GPU 不认识“粗线”，只认识三角形。最朴素的办法是每一段画一个矩形，但相邻两段的矩形在拐角处会留下楔形缺口或互相重叠。标准做法是<b>斜接（Miter）</b>：每个折线点只生成左右两个顶点，偏移方向取前后两段法线的平分线，偏移长度是半宽除以 cos(半角)，这样两段的外边缘正好在拐角处相交。</p>
+<figure><svg viewBox="0 0 600 220" width="600" font-family="PingFang SC">
+<polyline points="60,170 260,70 460,170" fill="none" stroke="#e0deef" stroke-width="44" stroke-linejoin="miter"/>
+<polyline points="60,170 260,70 460,170" fill="none" stroke="#1f2436" stroke-width="2"/>
+<circle cx="260" cy="70" r="5" fill="#1f2436"/>
+<line x1="260" y1="70" x2="260" y2="21" stroke="#ff8a3d" stroke-width="2"/><circle cx="260" cy="21" r="5" fill="#ff8a3d"/>
+<line x1="260" y1="70" x2="260" y2="119" stroke="#ff8a3d" stroke-width="2"/><circle cx="260" cy="119" r="5" fill="#ff8a3d"/>
+<line x1="160" y1="120" x2="150" y2="100" stroke="#5b4bd6" stroke-width="2"/><text x="100" y="98" font-size="12" fill="#5b4bd6">法线 n₀</text>
+<line x1="360" y1="120" x2="370" y2="100" stroke="#5b4bd6" stroke-width="2"/><text x="376" y="98" font-size="12" fill="#5b4bd6">法线 n₁</text>
+<text x="270" y="18" font-size="12" fill="#ff8a3d">斜接方向 m = normalize(n₀+n₁)</text>
+<text x="270" y="136" font-size="12" fill="#ff8a3d">长度 = 半宽 / dot(m, n₁)</text>
+<text x="60" y="205" font-size="13" fill="#1f2436">每个点 2 个实色顶点 + 2 个羽化顶点；拐角越尖，斜接越长 → 用 miterLimit 截断</text>
+</svg><figcaption><b>图 13-9</b> 斜接拐角：橙色是拐角点生成的左右两个顶点（示意）</figcaption></figure>
+<pre class="code" data-file="Ch13/UIMeshUtil.cs" data-region="polyline"></pre>
+<p>拐角很尖时，cos(半角) 趋近于 0，斜接会变成一根很长的“飞刺”，所以长度系数用 <code>miterLimit</code>（默认 3 倍半宽）截断。每个点实际生成 4 个顶点：外羽化、左、右、外羽化，相邻点之间铺 3 条带共 6 个三角形，粗线也就自带了抗锯齿。</p>
+<h4>平滑与面积填充</h4>
+<pre class="code" data-file="Ch13/LineChart.cs" data-region="populate"></pre>
+<p>平滑用 Catmull-Rom 样条：它保证曲线<b>经过</b>每个数据点（贝塞尔曲线不经过控制点，不适合数据图表），每段的切线由前后两个数据点决定。首尾点没有“前一个/后一个”，就用自己补齐。面积填充是曲线上每一小段向下拉到底边的四边形，顶部顶点用 <code>fillTop</code>、底部用 <code>fillBottom</code>，中间靠顶点色插值得到竖直渐变——不需要任何渐变贴图。</p>
+<figure class="shot"><img src="img/ch13-linechart.jpg"><figcaption><b>图 13-10</b> 同一组数据：直线连接、Catmull-Rom 平滑、平滑 + 面积渐变 + 数据点</figcaption></figure>
+<div class="note"><b>说明</b>Catmull-Rom 曲线在数据剧烈起伏时会“冲过头”（局部最大值比数据点还高），图 13-10 中周六附近就略有体现。对需要严格不越界的财务类图表，可以改用单调三次插值（Monotone Cubic），这属于数值方法范畴，本书不展开。</div>
+
+<h3 class="case"><span class="no">案例 13.6</span>贝塞尔连线 BezierLink<span class="lv">进阶</span></h3>
+<p><b>目标</b>：节点编辑器、技能树、剧情流程图都需要“把两个节点用曲线连起来”，节点被拖动时连线跟着变。支持粗细、首尾渐变、虚线、末端箭头。</p>
+<pre class="code" data-file="Ch13/BezierLink.cs" data-region="fields"></pre>
+<p>连线的两个端点来自别的 RectTransform（节点上的“端口”小圆点）。端口在别的物体下面，它们移动时本组件收不到任何通知，所以在 <code>LateUpdate</code> 里比较一下端口的世界坐标，变了才标脏：</p>
+<pre class="code" data-file="Ch13/BezierLink.cs" data-region="track"></pre>
+<p>选 <code>LateUpdate</code> 是因为拖拽、布局等改位置的逻辑大多发生在 Update 和事件回调里，LateUpdate 时位置已经是这一帧的最终值；标脏后，网格在本帧 Canvas 渲染前重建，不会慢一帧。</p>
+<pre class="code" data-file="Ch13/BezierLink.cs" data-region="populate"></pre>
+<p>三次贝塞尔的四个控制点：P₀、P₃ 是两个端口中心（换算到本物体的本地坐标），P₁ 从 P₀ 水平向右伸出、P₂ 从 P₃ 水平向左伸出，伸出长度与水平距离成正比。这就是节点编辑器里常见的“S 形”连线：从输出口水平出发，水平进入输入口。虚线的做法是沿曲线弧长行走，在每个“实/虚”交界处精确切开，把实的部分收集成一小段折线逐段输出。作者最初按采样点判断实虚，结果长曲线的采样间距比虚线周期还长，大段虚线直接消失——精确切分才是可靠的写法。</p>
+<figure class="shot"><img src="img/ch13-bezier.jpg"><figcaption><b>图 13-11</b> 一个小节点图：渐变 + 箭头、虚线、不同粗细的连线。连线层放在节点前面（Hierarchy 中更靠上），所以被节点盖住</figcaption></figure>
+<div class="scene">Ch13/Scenes/Ch13_Bezier.unity</div>
+<p>运行场景，拖动任意节点（节点上挂着一个最简单的 <code>DragMove</code>，拖拽事件的细节见第 11 章），连线实时重建。所有连线放在一个 <code>Links</code> 节点下、并排在节点之前，这样连线总是在节点下面；每条连线都是一个独立的 Graphic，但它们材质相同、贴图都是白图，能合成一个批次。</p>
+
+<h3 class="sec">13.4 BaseMeshEffect：修改别人的网格</h3>
+<p>前面的组件都是“从零画”。另一类需求是“在已有的 Image、Text 上加点效果”：渐变、倾斜、镜像、描边。这就是 DoMeshGeneration 的第二步——<code>IMeshModifier</code>。UGUI 提供了一个基类 <code>BaseMeshEffect</code>，它帮你做了三件杂事：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/VertexModifiers/BaseMeshEffect.cs（节选）
+[ExecuteAlways]
+public abstract class BaseMeshEffect : UIBehaviour, IMeshModifier
+{
+    protected Graphic graphic { get { ... GetComponent&lt;Graphic&gt;() ... } }
+
+    protected override void OnEnable()  { base.OnEnable(); if (graphic != null) graphic.SetVerticesDirty(); }
+    protected override void OnDisable() { if (graphic != null) graphic.SetVerticesDirty(); base.OnDisable(); }
+    protected override void OnDidApplyAnimationProperties() { ... graphic.SetVerticesDirty(); ... }
+    public abstract void ModifyMesh(VertexHelper vh);
+}
+</pre>
+<p>启用、禁用、被 Animator 改了参数时，它都会让所在的 Graphic 重建网格；子类只需实现 <code>ModifyMesh(VertexHelper vh)</code>。同一物体上挂多个效果时，按组件在 Inspector 里的顺序依次调用，每个效果拿到的是上一个效果修改后的结果。</p>
+
+<h3 class="case"><span class="no">案例 13.7</span>顶点渐变、倾斜与镜像<span class="lv">入门</span></h3>
+<p><b>顶点渐变</b>是 BaseMeshEffect 最好的入门例子：顶点位置一个不动，只按顶点在包围盒中的相对位置改颜色。</p>
+<pre class="code" data-file="Ch13/VertexGradient.cs" data-region="gradient"></pre>
+<p>两遍循环：第一遍求所有顶点的包围盒，第二遍按相对位置插值颜色。默认与原顶点色相乘，所以 Graphic 的 Color 和 Button 的状态色依然有效。要注意<b>渐变只发生在顶点之间</b>：Simple 模式的 Image 只有 4 个顶点，竖直渐变没问题，但想要“中间亮、两头暗”的三段渐变就做不到——那需要更多顶点或交给 Shader。旧版 Text 每个字 4 个顶点、包围盒是整段文字，所以渐变跨越整个标题，而不是每个字各自渐变一遍。</p>
+<p><b>倾斜</b>就是一个剪切变换：x 加上 (y − 中心 y) × tan(角度)。顶点数不变，几乎零开销，平行四边形按钮、“假斜体”都能用它做。</p>
+<pre class="code" data-file="Ch13/SkewEffect.cs" data-region="skew"></pre>
+<p><b>镜像</b>解决的是一个实际的资源问题：对称的边框、徽章、标题底板，美术只需画左半边，右半边由网格镜像出来，贴图内存省一半。做法是取出三角形流，把原网格压到左半边，再复制一份关于中线翻转放到右半边：</p>
+<pre class="code" data-file="Ch13/MirrorEffect.cs" data-region="mirror"></pre>
+<p>镜像后的三角形绕向与原来相反，但前面说过 UI Shader 不做背面剔除，所以不影响显示。</p>
+<figure class="shot"><img src="img/ch13-effects.jpg"><figcaption><b>图 13-12</b> 顶点渐变（Image 与旧版 Text）、倾斜按钮、镜像，以及多个效果按组件顺序叠加</figcaption></figure>
+<div class="scene">Ch13/Scenes/Ch13_Effects.unity</div>
+<p>图中倾斜按钮里的文字是 TMP，它不受 SkewEffect 影响（原因见 13.6 节），所以给文字单独设置了斜体。右下角的组合效果是“渐变 → 倾斜 → Shadow”三个组件叠加：Shadow 复制的是已经渐变、倾斜过的网格，所以阴影也是倾斜的；如果把 Shadow 拖到最上面，阴影就会是正的矩形。效果组件的顺序有意义，调整顺序可以得到不同结果。</p>
+
+<h3 class="sec">13.5 Shadow 与 Outline 为什么贵</h3>
+<p>UGUI 自带的 <code>Shadow</code> 和 <code>Outline</code> 也是 BaseMeshEffect。读一下源码就知道它们是怎么“画出”阴影和描边的：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/VertexModifiers/Shadow.cs（节选）
+public override void ModifyMesh(VertexHelper vh)
+{
+    var output = ListPool&lt;UIVertex&gt;.Get();
+    vh.GetUIVertexStream(output);                 // 展开成三角形流
+    ApplyShadow(output, effectColor, 0, output.Count, effectDistance.x, effectDistance.y);
+    vh.Clear();
+    vh.AddUIVertexTriangleStream(output);
+    ListPool&lt;UIVertex&gt;.Release(output);
+}
+
+// 摘自 Outline.cs：同一份网格偏移四次
+ApplyShadowZeroAlloc(verts, effectColor, start, verts.Count,  effectDistance.x,  effectDistance.y);
+ApplyShadowZeroAlloc(verts, effectColor, start, verts.Count,  effectDistance.x, -effectDistance.y);
+ApplyShadowZeroAlloc(verts, effectColor, start, verts.Count, -effectDistance.x,  effectDistance.y);
+ApplyShadowZeroAlloc(verts, effectColor, start, verts.Count, -effectDistance.x, -effectDistance.y);
+</pre>
+<p>Shadow 把整份网格复制一份、偏移、改成阴影色；Outline 继承 Shadow，向四个对角方向各复制一份——描边其实是“四个错开的影子”。代价有两层：</p>
+<ol>
+<li><b>复制本身</b>：Shadow 让三角形数 ×2，Outline 让三角形数 ×5，Outline + Shadow 是 ×10。</li>
+<li><b>展开成三角形流</b>：<code>GetUIVertexStream</code> 把共享顶点的索引网格拆成“每三个顶点一个三角形”。一个字原本是 4 个顶点 2 个三角形，展开后变成 6 个顶点。所以 Outline 后每个字是 6 × 5 = 30 个顶点，是原来的 7.5 倍，而不是直觉上的 5 倍。</li>
+</ol>
+<p>用前面的 MeshProbe 实测验证一下。下图每列是同一个旧版 Text（两个字母），分别挂不同的效果：</p>
+<figure class="shot"><img src="img/ch13-outline-cost.jpg"><figcaption><b>图 13-13</b> 同一段文字挂不同效果后的网格与实测顶点数：8 → 24 → 60 → 120</figcaption></figure>
+<p>再用 <code>OutlineBench</code> 测时间：同一段 23 个可见字的旧版 Text，分别切换四种配置，用 <code>Stopwatch</code> 统计“标脏 + Rebuild(PreRender)”5000 次的平均耗时——这正是 CanvasUpdateRegistry 每帧对一个脏 Graphic 做的事：</p>
+<pre class="code" data-file="Ch13/OutlineBench.cs" data-region="bench"></pre>
+<table>
+<tr><th>配置（23 个可见字）</th><th>顶点数</th><th>三角形数</th><th>每次重建耗时</th></tr>
+<tr><td>无效果</td><td>92</td><td>46</td><td>16.0 µs</td></tr>
+<tr><td>Shadow</td><td>276</td><td>92</td><td>37.9 µs</td></tr>
+<tr><td>Outline</td><td>690</td><td>230</td><td>95.0 µs</td></tr>
+<tr><td>Outline + Shadow</td><td>1380</td><td>460</td><td>195.5 µs</td></tr>
+</table>
+<p>作者环境：Apple M 系列 Mac / Unity 2022.3.62f3 / 编辑器批处理模式，绝对值仅供参考，在手机上会慢数倍。值得看的是比例：Outline 让单个文本的重建耗时变成原来的约 6 倍，加上 Shadow 约 12 倍，而且<b>每次文字内容变化都要付一次</b>。一个每帧刷新的计时器、伤害飘字、聊天列表里的每一行，如果都挂 Outline，这笔开销会实实在在出现在 Profiler 的 Canvas.SendWillRenderCanvases 里。顶点多了还会增加 Canvas 合批和 GPU 的顶点处理量。</p>
+<div class="scene">Ch13/Scenes/Ch13_OutlineCost.unity</div>
+<div class="cmp"><div class="good"><h5>✓ 推荐</h5>用 TextMeshPro 的材质描边 / 阴影（Outline、Underlay）：SDF 字体在片元着色器里算描边，顶点数不变，见第 5 章。需要描边的旧版 Text 尽量是不常变的静态文字。</div><div class="bad"><h5>✗ 避免</h5>在频繁变化的旧版 Text 上叠 Outline + Shadow；用“8 方向 Outline”插件追求更粗的描边（顶点再翻倍）；给 Image 加 Outline 做边框（直接用带边框的精灵或本章的 RoundedRect 描边模式）。</div></div>
+
+<h3 class="sec">13.6 TextMeshPro 的网格：逐字顶点动画</h3>
+<p>把 VertexGradient 挂到 TextMeshProUGUI 上，会发现没有任何效果。原因是 TMP 虽然继承了 MaskableGraphic，却完全接管了网格生成：它在自己的 <code>GenerateTextMesh</code> 里排版，把结果写进 <code>textInfo.meshInfo[]</code>，再直接 <code>canvasRenderer.SetMesh</code>，从不经过 DoMeshGeneration，也就不会调用 IMeshModifier。要改 TMP 的网格，就要按 TMP 的方式来：</p>
+<ol>
+<li><code>textInfo.characterInfo[i]</code> 是第 i 个字符的信息：是否可见（空格不可见，没有顶点）、用的第几个材质（<code>materialReferenceIndex</code>，回退字体、表情图集会用到别的材质）、它的 4 个顶点从第几号开始（<code>vertexIndex</code>）。</li>
+<li><code>textInfo.meshInfo[m].vertices / colors32</code> 是第 m 个子网格的顶点数组，改它就是改网格。</li>
+<li>改完调用 <code>UpdateVertexData(flags)</code> 只上传顶点（和颜色），不重新排版——这是逐字动画便宜的关键。</li>
+</ol>
+<p>难点在于“原始顶点从哪来”：每帧都要从原始位置出发计算偏移，否则偏移会累加。TMP 每次重新生成网格时会在上传之前触发 <code>OnPreRenderText</code> 事件，这时 textInfo 里正好是干净的原始顶点：</p>
+<pre class="code" data-file="Ch13/TMPVertexAnim.cs" data-region="hook"></pre>
+<p>在这个回调里先把顶点和颜色各拷一份，然后立刻按当前时间把动画套上去。这样不论什么原因触发了重新排版（改文字、改字号、RectTransform 尺寸变化、语言切换），缓存都会自动更新，动画也不会闪回原样一帧。每帧的推进则只做“从缓存计算 → 写入 → 上传”：</p>
+<pre class="code" data-file="Ch13/TMPVertexAnim.cs" data-region="tick"></pre>
+<pre class="code" data-file="Ch13/TMPVertexAnim.cs" data-region="apply"></pre>
+<p>四种模式都只是对每个字的 4 个顶点做“绕字中心缩放 + 平移”和改颜色：波浪是按字序号错开相位的正弦；抖动用“字序号 + 时间片”做种子的哈希，同一时刻结果固定（截图和回放都可复现）；逐字弹出每个字用 1/speed 秒从 0 缩放到 1、带 OutBack 回弹；彩虹按字序号和时间换色相。</p>
+<figure class="shot"><img src="img/ch13-tmp-anim.jpg"><figcaption><b>图 13-14</b> 四种逐字动画在 t = 0.20 / 0.45 / 0.90 秒的状态。批处理拍图时不进入 Play 模式，这里调用的是 <code>Evaluate(t)</code></figcaption></figure>
+<div class="scene">Ch13/Scenes/Ch13_TMPAnim.unity</div>
+<div class="note tip"><b>提示</b><code>Evaluate(t)</code> 是本书反复使用的写法：把“时间 → 状态”做成可以直接调用的方法，运行时由 Update 推进时间，调试、截图、和其他动画同步时直接跳到任意时刻。第 15 章的补间系统会把这个思路贯彻到底。</div>
+<p>性能上，逐字动画每帧要遍历所有可见字符并上传整个顶点数组，几十个字毫无压力；但如果对一大段文本（比如几千字的公告）做持续动画，就应该只动需要动的那一行，或者干脆不做。TMP 的 <code>maxVisibleCharacters</code>（第 5 章打字机效果）只改可见字符数、不改顶点，比逐字弹出便宜得多，两者可以按需选择。</p>
+
+<h3 class="sec">13.7 让自定义 Graphic 支持遮罩与精确命中</h3>
+<h4>遮罩：继承 MaskableGraphic 就够了</h4>
+<p>本章所有组件都继承 MaskableGraphic，所以放到 Mask 或 RectMask2D 下面会被正确裁剪，一行额外代码都不用写。原因是两种遮罩都不关心网格的具体形状：Mask 通过 <code>IMaterialModifier</code> 把子元素的材质换成带模板测试的副本；RectMask2D 通过 <code>IClippable</code> 把裁剪矩形交给 CanvasRenderer，在 Shader 里逐像素裁掉矩形外的部分。这两条路都由 MaskableGraphic 完成，原理和源码在第 14 章详细展开。</p>
+<figure class="shot"><img src="img/ch13-maskable.jpg"><figcaption><b>图 13-15</b> 左：折线图和圆环放在带 softness 的 RectMask2D 里，右边缘柔和淡出；右：雷达图放在圆形 Mask 里</figcaption></figure>
+<p>只有一种情况需要自己处理：自定义了材质（比如重写 <code>materialForRendering</code> 或用了自己的 Shader）。这时 Shader 里必须保留 Stencil 属性和 <code>UNITY_UI_CLIP_RECT</code> 分支，否则遮罩失效——第 14 章会专门做一组对照实验。</p>
+<h4>精确命中：ICanvasRaycastFilter</h4>
+<p>GraphicRaycaster 判断一个 Graphic 是否被点中分两步：先用 RectTransform 的矩形粗筛（<code>RectangleContainsScreenPoint</code>），再调用 <code>Graphic.Raycast</code>。后者会沿着层级往上，对每个实现了 <code>ICanvasRaycastFilter</code> 的组件调用 <code>IsRaycastLocationValid</code>，任何一个返回 false 都算没点中：</p>
+<pre class="code" data-lang="csharp">// 摘自 Graphic.cs：Raycast 的核心循环（节选）
+var filter = components[i] as ICanvasRaycastFilter;
+if (filter == null) continue;
+...
+raycastValid = filter.IsRaycastLocationValid(sp, eventCamera);
+if (!raycastValid) { ListPool&lt;Component&gt;.Release(components); return false; }
+</pre>
+<p>Image 的 <code>alphaHitTestMinimumThreshold</code> 就是这样实现的（读贴图像素的 alpha）。我们的 Graphic 有精确的数学形状，判断起来更便宜：RingProgress 只认环带内的点（可选只认已填充的弧段），RadarChart 只认数据多边形内部的点（射线法判断点在多边形内）。</p>
+<pre class="code" data-file="Ch13/RingProgress.cs" data-region="raycast"></pre>
+
+<h3 class="case"><span class="no">案例 13.8</span>环形菜单<span class="lv">进阶</span></h3>
+<p><b>目标</b>：长按弹出的环形快捷菜单。6 个扇区各是一个 RingProgress（fill = 1/6，起始角依次相差 60°），扇区之间留一点缝隙。鼠标指向哪个扇区，哪个扇区高亮、圆心显示它的名字，点击触发对应功能。</p>
+<p>难点在命中：6 个扇区的 RectTransform 完全一样大、完全重叠，按矩形判断的话永远是层级最靠后的那个被点中。打开 RingProgress 的 <code>raycastFilledOnly</code> 后，<code>IsRaycastLocationValid</code> 只在点落在自己那 60° 的环带内时返回 true，射线就会穿过其他扇区，落到真正被指着的那一块上。</p>
+<pre class="code" data-file="Ch13/RadialSector.cs" data-region="sector"></pre>
+<figure class="shot"><img src="img/ch13-radial-menu.jpg"><figcaption><b>图 13-16</b> 环形菜单。红框是每个扇区的 RectTransform（6 个完全重叠），真正的命中区域由 IsRaycastLocationValid 按角度和半径裁定</figcaption></figure>
+<div class="scene">Ch13/Scenes/Ch13_RadialMenu.unity</div>
+<p>扇区上的图标在扇区之后创建（层级更靠下，画在上面），但图标的 Raycast Target 是关闭的，不会挡住射线；圆心的白色圆盘同样关闭了 Raycast Target。如果你发现某个扇区“点不到”，第一件事就是检查它上面有没有开着 Raycast Target 的元素（第 21 章有专门的排查工具）。</p>
+<div class="note tip"><b>扩展</b>手柄 / 摇杆操作的环形菜单不靠射线，而是把摇杆方向换算成角度，直接算出落在第几个扇区：<code>index = Mathf.FloorToInt(Mathf.Repeat(90 - angle + 30, 360) / 60)</code>。命中计算和绘制共用同一套角度约定，两种输入方式就不会对不上。</div>
+
+<h3 class="sec">13.8 自定义 Graphic 的常见问题</h3>
+<p>写自定义 Graphic 时，最常见的现象是“什么都没画出来”或者“画出来了但不对”。按下面的顺序排查，基本能覆盖九成的情况：</p>
+<ol>
+<li><b>RectTransform 尺寸为 0 或负数。</b>DoMeshGeneration 开头检查 <code>rect.width &gt;= 0 &amp;&amp; rect.height &gt;= 0</code>，负数时直接清空网格；而尺寸为 0 时 OnPopulateMesh 虽然会被调用，但用 rect 推导出的顶点全部挤在一个点上。用 Stretch 锚点的元素，父物体尺寸不对时很容易出现这种情况。</li>
+<li><b>忘了乘 color，或者 color 的 alpha 是 0。</b>自定义 Graphic 的默认 color 是白色不透明，但从别的组件复制参数、或者 CanvasGroup 的 alpha 为 0 时，网格存在却看不见。WireframeView 这类线框工具在这时很有用：线框在，说明网格没问题，问题出在颜色或材质。</li>
+<li><b>没有 vh.Clear()。</b>共享的 VertexHelper 里残留着上一个 Graphic 的顶点，你的三角形索引从 0 开始，指向的却是别人的顶点，结果画出一团莫名其妙的形状，而且会随着别的 UI 变化而变化。</li>
+<li><b>三角形索引越界或重复。</b>追加一批顶点前没有记下 <code>currentVertCount</code>，索引从 0 而不是从起始序号算起，三角形就会连到前面那批顶点上。PolyLine、Dot 这些工具函数都先取起始索引再加顶点，就是为了避免这类错误。</li>
+<li><b>网格画到了 RectTransform 外面。</b>网格完全可以超出自身矩形（13.6 的连线就是铺满父节点后在里面画），但要知道三件事：射线检测的粗筛用的是 RectTransform 矩形，矩形外的部分点不中；RectMask2D 判断“是否完全在裁剪区外”用的也是 RectTransform 的矩形，矩形在外、网格在内时整个元素会被剔除掉；CanvasRenderer 的 <code>cullTransparentMesh</code> 打开时，顶点色全透明的网格不会绘制。需要在矩形外画东西时，最稳妥的做法是把 RectTransform 设得足够大，在内部画。</li>
+<li><b>Inspector 改了参数没有刷新。</b>字段直接赋值而没有调用 SetVerticesDirty（比如在代码里用反射或者直接改了 public 字段），网格不会重建。所有影响形状的字段都应该走属性 setter，在 setter 里标脏。</li>
+<li><b>Scene 视图里看得见，Game 视图看不见。</b>多半与网格无关：检查 Canvas 的渲染模式、相机的 Culling Mask、元素所在层级是否被别的 UI 盖住（第 1 章的五个常见坑）。</li>
+</ol>
+<p>另外两个容易忽略的细节：其一，自定义 Graphic 默认 <code>raycastTarget = true</code>，纯装饰性的图表、连线应该关掉，否则会挡住下面的按钮，也会增加射线检测的开销（第 20 章）；其二，如果组件在 OnPopulateMesh 里读取了其他物体的信息（如 BezierLink 读端口位置），一定要考虑那些物体变化时如何通知自己重建，否则会出现“拖动节点，连线不动”的问题。</p>
+
+<h3 class="sec">13.9 性能与工程建议</h3>
+<p>自定义 Graphic 很强大，但它把“画图”的成本从美术的贴图转移到了 CPU 的网格生成上，用之前心里要有几笔账：</p>
+<ul>
+<li><b>重建频率比顶点数更重要。</b>一个 100 个顶点的圆环，静止时一次都不重建，几乎零成本；每帧改 fill 就是每帧一次 OnPopulateMesh + FillMesh + SetMesh。持续变化的参数优先考虑交给 Shader（第 14 章的顶点参数、材质属性），或者把动画放在 Transform 上（缩放、旋转不触发网格重建，只让 Canvas 重新合批）。</li>
+<li><b>OnPopulateMesh 里不要分配内存。</b>本章组件用静态或成员 <code>List</code> 复用轮廓点，避免每次重建产生垃圾。<code>new Vector2[]</code>、LINQ、字符串拼接都不该出现在这里。RadarChart 的 <code>m_Pts</code>、RoundedRect 的 <code>s_Outer</code> 都是这个目的。</li>
+<li><b>顶点上限。</b>FillMesh 在顶点数超过 65000 时直接抛异常；一个 Canvas 合批后的总量也有上限。图表类组件如果要显示上万个数据点，应该先降采样（比如每像素取最大最小值）再画。</li>
+<li><b>动静分离。</b>一个元素重建网格后，它所在的 Canvas 要重新合批。把频繁变化的自定义 Graphic 放到单独的子 Canvas 里，可以避免牵连整个界面重新合批（第 20 章详述）。</li>
+<li><b>合批。</b>本章组件默认都用 <code>s_WhiteTexture</code> 和默认材质，彼此之间、以及与其他无图 UI 之间可以合批。给 RoundedRect 设了 Sprite 后，它就按那张贴图参与合批；这些 Sprite 打进同一个图集，就又能合在一起。</li>
+<li><b>Inspector 实时预览。</b>Graphic 带 <code>[ExecuteAlways]</code>，在 Inspector 里改字段会触发 OnValidate → SetAllDirty，编辑器里即改即见。自定义字段如果绕过属性直接改（比如 SerializedObject），也会走 OnValidate，不必担心预览不刷新。</li>
+</ul>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>Graphic 的网格生成分四步：OnPopulateMesh 写网格 → IMeshModifier 改网格 → FillMesh → CanvasRenderer.SetMesh。VertexHelper 和 workerMesh 是全局共享的，OnPopulateMesh 开头必须 Clear。</li>
+<li>顶点位置以 RectTransform 轴心为原点，用 GetPixelAdjustedRect 推导；顶点色要乘上 Graphic.color；三角形由顶点索引组成，UI Shader 不剔除背面。</li>
+<li>三角形带和扇形是 UI 网格最常用的两种结构；圆角矩形、圆环、描边、粗线、羽化抗锯齿都是三角形带的变体。</li>
+<li>在轮廓外加一圈 alpha = 0 的顶点，可以在不开 MSAA 的情况下得到约 1 像素的平滑边缘。</li>
+<li>BaseMeshEffect 只需实现 ModifyMesh；多个效果按组件顺序叠加。Outline 把网格展开成三角形流再复制四份，顶点数 ×7.5，实测重建耗时约为无效果的 6 倍。</li>
+<li>TMP 不走 IMeshModifier，逐字动画要在 OnPreRenderText 里缓存原始顶点，每帧改 meshInfo 后用 UpdateVertexData 只上传顶点。</li>
+<li>继承 MaskableGraphic 即自动支持 Mask / RectMask2D；实现 ICanvasRaycastFilter 可以让射线只命中图形的真实形状。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>给 RoundedRect 增加“四个角分别设置半径”的功能（Vector4 cornerRadii），并让 segments 根据半径自动计算（每 6 像素弧长一段）。</li>
+<li>给 RingProgress 增加“刻度模式”：把圆环分成 N 格，每格之间留固定角度的缝隙，fill 按格点亮（类似手机电量格）。</li>
+<li>给 LineChart 增加“当前值游标”：一个竖直虚线 + 圆点，位置由 0~1 的参数决定，在曲线上插值取 y（提示：复用平滑后的 m_Curve）。</li>
+<li>写一个 <code>UVScroll : BaseMeshEffect</code>，给 Image 的 uv0 加一个偏移，配合 Repeat 模式的贴图做“流动的条纹”进度条；再思考：每帧改偏移会重建网格，有没有更便宜的做法？</li>
+<li>用 Profiler 的 UI 模块对比配套场景 Ch13_OutlineCost 中 OutlineBench 物体在挂 / 不挂 Outline 时 Canvas.SendWillRenderCanvases 的耗时（让文字每帧变化），与本章的表格做比较。</li>
+<li>给 TMPVertexAnim 增加一个“只动第 a 到第 b 个字”的范围参数，并配合 TMP 的 <code>&lt;link&gt;</code> 标签，让富文本中被标记的关键词单独跳动。</li>
+</ol></div>
+</section>

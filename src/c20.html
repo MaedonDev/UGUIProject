@@ -1,0 +1,358 @@
+<section class="chapter" id="c20" data-title="性能优化" data-sub="重建、合批、Overdraw、射线检测：每一条结论都实测过">
+<div class="chap-head"><div class="num">CHAPTER 20<b>第 20 章</b></div><h2>性能优化</h2><p class="lead">关于 UGUI 优化，网上流传着很多“规则”：动静分离、少用 Layout、用 RectMask2D 别用 Mask、隐藏界面用 CanvasGroup……有的对，有的只在某些条件下对，有的在新版本里已经不成立。这一章不复述规则，而是在配套工程里搭了一个“性能实验室”，把每一条都放到同一台机器、同一个 Unity 版本上测一遍，用数字说话，再从源码里找原因。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>UI 一帧的开销分成哪几块，Profiler、Frame Debugger、Overdraw 视图各看什么</div><div>一个可复现的性能实验室：ProfilerRecorder 读 Batches、Canvas.BuildBatch、GC 等指标</div><div>重建：动静分离、布局嵌套的真实代价，以及“谁在每帧标脏”的排查工具</div><div>隐藏界面的五种方法实测对比，和源码里的原因</div><div>合批：重叠、图集、材质、Z 值、Mask / RectMask2D 的实测批次</div><div>Overdraw 逐像素统计与热力图；射线检测、TMP、对象池、Animator、3D 相机的实测</div><div>移动端注意事项与一页优化清单</div></div>
+
+<h3 class="sec">20.1 先测再改：UI 一帧花在哪</h3>
+<p>优化的第一原则是<b>先测量、再动手</b>。UI 的开销分布在一帧里的好几个阶段，不同问题的“症状”出现在完全不同的地方。把一帧里与 UGUI 相关的工作画出来：</p>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="16" width="130" height="56" rx="8" fill="#fde9ea" stroke="#e5484d"/><text x="22" y="40" fill="#e5484d" font-weight="bold">④ 射线检测</text><text x="22" y="60" fill="#1f2436" font-size="12">EventSystem.Update</text>
+<rect x="160" y="16" width="200" height="56" rx="8" fill="#f1effc" stroke="#5b4bd6"/><text x="172" y="40" fill="#5b4bd6" font-weight="bold">① 重建（C#）</text><text x="172" y="60" fill="#1f2436" font-size="12">Layout → Graphic 网格重建</text>
+<rect x="380" y="16" width="210" height="56" rx="8" fill="#fff4ea" stroke="#ff8a3d"/><text x="392" y="40" fill="#ff8a3d" font-weight="bold">② 合批（原生 + 多线程）</text><text x="392" y="60" fill="#1f2436" font-size="12">Canvas.BuildBatch / *Job</text>
+<rect x="380" y="96" width="210" height="56" rx="8" fill="#eef8f2" stroke="#2fb36a"/><text x="392" y="120" fill="#2fb36a" font-weight="bold">③ 渲染（GPU）</text><text x="392" y="140" fill="#1f2436" font-size="12">Draw Call · 填充率 / Overdraw</text>
+<line x1="140" y1="44" x2="158" y2="44" stroke="#7a8299" stroke-width="2" marker-end="url(#a20)"/><line x1="360" y1="44" x2="378" y2="44" stroke="#7a8299" stroke-width="2" marker-end="url(#a20)"/><line x1="485" y1="72" x2="485" y2="94" stroke="#7a8299" stroke-width="2" marker-end="url(#a20)"/>
+<text x="10" y="186" fill="#1f2436" font-weight="bold">症状对照</text>
+<text x="10" y="208" fill="#1f2436" font-size="12">CPU 主线程高、Profiler 里 Layout / Canvas.SendWillRenderCanvases 大 → ①</text>
+<text x="10" y="226" fill="#1f2436" font-size="12">Canvas.BuildBatch 或 Canvas.*Job 大、Batches 多 → ②；GPU 时间高、画面越大越卡 → ③</text>
+<text x="10" y="244" fill="#1f2436" font-size="12">手指一碰屏幕就掉帧、EventSystem.Update 大 → ④</text>
+<defs><marker id="a20" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+</svg><figcaption><b>图 20-1</b> UGUI 一帧里的四类开销，以及它们各自在 Profiler 里的“症状”</figcaption></figure>
+<p>对应的工具：</p>
+<div class="kv"><span>Profiler · CPU</span><span><span class="menu">Window › Analysis › Profiler</span>。Hierarchy 视图里展开 <code>PostLateUpdate.PlayerUpdateCanvases</code>（重建）和渲染相关的条目，看 <code>Layout</code>、<code>Canvas.BuildBatch</code>、<code>Canvas.SendWillRenderCanvases</code> 的耗时与调用次数；打开 Deep Profile 可以细到每个 Graphic 的 Rebuild</span><span>Profiler · UI / UI Details</span><span>Profiler 里的 UI 模块：按画布列出 Batch 数、顶点数、哪些元素导致了批次中断（Batch Breaking Reason），对排查合批问题非常直接</span><span>Frame Debugger</span><span><span class="menu">Window › Analysis › Frame Debugger</span>。逐个查看本帧的每次绘制，UI 的绘制显示为 <code>Canvas.RenderSubBatch</code>（Camera / World 画布）或在 <code>UGUI.Rendering.RenderOverlays</code> 下（Overlay 画布）。能看到每一批用了哪张贴图、哪个材质</span><span>Overdraw 视图</span><span>Scene 视图左上角的绘制模式下拉框选 <code>Overdraw</code>：越亮表示同一像素被画的次数越多。本章还会给一个运行时版本，真机上也能看</span><span>Memory Profiler</span><span>Package Manager 安装 Memory Profiler 包，看图集、字体纹理、RenderTexture 占了多少内存</span></div>
+<figure><svg viewBox="0 0 600 200" width="600" font-family="PingFang SC" font-size="12">
+<rect x="10" y="10" width="580" height="180" rx="6" fill="#f5f6fa" stroke="#e0deef"/>
+<rect x="10" y="10" width="580" height="24" rx="6" fill="#e0deef"/><text x="20" y="27" fill="#1f2436">Frame Debugger（示意）</text>
+<rect x="20" y="44" width="230" height="136" fill="#fff" stroke="#e0deef"/>
+<text x="28" y="62" fill="#1f2436">▾ Camera.Render</text><text x="40" y="80" fill="#1f2436">▾ Drawing</text><text x="52" y="98" fill="#1f2436">▾ Render.TransparentGeometry</text>
+<rect x="60" y="106" width="186" height="18" fill="#dcd7fb"/><text x="64" y="119" fill="#5b4bd6">Canvas.RenderSubBatch</text>
+<text x="64" y="137" fill="#1f2436">Canvas.RenderSubBatch</text><text x="64" y="155" fill="#1f2436">Canvas.RenderSubBatch</text>
+<text x="270" y="62" fill="#1f2436" font-weight="bold">选中的这一批：</text>
+<text x="270" y="84" fill="#1f2436">Shader  UI/Default</text>
+<text x="270" y="104" fill="#1f2436">_MainTex  heart（128×128）</text>
+<text x="270" y="124" fill="#1f2436">Vertices 4　Indices 6</text>
+<text x="270" y="152" fill="#7a8299">拖动左侧列表或顶部滑块，Game 视图会只画到这一批为止，</text>
+<text x="270" y="170" fill="#7a8299">能直观看到界面是按什么顺序、分几次画出来的</text>
+</svg><figcaption><b>图 20-2</b> Frame Debugger 里的 UI 绘制（示意）：一个 Canvas.RenderSubBatch 就是一次绘制</figcaption></figure>
+<div class="note warn"><b>注意</b>编辑器里测到的数字只能看<b>量级和相对关系</b>。编辑器本身有额外开销（Inspector 重绘、Scene 视图），有些代码路径只在编辑器下存在（20.9 节就有一个例子）。最终结论要在真机的 Development Build 上用 Profiler 连机确认。</div>
+
+<h3 class="sec">20.2 本章的“性能实验室”</h3>
+<p>为了让每个结论都可复现，我在配套工程里写了一个实验室：<code>PerfLab</code> 在 Play 模式下逐个运行实验，每个实验先预热 10 帧，再连续测 30～60 帧取平均。实验本身只需要描述两件事：<b>搭什么界面</b>（Setup）和<b>每帧改什么</b>（Tick）。比如“动静分离”实验：</p>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="rebuild"></pre>
+<p>测量由实验室统一完成，每帧在 <code>LateUpdate</code> 里做这几件事：</p>
+<pre class="code" data-file="Ch20/PerfLab.cs" data-region="measure"></pre>
+<ul>
+<li><b>重建队列与标脏次数</b>：<code>RebuildCounter</code> 用反射读 CanvasUpdateRegistry 的两个私有队列；另外给每个 Graphic 注册 <code>RegisterDirtyVerticesCallback</code> 等三个回调，统计每帧被标脏的次数（TMP 的 TextMeshProUGUI 也会触发这些回调）。</li>
+<li><b>C# 重建耗时</b>：用 Stopwatch 包住 <code>Canvas.ForceUpdateCanvases()</code>——它同步执行 CanvasUpdateRegistry 的 PerformUpdate，也就是布局和网格生成的全部 C# 工作（第 12 章）。</li>
+<li><b>渲染与合批</b>：UI 相机由实验室手动 <code>Render()</code>，渲染次数可控；Canvas 的合批工作就发生在这里，一部分在主线程（<code>Canvas.BuildBatch</code>），大部分在工作线程的 Job 里。</li>
+<li><b>Unity 自己的计数器</b>：用 <code>ProfilerRecorder</code> 读 <code>Batches Count</code>、<code>SetPass Calls Count</code>、<code>Triangles Count</code>、<code>GC Allocated In Frame</code>，以及 <code>Canvas.BuildBatch</code> 和五个 <code>Canvas.*Job</code> 标记的耗时。计数器给的是“上一帧”的值，所以记账时用上一帧的标签。</li>
+</ul>
+<pre class="code" data-file="Ch20/PerfLab.cs" data-region="recorders"></pre>
+<p><b>作者环境</b>：Apple M5（10 核）/ macOS 26.5 / Unity 2022.3.62f3 / Metal / 编辑器 Play 模式（batchmode 下运行，Game 视图不渲染）。UI 用 Screen Space - Camera 画布、渲染到 1920×1080 的 RenderTexture（Overlay 画布不经过相机，没法手动控制渲染次数；两种模式的合批规则相同）。下文所有数字都来自 <code>Ch20/Results/perflab_results.txt</code>，正文表格里的“UI 批次”已经减去了相机清屏等基础开销（空画布时 Batches = 1）。</p>
+<div class="scene">Ch20/Scenes/Ch20_PerfLab.unity</div>
+<p>读者可以打开这个场景直接点 Play，大约一分钟跑完全部实验，结果显示在屏幕上并写回结果文件；也可以用菜单 <span class="menu">UGUIBook › Ch20 › Run Perf Lab</span>，它会临时打开 Sprite Packer（图集实验需要）、跑完后自动恢复。<b>你的数字一定和我的不一样</b>——机器不同、版本不同，甚至同一台机器两次运行的毫秒数也会有 ±50% 的波动（我跑过两轮，个别实验差了一倍）。值得关注的是量级和对比关系，这些在多次运行中是稳定的。</p>
+<p>实验室里用到的两个统计工具，在自己的项目里也很好用。一个是运行时性能小面板：</p>
+<pre class="code" data-file="Ch20/RenderStatsHUD.cs" data-region="recorders"></pre>
+<p>它在编辑器 Play 模式和 Development Build 里都能读到这些计数器；正式包里大部分计数器不可用（显示“-”）。标记的值逐帧抖动很大，显示时取最近 30 帧的平均：</p>
+<pre class="code" data-file="Ch20/RenderStatsHUD.cs" data-region="average"></pre>
+
+<h3 class="sec">20.3 开销一：重建</h3>
+<p>第 12 章读过源码：一个 Graphic 的颜色、文字、精灵、尺寸变了，会被“标脏”（SetVerticesDirty / SetMaterialDirty / SetLayoutDirty），排进 CanvasUpdateRegistry 的队列，在本帧渲染前统一重建网格。很多人以为重建的代价就是这一步，其实这只是一半。另一半在原生层：<b>Graphic 的网格交给 CanvasRenderer 之后，它所在的整个 Canvas 都要重新合批</b>——重新排序所有元素、判断哪些能合并、重新生成合并后的大网格。这一步和 Canvas 里元素的总数成正比，而不是和“变了几个”成正比。</p>
+
+<h3 class="case"><span class="no">实验 20.1</span>动静分离到底省了多少<span class="lv">高阶</span></h3>
+<p>静态部分是 1500 个图标 + 40 个文字，动态部分每帧改一个元素：改颜色、移动位置、改文字，各测“和静态内容在同一 Canvas”与“放进一个嵌套 Canvas”两种情况。</p>
+<figure class="shot"><img src="img/ch20-rebuild-chart.jpg"><figcaption><b>图 20-3</b> 每帧只改一个元素：放在 1500 个元素的大 Canvas 里，UI 渲染耗时是动静分离时的 5～15 倍</figcaption></figure>
+<table>
+<tr><th>实验（每帧改 1 个元素）</th><th>标脏（顶点）</th><th>C# 重建</th><th>Canvas Job 合计</th><th>UI 渲染（含合批）</th></tr>
+<tr><td>静态界面（对照）</td><td>0</td><td>0.038 ms</td><td>0.003 ms</td><td>0.23 ms</td></tr>
+<tr><td>改颜色 · 同一 Canvas</td><td>1</td><td>0.044 ms</td><td>1.49 ms</td><td>1.81 ms</td></tr>
+<tr><td>改颜色 · 动静分离</td><td>1</td><td>0.032 ms</td><td>0.012 ms</td><td>0.12 ms</td></tr>
+<tr><td>移动 · 同一 Canvas</td><td>0</td><td>0.024 ms</td><td>0.71 ms</td><td>0.90 ms</td></tr>
+<tr><td>移动 · 动静分离</td><td>0</td><td>0.018 ms</td><td>0.024 ms</td><td>0.12 ms</td></tr>
+<tr><td>改文字 · 同一 Canvas</td><td>1</td><td>0.043 ms</td><td>0.35 ms</td><td>0.50 ms</td></tr>
+<tr><td>改文字 · 动静分离</td><td>1</td><td>0.029 ms</td><td>0.006 ms</td><td>0.09 ms</td></tr>
+</table>
+<p>三个结论：</p>
+<ol>
+<li><b>C# 重建几乎不受影响</b>（都在 0.02～0.04 ms）：只有一个元素被标脏，C# 侧只重建它一个。</li>
+<li><b>贵的是原生层的重新合批</b>：同一 Canvas 下 Canvas Job 的耗时是 0.35～1.49 ms，动静分离后降到 0.01～0.02 ms，差了两个数量级。这部分在 Profiler 的 CPU 视图里分散在工作线程上，只看主线程很容易漏掉。</li>
+<li><b>“只是移动”也会触发重新合批</b>：移动位置的那一行，顶点标脏次数是 0——移动不会让 Graphic 重建网格（网格是在本地坐标下生成的），但 Canvas 要按新位置重新计算合并后的网格，照样付出了 0.71 ms。所以“每帧都在动的东西”（转圈的加载图标、跟随手指的拖拽物、血条）同样需要分离。</li>
+</ol>
+<div class="scene">Ch20/Scenes/Ch20_DynamicStatic.unity</div>
+<p>配套场景里有一个每帧变化的计时器和转圈图标，点按钮在“同一 Canvas”和“动静分离”之间切换，左上角的 RenderStatsHUD 显示 BuildBatch 和主线程耗时的变化。</p>
+<div class="note"><b>动静分离的分寸</b>嵌套 Canvas 不是越多越好：每个 Canvas 至少一个批次，彼此之间不能合批；每个嵌套 Canvas 还有自己的排序和管理开销。合理的粒度是<b>按“变化频率”分组</b>：完全静态的背景和框架一个 Canvas；偶尔变化的（打开时刷新一次的列表）一个；每帧变化的（计时器、血条、跑马灯、动画中的元素）一个。别给每个按钮都套一个 Canvas。</div>
+
+<h3 class="case"><span class="no">实验 20.2</span>布局组嵌套的代价<span class="lv">高阶</span></h3>
+<p>同样是 60 行的列表，一种用“VerticalLayoutGroup + ContentSizeFitter，每行 HorizontalLayoutGroup，行内文字列再套 VerticalLayoutGroup”搭；另一种全部用锚点直接定位。每帧改其中一行的描述文字。</p>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="layout"></pre>
+<figure class="shot"><img src="img/ch20-layout-chart.jpg"><figcaption><b>图 20-4</b> 每帧改一行文字：布局嵌套版的 C# 重建耗时约为锚点版的 100 倍</figcaption></figure>
+<p>6.37 ms 对 0.055 ms，100 倍以上的差距。有意思的是两者的“布局队列”里都只有一个元素——区别在于排进去的是谁。TMP 文字变化后调用 <code>LayoutRebuilder.MarkLayoutForRebuild</code>，它会<b>沿着父节点一路往上找，直到最上层那个仍然是布局控制者的节点</b>，把它作为布局根排进队列（源码见第 10 章）。锚点版里，文字的父节点不是布局组，排进去的就是文字自己；嵌套版里，一路找到了最外层的列表，于是 60 行、每行 4～5 个元素、三层布局组全部重新计算一遍尺寸和位置。而且布局一变，所有尺寸变化的元素又会触发顶点标脏，原生层还要重新合批——这一项的 UI 渲染耗时也到了 6.4 ms。</p>
+<div class="cmp"><div class="good"><h5>✓ 推荐</h5>布局组用在“打开时排一次”的地方；排完后如果内容不再变化，可以把布局组组件禁用（<code>enabled = false</code>），元素位置会保留。列表项内部能用锚点就用锚点。频繁变化的文字（倒计时、数值）放在布局组之外，或者给它固定尺寸、用 LayoutElement 告诉父布局“我的大小不变”</div><div class="bad"><h5>✗ 避免</h5>三层以上的布局组嵌套 + ContentSizeFitter；在每帧变化的文字外面套布局组；用 ContentSizeFitter 撑开一个又被父布局组控制的节点（第 10 章讲过的“父子争夺”）</div></div>
+<h4>找出“谁在每帧标脏”</h4>
+<p>界面明明没动，Profiler 里却每帧都有 Layout 或 Graphic 重建——这是最常见的“隐形开销”，原因五花八门：Animator 在播动画、某段代码每帧给文字赋值、某个组件在 Update 里设置 RectTransform 的尺寸……用 <code>RebuildCounter</code> 读出队列里的元素名就能直接定位：</p>
+<pre class="code" data-file="Ch20/RebuildCounter.cs" data-region="counter"></pre>
+<pre class="code" data-file="Ch20/RebuildWatcher.cs" data-region="watcher"></pre>
+<p>把 <code>RebuildWatcher</code> 挂在场景里任意物体上，界面静止时如果连续 30 帧都有元素在重建，它会打印出完整路径和组件类型。<code>[DefaultExecutionOrder(32000)]</code> 让它尽量晚于其他脚本执行，读到的就是本帧攒下的全部。队列是 UGUI 的私有字段，只能反射读取，这个工具只用于开发期诊断。</p>
+
+<h3 class="sec">20.4 隐藏界面的五种方法</h3>
+<p>关掉一个界面有很多种写法，各有各的拥趸。实验用一个 400 个图形的弹窗（自带嵌套 Canvas、GraphicRaycaster 和 CanvasGroup，五种方法都能用），下面垫一面 800 个图标的墙，分别测“每帧切换一次”时显示和隐藏各自的开销，以及“隐藏后保持不动”时还剩多少绘制：</p>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="hide-methods"></pre>
+<figure class="shot"><img src="img/ch20-hide-chart.jpg"><figcaption><b>图 20-5</b> 400 个图形的弹窗切换一次的主线程耗时（C# 重建 + UI 渲染）</figcaption></figure>
+<table>
+<tr><th>方法</th><th>显示时 C# 重建</th><th>显示时 GC</th><th>标脏（显示一次）</th><th>隐藏后 UI 批次</th><th>隐藏后三角形</th></tr>
+<tr><td>SetActive</td><td>5.05 ms</td><td>60.6 KB</td><td>顶点 401 / 材质 802 / 布局 401</td><td>1</td><td>1602</td></tr>
+<tr><td>CanvasGroup.alpha = 0</td><td>0.037 ms</td><td>0.25 KB</td><td>0</td><td>1</td><td>1602</td></tr>
+<tr><td>Canvas.enabled = false</td><td>0.98 ms</td><td>60.5 KB</td><td>材质 401</td><td>1</td><td>1602</td></tr>
+<tr><td>移出屏幕</td><td>0.029 ms</td><td>0.20 KB</td><td>0</td><td><b>11</b></td><td><b>4800</b></td></tr>
+<tr><td>缩放为 0</td><td>1.87 ms</td><td>0.21 KB</td><td>0</td><td>1</td><td>1602</td></tr>
+</table>
+<p>（隐藏后的“1 个 UI 批次、1602 个三角形”就是底下那面墙；弹窗正常显示时是 11 个批次、4800 个三角形。）逐个分析：</p>
+<ul>
+<li><b>SetActive</b>：显示时最贵。每个子物体都走一遍 OnEnable，Graphic 在 OnEnable 里调用 <code>SetAllDirty()</code>——布局、顶点、材质全部标脏（材质标脏 802 次，是因为 MaskableGraphic 的 OnEnable 还会额外标一次）。隐藏时则很便宜。适合“关了很久才会再开”的界面，可以顺便释放引用、停掉逻辑。</li>
+<li><b>CanvasGroup.alpha = 0</b>：显示、隐藏都几乎零开销，没有任何标脏。一个可能出乎意料的发现：<b>隐藏后它并没有继续绘制</b>——UI 批次和三角形数与 SetActive 隐藏完全一样。CanvasRenderer 在继承下来的 alpha 为 0 时会直接跳过提交；我还把弹窗里所有 CanvasRenderer 的 <code>cullTransparentMesh</code> 关掉重测了一次（实验 <code>hd_hidden_CanvasGroup_nocull</code>），结果依然是 1 个批次。要注意的是：隐藏期间这些元素仍然是“活的”，它们的 Update 照跑、数据一变照样标脏重建，而且必须同时把 <code>blocksRaycasts</code> 设为 false，否则透明的弹窗还在挡点击。</li>
+<li><b>Canvas.enabled = false</b>：一直被当作“最省的隐藏方法”，但实测显示和隐藏时都有 400 次材质标脏、近 1 ms 的 C# 重建，显示时还有 60 KB 的 GC。原因在源码里——画布的启用状态变化会让子物体收到 <code>OnCanvasHierarchyChanged</code>：</li>
+</ul>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/MaskableGraphic.cs
+protected override void OnCanvasHierarchyChanged()
+{
+    base.OnCanvasHierarchyChanged();   // Graphic：从旧画布注销、向新画布注册（GraphicRegistry）
+    if (!isActiveAndEnabled)
+        return;
+    m_ShouldRecalculateStencil = true;
+    UpdateClipParent();
+    SetMaterialDirty();                // 每个可遮罩的图形都标脏材质
+}</pre>
+<ul>
+<li style="list-style:none;margin-left:-1.2em">不过它仍然比 SetActive 便宜得多（不触发布局、不重建顶点），而且隐藏后子物体的脚本照常运行、状态完整保留，适合“频繁开关、但隐藏期间逻辑要继续”的界面（比如战斗中的背包）。</li>
+<li><b>移出屏幕</b>：切换最便宜，但<b>隐藏后仍然全部绘制</b>（11 个批次、4800 个三角形）——UGUI 只对 RectMask2D 内的元素做裁剪剔除，屏幕外的元素照样合批、提交，由 GPU 在光栅化前裁掉。只适合短暂移出（滑入滑出动画）。</li>
+<li><b>缩放为 0</b>：隐藏后不再绘制，但每次切换都要 1.8 ms 左右——原因是 TMP 在每帧的 <code>InternalUpdate</code> 里检查 <code>lossyScale</code> 有没有变，变了就重新计算所有字符的 SDF 缩放（<code>TMPro_UGUI_Private.cs</code> 的 <code>InternalUpdate</code> → <code>UpdateSDFScale</code>）。界面里文字越多越贵。</li>
+</ul>
+<div class="box"><h4>结论：怎么选</h4>
+<p>① 频繁开关、隐藏期间没有逻辑在跑的界面：<b>CanvasGroup（alpha = 0 + blocksRaycasts = false + interactable = false）</b>，切换成本最低。② 频繁开关、隐藏期间数据仍在变（会触发重建）的界面：<b>Canvas.enabled</b>（配合关掉 GraphicRaycaster），隐藏期间的重建不会引起可见画布的重新合批。③ 很久才打开一次的界面：<b>SetActive</b> 或干脆销毁，换取内存和逻辑上的干净。④ 不要用“移出屏幕”做长期隐藏，也不要用缩放为 0 做频繁切换。</p></div>
+<pre class="code" data-file="Ch20/CanvasVisibility.cs" data-region="visibility"></pre>
+<div class="scene">Ch20/Scenes/Ch20_HideMethods.unity</div>
+
+<h3 class="sec">20.5 开销二：合批</h3>
+<p>第 12 章讲过 Canvas 的合批规则：所有元素按深度（Depth）排序后，相邻的、材质和贴图都相同的元素合并成一个批次；而<b>不重叠的元素可以在排序时调整先后</b>，这给了合批很大的空间。最容易打断合批的，是“重叠 + 交替使用不同贴图”。</p>
+<h3 class="case"><span class="no">实验 20.3</span>重叠、贴图与图集<span class="lv">高阶</span></h3>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="batch-overlap"></pre>
+<figure class="shot"><img src="img/ch20-batch-overlap.jpg"><figcaption><b>图 20-6</b> 同样 100 个图标、star 和 heart 两种贴图交替：互不重叠时只要 2 批；依次重叠时变成 100 批；两张图打进同一个 SpriteAtlas 后，重叠也只要 1 批（数字为实测）</figcaption></figure>
+<p>互不重叠时，合批器可以把所有 star 排到一起、所有 heart 排到一起，于是只有 2 批；依次重叠时，每个图标都压在前一个上面，绘制顺序不能调换，而相邻两个又恰好是不同的贴图，<b>每一个都单独成批</b>。把两张图打进同一个图集后，它们共享一张纹理，这个问题就消失了。更贴近实际的商店列表（12 行，每行底板 + 图标 + 名字 + 价格）：</p>
+<table>
+<tr><th>实验</th><th>UI 批次</th><th>SetPass</th></tr>
+<tr><td>100 图标 · 两张贴图 · 互不重叠</td><td>2</td><td>2</td></tr>
+<tr><td>100 图标 · 两张贴图 · 依次重叠</td><td><b>100</b></td><td>2</td></tr>
+<tr><td>100 图标 · 同一张贴图 · 依次重叠</td><td>1</td><td>2</td></tr>
+<tr><td>100 图标 · 同一图集 · 依次重叠</td><td>1</td><td>2</td></tr>
+<tr><td>12 行商店列表 · 底板和 6 种图标各自独立贴图</td><td>8</td><td>3</td></tr>
+<tr><td>12 行商店列表 · 底板与图标在同一图集</td><td>2</td><td>3</td></tr>
+<tr><td>100 个同贴图图标（不重叠）· 每 10 个夹一个不同材质</td><td>2</td><td>3</td></tr>
+<tr><td>100 个同贴图图标（依次重叠）· 每 10 个夹一个不同材质</td><td><b>21</b></td><td>22</td></tr>
+<tr><td>100 个同贴图图标 · Z = 0</td><td>1</td><td>2</td></tr>
+<tr><td>100 个同贴图图标 · 一半 Z = −5</td><td>1</td><td>2</td></tr>
+</table>
+<p>几个值得注意的点：</p>
+<ul>
+<li><b>Batches 和 SetPass 不是一回事</b>：两张贴图交替重叠时有 100 个批次，但 SetPass（切换着色器状态）只有 2——UI 都用同一个 Shader，只是在批次之间换贴图。SetPass 通常更贵，但批次多了 CPU 提交命令的开销一样会上来，在低端机上尤其明显。</li>
+<li><b>商店列表从 8 批降到 2 批</b>：剩下的两批，一批是图集里的所有图片，一批是所有 TMP 文字（同一个字体材质）。这是一个 UI 界面能达到的很理想的状态。</li>
+<li><b>不同材质</b>和不同贴图一样会打断合批；不重叠时影响很小（2 批），重叠时就是 21 批。自定义材质（灰度、流光，第 14 章）要尽量用在“不和其他元素交错重叠”的地方，或者把同材质的元素集中在一起。</li>
+<li><b>Z 不为 0</b>：网上常说“UI 元素 Z 坐标不为 0 会打断合批”。在本书的环境（Unity 2022.3、Camera 模式画布、Z = −5）下实测<b>没有打断</b>。旧版本或其他条件下可能不同，建议仍然保持 Z = 0（Z 值还会影响 World Space 和透视相机下的显示），但不必把它当作合批的头号问题。遇到疑问时，用 Profiler 的 UI Details 模块看 “Batch Breaking Reason”。</li>
+</ul>
+<h4>列表项内部的层级顺序</h4>
+<p>合批器给每个元素算深度时，规则大致是：一个元素的深度 = 它下面所有“与它重叠”的元素中最大的深度 + 1（如果它与那个元素可以合批则不必 +1）。于是一个“底板 + 图标 + 文字”的列表项，第一行的底板深度 0、图标 1、文字 2；第二行和第一行互不重叠，底板又可以从 0 开始。最终所有行的底板都在深度 0、图标都在深度 1、文字都在深度 2，同深度、同贴图的元素合成一批——这就是上表里商店列表能压到 2 批的原因。</p>
+<p>反过来，如果列表项之间有重叠（比如卡片的阴影向外撑出、压到了下一行），或者行内的顺序是“图标、文字、图标、文字”这样交替，深度就会一层层往上叠，批次随之增加。经验规则是：<b>行内先放所有图片、再放所有文字；让相邻的行之间留出空隙，阴影尽量画进底板图里</b>。用 Frame Debugger 看列表的绘制顺序，如果发现批次随行数线性增长，基本就是这里出了问题。</p>
+<h4>Sprite Atlas 的用法</h4>
+<p>Sprite Atlas（精灵图集）把多张精灵打包进一张大纹理，运行时精灵自动改用图集里的那一块，代码和 Image 的设置都不用改。</p>
+<ol class="steps">
+<li><span class="menu">Edit › Project Settings › Editor › Sprite Packer › Mode</span> 选 <code>Sprite Atlas V1 - Always Enabled</code>（或 V2）。默认的 <code>Disabled</code> 下，图集只在打包时生效，<b>编辑器 Play 模式里看不到合批效果</b>——这是很多人“打了图集批次没变”的原因。</li>
+<li>Project 窗口右键 <span class="menu">Create › 2D › Sprite Atlas</span>，在 <code>Objects for Packing</code> 里拖入精灵或整个文件夹（拖文件夹的好处是以后放进来的新图自动入图集）。</li>
+<li>UI 图集取消 <code>Allow Rotation</code> 和 <code>Tight Packing</code>：旋转打包会让九宫格和 Filled 类型出错；UI 精灵通常是矩形网格，紧密打包没有意义。</li>
+<li>点 <code>Pack Preview</code> 查看打包结果。</li>
+</ol>
+<p>实验室用代码创建了图集（等价于上面的步骤），方便读者一键生成：</p>
+<pre class="code" data-file="Ch20/Editor/Ch20Assets.cs" data-region="atlas"></pre>
+<p>图集怎么分？原则是<b>按“同时出现”分</b>：一个界面用到的图放一个图集（背包图集、商店图集），所有界面都用的通用元素（按钮底板、关闭按钮、常用图标）放一个公共图集。不要把整个游戏的 UI 塞进一个超大图集——打开任何界面都要把整张图加载进内存；也不要按“类型”分（所有图标一个图集、所有底板一个图集）——一个界面就会同时用到好几个图集，批次又上去了。图集尺寸一般不超过 2048×2048，在低端机上 4096 的纹理可能根本加载不了。</p>
+<div class="note tip"><b>自己验证</b>打开 Ch20_PerfLab 场景或任意界面，Play 后打开 <span class="menu">Window › Analysis › Frame Debugger</span> 点 Enable，展开到 <code>Canvas.RenderSubBatch</code>，逐个点击，看每一批的 <code>_MainTex</code> 是哪张图。批次数对不上预期时，Profiler 的 UI Details 模块会列出每次中断的原因（不同纹理、不同材质、不同裁剪矩形等）。</div>
+
+<h3 class="sec">20.6 Mask 与 RectMask2D</h3>
+<p>第 14 章讲过两者的原理：Mask 用模板缓冲（Stencil），遮罩图形先写一遍模板、内容按模板测试、最后再画一遍清除模板；RectMask2D 不用模板，而是把裁剪矩形传给 Shader 做 <code>clip</code>，并且会直接剔除完全在矩形外的元素。实测“滚动列表（每行底板 + 图标 + 两段文字，12 行、视口只显示一部分）”：</p>
+<table>
+<tr><th>实验</th><th>UI 批次</th><th>三角形</th><th>C# 重建（每帧）</th></tr>
+<tr><td>1 个列表 · 不裁剪</td><td>2</td><td>432</td><td>0.017 ms</td></tr>
+<tr><td>1 个列表 · Mask</td><td>6</td><td>450</td><td>0.019 ms</td></tr>
+<tr><td>1 个列表 · RectMask2D</td><td><b>3</b></td><td><b>310</b></td><td>0.075 ms</td></tr>
+<tr><td>4 个列表并排 · 不裁剪</td><td>2</td><td>1722</td><td>0.037 ms</td></tr>
+<tr><td>4 个列表并排 · Mask</td><td><b>6</b></td><td>1794</td><td>0.025 ms</td></tr>
+<tr><td>4 个列表并排 · RectMask2D</td><td>9</td><td><b>1234</b></td><td>0.229 ms</td></tr>
+</table>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="batch-mask"></pre>
+<p>结果比“RectMask2D 永远更好”的说法复杂：</p>
+<ul>
+<li><b>单个列表时 RectMask2D 明显更优</b>：批次 3 对 6（Mask 要额外画遮罩、清除模板，还要切换模板状态），三角形更少（视口外的行被剔除了）。</li>
+<li><b>多个 RectMask2D 并排时，批次反而比 Mask 多</b>：每个 RectMask2D 的裁剪矩形不同，矩形不同的元素不能合批，于是 4 个列表各自 2 批（图片一批、文字一批），共 8 批左右；而 4 个 Mask 虽然各自有模板读写，合批器却能把同层级、互不重叠的 4 个遮罩的同类绘制合并起来。</li>
+<li><b>RectMask2D 有每帧的固定开销</b>：C# 重建一栏，RectMask2D 每帧都比别人多出一截，界面完全静止也一样。源码里 <code>PerformClipping</code> 每帧都会遍历所有被它裁剪的图形调用 <code>Cull</code>：</li>
+</ul>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/RectMask2D.cs，PerformClipping() 的最后一个分支
+else
+{
+    foreach (MaskableGraphic maskableTarget in m_MaskableTargets)
+    {
+        //Case 1170399 - hasMoved is not a valid check when animating on pivot of the object
+        maskableTarget.Cull(clipRect, validRect);
+    }
+}</pre>
+<div class="box"><h4>结论</h4><p>矩形裁剪的滚动列表、单独的裁剪区域：<b>优先 RectMask2D</b>，它的批次和顶点都更少，还能剔除视口外的元素。同一界面有很多个并排的小裁剪区（比如一排 10 个带圆角裁剪的卡片）：两种都测一下再决定；需要非矩形形状（圆形头像、圆角）时只能用 Mask，或者干脆用带透明边的图片 / 自定义 Shader 代替。RectMask2D 下面挂的图形越多，每帧的固定开销越大——上千个元素的长列表应该用第 18 章的循环列表，而不是指望 RectMask2D 的剔除。</p></div>
+
+<h3 class="sec">20.7 开销三：填充率与 Overdraw</h3>
+<p>前面两类开销都在 CPU。UI 在 GPU 上的主要开销是<b>填充率</b>：屏幕上每个像素被画了几次。UI 几乎全是半透明混合，不能像不透明物体那样靠深度测试跳过被挡住的像素——<b>被完全盖住的背景照样要画、照样要混合</b>。一个全屏的半透明遮罩，在 1080p 屏幕上就是两百万次像素混合。移动 GPU 的带宽有限，几层全屏 UI 叠起来就能把帧率拖垮，而且这类问题在 PC 上测不出来。</p>
+<h3 class="case"><span class="no">实验 20.4</span>逐像素统计 Overdraw<span class="lv">高阶</span></h3>
+<p>Scene 视图的 Overdraw 模式只能看个大概。为了得到具体数字，本章写了一个专用 Shader：每个 UI 片元都往颜色缓冲里加一个固定值（<code>Blend One One</code>），不读贴图——透明像素在 GPU 上一样要跑片元着色器、一样要混合，这正是 Overdraw 的代价。它保留了 Stencil 和 RectMask2D 的裁剪，结果和真实绘制一致：</p>
+<pre class="code" data-file="Ch20/Shaders/Overdraw.shader" data-lines="76-83"></pre>
+<p>把界面上所有图形的材质换成它，渲染一帧、读回像素，每个像素的亮度除以“每层的增量”就是它被画的层数：</p>
+<pre class="code" data-file="Ch20/Editor/Shots.cs" data-region="measure-overdraw"></pre>
+<p>测试场景是一个常见的情形：主城界面上打开一个全屏的背包界面。“优化前”是很多项目的真实写法——主城没有关、背包有一张大面积的装饰光晕和一层暗角、每个格子由阴影 + 底板 + 边框 + 图标四层叠成；“优化后”关掉了被完全挡住的主城、去掉装饰层、格子底板和边框合成一张图：</p>
+<figure class="shot"><img src="img/ch20-overdraw.jpg"><figcaption><b>图 20-7</b> 左：看到的画面（两种做法几乎一样）；中：优化前的 Overdraw 热力图，平均每像素 5.80 层、94% 的像素被画了 4 层以上；右：优化后平均 1.66 层、最多 3 层</figcaption></figure>
+<figure class="shot"><img src="img/ch20-overdraw-legend.png"><figcaption><b>图 20-8</b> 热力图颜色与层数的对应</figcaption></figure>
+<p>从 5.80 层降到 1.66 层，GPU 的像素混合量减少了七成，而玩家看到的画面几乎没有区别。降低 Overdraw 的手段：</p>
+<ul>
+<li><b>全屏界面打开时，关掉被它完全挡住的界面</b>（以及 3D 相机，见 20.12 节）。这是收益最大的一条，UI 框架（第 16 章）里可以统一处理：栈顶界面标记为“全屏不透明”时，自动隐藏下面所有界面。</li>
+<li><b>大面积的装饰图层要克制</b>：光晕、暗角、渐变蒙版，美术喜欢一层层叠。能烘焙进背景图的就烘焙进去。</li>
+<li><b>精灵的透明边</b>：一张 512×512 的光晕图，中间只有一个小亮点，四周全是透明像素，但整个四边形都要被光栅化。可以把精灵的 Mesh Type 设成 <code>Tight</code>（Image 需要勾选 <code>Use Sprite Mesh</code>），让网格贴着不透明区域生成，代价是顶点更多。</li>
+<li><b>多层合一</b>：格子的阴影、底板、边框做成一张九宫格图，四层变一层。</li>
+</ul>
+<h4>透明度为 0 的“点击区域”</h4>
+<p>“用一张透明度为 0 的 Image 做全屏点击区”是被反复批评的写法，理由是“它照样会画”。实测发现，在 Unity 2022.3 里这件事要分情况：</p>
+<table>
+<tr><th>全屏点击区的做法</th><th>UI 批次</th><th>三角形</th><th>点击是否生效</th></tr>
+<tr><td>透明度 0 的 Image（默认设置）</td><td>1</td><td>402</td><td>是</td></tr>
+<tr><td>透明度 0 的 Image，关闭 Cull Transparent Mesh</td><td>2</td><td>404</td><td>是</td></tr>
+<tr><td>EmptyRaycast（只接收射线、不生成网格）</td><td>1</td><td>402</td><td>是</td></tr>
+</table>
+<p>（背景是 200 个图标，占 1 批、400 个三角形。）CanvasRenderer 有一个 <code>cullTransparentMesh</code> 属性（Inspector 里的 Cull Transparent Mesh），勾选时顶点颜色完全透明的网格不会被提交绘制。在本书环境中新建的 Image 它是开着的，所以透明 Image 并没有多画；关掉它之后就多了 1 个批次、一个全屏四边形——也就是一层全屏 Overdraw。项目里很多旧预制体、第三方插件生成的 UI 这个选项可能是关着的。</p>
+<p>即便如此，专门写一个“只接收射线、不画任何东西”的 Graphic 仍然是更好的选择：它不依赖这个开关，也不会在有人把透明度调成 0.01 做淡入时突然开始绘制，语义上也更清楚——看到这个组件就知道它是点击区：</p>
+<pre class="code" data-file="Ch20/EmptyRaycast.cs" data-region="empty"></pre>
+<p>运行时查看 Overdraw 的工具（按 F2 切换，真机 Development 包里也能用）：</p>
+<pre class="code" data-file="Ch20/OverdrawView.cs" data-region="apply"></pre>
+<div class="scene">Ch20/Scenes/Ch20_Overdraw.unity</div>
+
+<h3 class="sec">20.8 开销四：射线检测</h3>
+<p>每次点击、甚至每帧鼠标移动，EventSystem 都要让每个 GraphicRaycaster 检测一遍它的画布上所有<b>开着 Raycast Target 的图形</b>。源码里的循环（第 11 章）：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/GraphicRaycaster.cs
+for (int i = 0; i &lt; totalCount; ++i)
+{
+    Graphic graphic = foundGraphics[i];
+    // -1 means it hasn't been processed by the canvas, which means it isn't actually drawn
+    if (!graphic.raycastTarget || graphic.canvasRenderer.cull || graphic.depth == -1)
+        continue;
+    if (!RectTransformUtility.RectangleContainsScreenPoint(graphic.rectTransform, pointerPosition, eventCamera, graphic.raycastPadding))
+        continue;
+    ...
+}</pre>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="raycast"></pre>
+<figure class="shot"><img src="img/ch20-raycast-chart.jpg"><figcaption><b>图 20-9</b> 2000 个图片的画布：开着 Raycast Target 的数量与一次 RaycastAll 的耗时几乎成正比</figcaption></figure>
+<p>2000 个目标时一次 RaycastAll 要 658 μs，20 个时只要 7.9 μs——耗时和目标数几乎严格成正比。在桌面上 0.66 ms 看起来不多，但 StandaloneInputModule 每帧都会为鼠标做一次射线检测（悬停效果需要），手机上多点触控时每根手指一次，低端机的 CPU 又比 M5 慢好几倍。</p>
+<p>实际项目里，界面上真正需要接收点击的元素通常不到总数的十分之一：文字、图标、装饰图都不需要。可惜 Unity 新建的 Image、TMP 文字默认都开着 Raycast Target。解决办法是团队约定 + 工具检查：第 21 章提供了一个“一键关闭非交互元素 Raycast Target”的编辑器工具和预制体规范检查。其他要点：</p>
+<ul>
+<li>不需要点击的画布（纯展示的 HUD、名牌）删掉 GraphicRaycaster；</li>
+<li>隐藏的界面同时关闭它的 GraphicRaycaster（或 CanvasGroup.blocksRaycasts = false）；</li>
+<li>小按钮想扩大点击范围，用 <code>raycastPadding</code>（负值向外扩）或者 EmptyRaycast，而不是在下面垫一张大透明图。</li>
+</ul>
+
+<h3 class="sec">20.9 TextMeshPro 的优化</h3>
+<h4>每帧更新的数字：SetText 与字符串拼接</h4>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="tmp-settext"></pre>
+<p>常见的建议是：每帧变化的数字用 <code>SetText("金币：{0}", n)</code>，不要用 <code>text = "金币：" + n</code>，因为后者每次都要分配一个新字符串。实测（30 个文字每帧更新）：</p>
+<table>
+<tr><th>写法</th><th>每帧 GC</th><th>C# 重建</th><th>标脏</th></tr>
+<tr><td><code>text = "金币：" + n</code></td><td>2.43 KB</td><td>0.42 ms</td><td>30</td></tr>
+<tr><td><code>SetText("金币：{0}", n)</code></td><td>2.90 KB</td><td>0.42 ms</td><td>30</td></tr>
+<tr><td>每帧赋相同的字符串 <code>text = same</code></td><td>0.23 KB</td><td>0.016 ms</td><td><b>0</b></td></tr>
+<tr><td>每帧 <code>SetText("金币：{0}", 100)</code>（值不变）</td><td>2.50 KB</td><td>0.47 ms</td><td><b>30</b></td></tr>
+</table>
+<p>编辑器里 SetText 并没有省下内存，原因在 TMP 3.0.7 的源码里——SetText 系列方法的末尾有这么一段：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.textmeshpro 3.0.7 Scripts/Runtime/TMP_Text.cs，SetText(...) 内
+#if UNITY_EDITOR
+m_text = InternalTextBackingArrayToString();
+#endif</pre>
+<p>为了让 Inspector 能显示当前文字，<b>编辑器下</b> SetText 会把内部字符缓冲转回字符串，于是同样产生了分配。这段代码在真机包里不存在，SetText 在真机上确实是零分配的——这正是 20.1 节说“GC 结论要在真机上确认”的原因。下面两行更值得注意：</p>
+<ul>
+<li><b>给 <code>text</code> 赋一个相同的字符串，TMP 会直接忽略</b>（setter 里先比较了长度和内容），不标脏、不重建；</li>
+<li><b>但 SetText 不做这个比较</b>，值没变也会标脏、重建，30 个文字就是 0.47 ms。所以每帧调用 SetText 的代码，最好自己先判断值有没有变：<code>if (n != m_Last) { m_Last = n; label.SetText("{0}", n); }</code>。</li>
+</ul>
+<h4>Auto Size 的代价</h4>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="tmp-autosize"></pre>
+<p>每帧改一段文字：Auto Size 关闭时 C# 重建 0.078 ms，开启时 0.41 ms，约 5 倍。TMP 的自动字号是“排一次版 → 放不下就缩小字号 → 再排一次”的迭代过程，文字越长、可选字号范围越大，迭代次数越多。静态文字开着无所谓；每帧变化、或者在列表里大量实例化的文字，关掉 Auto Size，用固定字号 + 截断。</p>
+<h4>动态字体：第一次出现的字很贵</h4>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="tmp-glyph"></pre>
+<p>用《千字文》的前 383 个不重复的字测动态字体：<b>第一次排版耗时 219.7 ms，已缓存后只要 1.45 ms</b>，差了 150 倍。第一次出现的字要由 FontEngine 从字体文件里光栅化成 SDF 写进图集纹理，这个过程很重。玩家打开一个从未打开过的界面、聊天里出现了一堆新字，都会在那一帧卡一下。对策：</p>
+<ul>
+<li><b>常用字预热</b>：在加载界面里调用 <code>fontAsset.TryAddCharacters(常用字)</code>，把卡顿挪到玩家看不到的地方；</li>
+<li><b>静态字库 + 动态回退</b>（第 5 章）：把 3500 个常用字做成静态图集，生僻字走动态 Fallback；</li>
+<li><b>图集大小</b>：动态图集满了会新建第二张（多图集模式）或者重排（非多图集模式），都有开销。根据文字量选择合适的尺寸（中文一般 1024 或 2048）；</li>
+<li>每种字号、描边、阴影的组合尽量做成<b>材质预设</b>（Material Preset）共用同一个字体资源，不要为了一个描边效果复制一份字体资源——每份字体资源都有自己的图集纹理，内存翻倍，批次也分开。</li>
+</ul>
+
+<h3 class="sec">20.10 对象池</h3>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="pool"></pre>
+<figure class="shot"><img src="img/ch20-pool-chart.jpg"><figcaption><b>图 20-10</b> 每帧换掉 10 个列表项：Destroy + Instantiate 每帧分配约 359 KB，对象池只有不到 1 KB</figcaption></figure>
+<p>每帧换掉 10 行，Destroy + Instantiate 的写法每帧分配约 359 KB 托管内存、Tick 耗时 1.28 ms；对象池的写法分配 0.87 KB、耗时 0.55 ms。耗时只差一倍多，但 GC 分配差了 400 倍——托管堆的垃圾攒多了就会触发一次 GC，在手机上一次 GC 停顿几毫秒到几十毫秒，表现为周期性的卡顿。飘字、伤害数字、列表项、聊天气泡这类反复出现的东西都应该用对象池：</p>
+<pre class="code" data-file="Ch20/UIPool.cs" data-region="pool"></pre>
+<p>注意池化并不是零成本：取出时 <code>SetActive(true)</code> 依然会让所有 Graphic 走 OnEnable、全部标脏（实验里每帧 50 次顶点标脏、80 次材质标脏），C# 重建只比 Instantiate 少一点（0.43 ms 对 0.51 ms）。如果连这部分也想省，可以不 SetActive，而是用 CanvasGroup 隐藏或者把回收的对象移到一个 Canvas.enabled = false 的池节点下，按 20.4 节的结论选择。</p>
+
+<h3 class="sec">20.11 Animator 的开销</h3>
+<p>用 Animator 做 UI 动画（按钮呼吸、图标旋转）很方便，但它有一个代价：Animator 写属性后会调用组件的 <code>OnDidApplyAnimationProperties</code>，而 Graphic 的实现是：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Graphic.cs
+protected override void OnDidApplyAnimationProperties()
+{
+    SetAllDirty();
+}</pre>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="anim"></pre>
+<p>实测 40 个挂了 Animator 的图标：动画曲线真的在变化（透明度在 1 和 0.9 之间呼吸）时，<b>每帧 40 次顶点标脏 + 40 次材质标脏</b>，C# 重建 0.24 ms、Canvas Job 0.48 ms；而动画曲线是常量（数值始终为 1、看起来不动）时，本书环境下标脏次数为 0，和不挂 Animator 一样。也就是说，在这个版本里“值没变就不会触发”，但<b>只要在播放、值在变，就是整个 Graphic 的全量标脏</b>——改个透明度连材质都标脏了，而代码补间改 <code>color</code> 只会标脏顶点。</p>
+<p>建议：常驻的循环动画（呼吸、旋转、闪烁）用代码补间（第 15 章），只改需要改的属性；Animator 用在一次性的、复杂的过场动画上，并且<b>播完之后禁用 Animator 组件</b>；挂 Animator 的元素放进单独的 Canvas（动静分离）。</p>
+
+<h3 class="sec">20.12 全屏界面打开时关闭 3D 相机</h3>
+<pre class="code" data-file="Ch20/PerfLabCases.cs" data-region="world"></pre>
+<p>3D 场景用 2000 个球体（每个都是一次 Draw Call），上面打开一个完全不透明的全屏界面。3D 相机继续渲染时，Batches = 2013、三角形 153 万、3D 相机渲染耗时 1.98 ms；关掉 3D 相机后，Batches = 10，这部分开销完全消失——而玩家看到的画面没有任何区别，因为 3D 画面本来就被全屏界面完全挡住了。</p>
+<p>做法很简单：UI 框架打开“全屏不透明”的界面时，记录并关闭主相机（<code>camera.enabled = false</code>，或者把 Culling Mask 设成 Nothing），关闭界面时恢复。要注意两点：如果界面背景需要显示一张场景截图（模糊背景，第 14 章），先截一张再关相机；如果场景里有依赖相机的逻辑（比如按相机可见性做剔除的 AI），要确认关掉相机不会影响它们。</p>
+
+<h3 class="sec">20.13 移动端注意事项</h3>
+<div class="kv"><span>分辨率</span><span>高端手机的屏幕分辨率可能达到 3K，UI 的填充率开销与像素数成正比。可以用 <code>Screen.SetResolution</code> 或 URP 的渲染缩放降低 3D 的渲染分辨率；UI 一般保持原生分辨率以保证清晰</span><span>纹理压缩</span><span>UI 图集用 ASTC（iOS / 新安卓）或 ETC2，不要用未压缩的 RGBA32——一张 2048 的 RGBA32 图集占 16 MB，ASTC 6×6 只有 1.8 MB 左右。九宫格、文字类图集如果出现明显色块，可以单独用更高的压缩质量</span><span>帧率</span><span>界面静止时降低帧率（<code>Application.targetFrameRate</code>，或用 <code>OnDemandRendering.renderFrameInterval</code> 跳帧渲染）能显著省电降温，对“挂机”“菜单”类场景尤其有效</span><span>热量与降频</span><span>手机在持续高负载下会降频，前几分钟流畅、十分钟后卡顿很常见。性能测试要连续跑 15 分钟以上，看稳定后的帧率</span><span>低端机分级</span><span>按设备档位关掉一些装饰：UI 粒子、模糊背景、RT 角色展示的分辨率与 MSAA、动画数量</span><span>真机 Profile</span><span>Development Build + Autoconnect Profiler，或者用 Android Studio / Xcode Instruments 看 GPU。编辑器里测得再好，也要在目标设备上复测</span></div>
+
+<h3 class="sec">20.14 一页优化清单</h3>
+<table>
+<tr><th>类别</th><th>检查项</th><th>依据</th></tr>
+<tr><td rowspan="4">重建</td><td>每帧变化的元素（计时器、血条、转圈图标）放进单独的 Canvas</td><td>实验 20.1：同一 Canvas 下 UI 渲染耗时 5～15 倍</td></tr>
+<tr><td>布局组不超过 3 层，每帧变化的文字不放在布局组里；排完不再变的布局组禁用掉</td><td>实验 20.2：嵌套布局约 100 倍</td></tr>
+<tr><td>界面静止时没有任何元素在重建（RebuildWatcher 检查）</td><td>20.3 节</td></tr>
+<tr><td>UI 动画用代码补间；Animator 播完禁用</td><td>20.11 节：播放中每帧全量标脏</td></tr>
+<tr><td rowspan="2">隐藏</td><td>频繁开关用 CanvasGroup（并关 blocksRaycasts）或 Canvas.enabled；不用移出屏幕做长期隐藏</td><td>20.4 节五种方法实测</td></tr>
+<tr><td>全屏界面打开时，关闭被挡住的界面和 3D 相机</td><td>20.7、20.12 节</td></tr>
+<tr><td rowspan="3">合批</td><td>同一界面的图打进同一个图集，按“同时出现”分图集；编辑器里开启 Sprite Packer 再验证</td><td>实验 20.3：商店列表 8 批 → 2 批</td></tr>
+<tr><td>重叠的元素尽量用同一贴图 / 同一材质；自定义材质不要和普通元素交错</td><td>重叠交替：100 批；材质交错：21 批</td></tr>
+<tr><td>矩形裁剪优先 RectMask2D；大量并排的裁剪区两种都测</td><td>20.6 节</td></tr>
+<tr><td rowspan="2">填充率</td><td>Overdraw 视图检查，全屏叠层控制在 2～3 层以内；去掉大面积装饰层</td><td>实验 20.4：5.80 层 → 1.66 层</td></tr>
+<tr><td>点击区用 EmptyRaycast；检查旧预制体的 Cull Transparent Mesh</td><td>20.7 节</td></tr>
+<tr><td>射线</td><td>只有可交互元素开 Raycast Target；纯展示画布删掉 GraphicRaycaster</td><td>实验：2000 个目标 658 μs，20 个 7.9 μs</td></tr>
+<tr><td rowspan="3">文字</td><td>每帧变化的数字用 SetText 并先判断值是否变化；相同字符串赋给 text 不会重建</td><td>20.9 节</td></tr>
+<tr><td>频繁变化的文字关闭 Auto Size</td><td>约 5 倍重建耗时</td></tr>
+<tr><td>常用字预热（TryAddCharacters）或用静态字库 + 动态回退</td><td>首次排版 220 ms vs 缓存后 1.45 ms</td></tr>
+<tr><td>内存</td><td>反复出现的元素用对象池；RT 按需创建、界面关闭即释放；图集压缩</td><td>每帧 359 KB → 0.87 KB GC</td></tr>
+<tr><td>流程</td><td>先 Profile 再优化；编辑器只看量级，结论在真机 Development Build 上确认</td><td>20.1 节</td></tr>
+</table>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>UI 的开销分四类：重建（C#）、合批（原生 + 工作线程）、填充率（GPU）、射线检测；症状出现在 Profiler 的不同位置，先测量再动手。</li>
+<li>本章所有结论来自配套工程的 PerfLab：ProfilerRecorder 读 Batches、SetPass、Canvas.BuildBatch、Canvas.*Job、GC，Stopwatch 测 ForceUpdateCanvases；编辑器数字看量级，真机确认。</li>
+<li>一个元素变化，C# 只重建它自己，但整个 Canvas 要重新合批——动静分离省掉的正是这部分；移动也会触发重新合批。布局嵌套会把一处文字变化放大成整棵树的重新布局。</li>
+<li>隐藏界面：CanvasGroup 切换最便宜且隐藏后不绘制；Canvas.enabled 会让子图形全部标脏材质但不重建顶点和布局；SetActive 显示时最贵；移出屏幕隐藏后仍全部绘制；缩放为 0 会触发 TMP 的 SDF 缩放更新。</li>
+<li>重叠 + 交替贴图会让批次暴涨，图集能把它压回 1 批；材质交错同理；本书环境下 Z ≠ 0 没有打断合批。</li>
+<li>RectMask2D 单个使用时批次和顶点都更少，但每帧有遍历剔除的固定开销，多个并排时批次可能比 Mask 多。</li>
+<li>Overdraw 可以逐像素统计；关掉被挡住的界面、减少装饰层、多层合一是主要手段；透明 Image 在 Cull Transparent Mesh 开启时不绘制，但点击区仍推荐用 EmptyRaycast。</li>
+<li>射线检测耗时与 Raycast Target 数量成正比；TMP 的 SetText 在编辑器下也会分配、值不变也会重建；Auto Size 约 5 倍；动态字体首次出现的字极贵，要预热。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>在你自己的机器上运行 Ch20_PerfLab，把结果和本章的表格对比：哪些实验的相对关系和本书一致，哪些不一致？试着解释差异。</li>
+<li>给 PerfLab 增加一个实验：同一 Canvas 下每帧改变 <b>10 个</b>分散在不同位置的元素，对比“10 个元素各自放进嵌套 Canvas”“10 个元素放进同一个嵌套 Canvas”两种分离方式的开销。</li>
+<li>把实验 20.3 里的重叠图标改成“图标 + 名字文字”交替重叠（图片、文字、图片、文字……），测批次数。再把所有图标放在前面、所有文字放在后面（仍然重叠），批次如何变化？这说明了列表项内部的层级顺序应该怎么安排？</li>
+<li>用 OverdrawView 检查你项目里最复杂的一个界面，找出 Overdraw 最高的区域，至少用两种方法把平均层数降低 30%。</li>
+<li>写一个编辑器工具：扫描所有预制体，列出 CanvasRenderer 的 Cull Transparent Mesh 处于关闭状态的物体（提示：用 <code>SerializedObject</code> 读 CanvasRenderer 的属性，或者在预制体内容加载后直接读 <code>cullTransparentMesh</code>）。</li>
+</ol></div>
+</section>

@@ -1,0 +1,19 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|RadialMenu|
+2|Center|Image
+3|Text|TextMeshProUGUI
+2|Sector_背包|RingProgress,RadialSector
+2|Icon_bag|Image
+2|Sector_技能|RingProgress,RadialSector
+2|Icon_star|Image
+2|Sector_地图|RingProgress,RadialSector
+2|Icon_home|Image
+2|Sector_任务|RingProgress,RadialSector
+2|Icon_trophy|Image
+2|Sector_好友|RingProgress,RadialSector
+2|Icon_user|Image
+2|Sector_设置|RingProgress,RadialSector
+2|Icon_gear|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

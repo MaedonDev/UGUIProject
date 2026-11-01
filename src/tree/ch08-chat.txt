@@ -1,0 +1,30 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ChatWindow|ChatInput
+2|Shadow|Image
+2|Bg|Image
+2|Header|Image
+3|Text|TextMeshProUGUI
+2|Scroll View|Image,ScrollRect
+3|Viewport|RectMask2D
+4|Content|VerticalLayoutGroup,ContentSizeFitter
+3|Scrollbar Vertical|Image,Scrollbar
+4|Sliding Area|
+5|Handle|Image
+3|!Template_Mine|LayoutElement
+4|Avatar|Image
+4|Bubble|Image
+5|Text|TextMeshProUGUI
+3|!Template_Other|LayoutElement
+4|Avatar|Image
+4|Bubble|Image
+5|Text|TextMeshProUGUI
+2|InputBar|
+3|InputField|Image,TMP_InputField
+4|Outline|Image
+4|Text Area|RectMask2D
+5|Placeholder|TextMeshProUGUI,LayoutElement
+5|Text|TextMeshProUGUI
+3|Button_发送|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

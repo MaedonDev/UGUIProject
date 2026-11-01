@@ -1,0 +1,22 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,RectOpsDemo
+1|Parent|Image
+2|Outline|Image
+2|Target|Image
+3|Label|TextMeshProUGUI
+1|RectProbe|Image,RectProbe
+2|Values|TextMeshProUGUI
+1|Buttons|HorizontalLayoutGroup
+2|Button_加宽|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_变窄|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_贴左|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_贴上|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_贴右|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_贴下|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

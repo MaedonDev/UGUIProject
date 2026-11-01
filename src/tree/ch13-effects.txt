@@ -1,0 +1,17 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Gradient_Image|Image,VertexGradient
+1|Text|TextMeshProUGUI
+1|Gradient_Text|Text,VertexGradient
+1|Text|TextMeshProUGUI
+1|Button_倾斜按钮|Image,Button,SkewEffect
+2|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Mirror_Image|Image,MirrorEffect
+1|Original|Image
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Combo|Image,VertexGradient,SkewEffect,Shadow
+2|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

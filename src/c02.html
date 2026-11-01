@@ -1,0 +1,375 @@
+<section class="chapter" id="c02" data-title="Canvas 与屏幕适配" data-sub="三种渲染模式、Canvas Scaler 与 Match 原理、多画布排序">
+<div class="chap-head"><div class="num">CHAPTER 02<b>第 2 章</b></div><h2>Canvas 与屏幕适配</h2><p class="lead">同一套界面，要在 16:9 的电脑、4:3 的平板、21:9 的带鱼屏和竖着拿的手机上都好看，靠的是 Canvas 和 Canvas Scaler。这一章先讲 Canvas 的三种渲染模式和排序，再把 Canvas Scaler 的缩放公式拆开，用实拍的多分辨率对比图告诉你 Match 该填多少。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>Overlay、Camera、World Space 三种渲染模式的区别与选择</div><div>Plane Distance、Sorting Layer、Order in Layer、Pixel Perfect</div><div>Canvas Scaler 三种缩放模式与 Reference Pixels Per Unit</div><div>Match 的对数插值公式：为什么是对数，0.5 意味着什么</div><div>同一界面在 16:9 / 4:3 / 21:9 / 竖屏下的真实表现</div><div>Expand 与 Shrink：保证完整显示 vs 保证铺满</div><div>多画布叠放、嵌套画布与 Override Sorting、Additional Shader Channels</div><div>World Space 头顶名字、3D 物体夹在两层 UI 之间</div></div>
+
+<h3 class="sec">2.1 Canvas 的三种渲染模式</h3>
+<p>选中 Canvas，Inspector 里第一个属性就是 <b>Render Mode（渲染模式）</b>。它回答的问题是：<b>这块画布在哪里、被谁画出来</b>。三个选项对应三种完全不同的空间关系，见图 2-1。</p>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="13">
+<g transform="translate(0,0)">
+<text x="100" y="22" text-anchor="middle" font-weight="bold" fill="#1f2436">Screen Space - Overlay</text>
+<rect x="20" y="40" width="160" height="100" fill="#dfe3f2" stroke="#7a8299"/>
+<text x="100" y="95" text-anchor="middle" font-size="12" fill="#7a8299">3D 场景（相机画的）</text>
+<rect x="30" y="50" width="140" height="80" fill="none" stroke="#5b4bd6" stroke-width="3"/>
+<rect x="60" y="100" width="80" height="20" rx="4" fill="#5b4bd6"/>
+<text x="100" y="160" text-anchor="middle" font-size="12" fill="#1f2436">所有相机画完之后，</text>
+<text x="100" y="178" text-anchor="middle" font-size="12" fill="#1f2436">直接盖在屏幕最上层</text>
+<text x="100" y="196" text-anchor="middle" font-size="12" fill="#7a8299">不需要相机、不受深度影响</text>
+</g>
+<g transform="translate(200,0)">
+<text x="100" y="22" text-anchor="middle" font-weight="bold" fill="#1f2436">Screen Space - Camera</text>
+<circle cx="20" cy="90" r="9" fill="#1f2436"/>
+<path d="M28,86 L180,40 M28,94 L180,140" stroke="#7a8299" stroke-dasharray="3 3"/>
+<line x1="150" y1="49" x2="150" y2="131" stroke="#5b4bd6" stroke-width="4"/>
+<rect x="100" y="78" width="22" height="22" fill="#ff8a3d" transform="rotate(20 111 89)"/>
+<text x="150" y="44" text-anchor="middle" font-size="11" fill="#5b4bd6">画布平面</text>
+<path d="M28,150 L150,150" stroke="#1f2436" marker-end="url(#c2a)"/><text x="88" y="146" text-anchor="middle" font-size="11" fill="#1f2436">Plane Distance</text>
+<text x="100" y="178" text-anchor="middle" font-size="12" fill="#1f2436">放在指定相机前方一定距离，</text>
+<text x="100" y="196" text-anchor="middle" font-size="12" fill="#1f2436">铺满视野；3D 物体可以挡住它</text>
+</g>
+<g transform="translate(400,0)">
+<text x="100" y="22" text-anchor="middle" font-weight="bold" fill="#1f2436">World Space</text>
+<circle cx="20" cy="90" r="9" fill="#1f2436"/>
+<path d="M28,86 L180,40 M28,94 L180,140" stroke="#7a8299" stroke-dasharray="3 3"/>
+<path d="M100,60 L150,72 L150,118 L100,106 z" fill="#e9e6fb" stroke="#5b4bd6" stroke-width="2"/>
+<rect x="150" y="80" width="22" height="22" fill="#ff8a3d"/>
+<text x="100" y="178" text-anchor="middle" font-size="12" fill="#1f2436">就是场景里的一块板子，</text>
+<text x="100" y="196" text-anchor="middle" font-size="12" fill="#1f2436">位置、旋转、大小都由你定</text>
+</g>
+<defs><marker id="c2a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1f2436"/></marker></defs>
+<text x="300" y="236" text-anchor="middle" font-size="12" fill="#7a8299">左：俯视屏幕；中、右：侧视，黑点是相机，虚线是视野范围</text>
+</svg><figcaption><b>图 2-1</b>三种渲染模式的空间关系（示意）</figcaption></figure>
+<p>用同一个界面、同一个 3D 正方体分别在三种模式下实拍，差别一目了然（图 2-2）：Overlay 下 UI 永远盖在一切之上；Camera 模式下画布被放在相机前 6 米处，比它近的正方体和地面挡住了 UI 的一部分；World Space 下画布变成了场景里一块倾斜的板子。</p>
+<figure class="shot"><img src="img/ch02-modes.jpg"><figcaption><b>图 2-2</b>同一画布的三种渲染模式。Camera 模式下画布平面落在正方体中间，正方体前半部分和更近处的地面都盖住了 UI</figcaption></figure>
+<div class="scene">Ch02/Scenes/Ch02_RenderModes.unity</div>
+<p>配套场景里底部有三个按钮，运行时可以在三种模式之间来回切换，正方体在不停旋转，能更直观地看到“UI 和 3D 谁挡谁”。切换代码如下：</p>
+<pre class="code" data-file="Ch02/RenderModeSwitcher.cs" data-region="switch"></pre>
+<h4>Screen Space - Overlay</h4>
+<p>默认模式，也是最简单的模式。画布不属于任何相机，Unity 在所有相机都渲染完之后，直接把它画在屏幕最上层。画布大小永远等于屏幕大小（除以缩放系数），RectTransform 由 Canvas 接管，不能手动修改。即使场景里一个相机都没有，Overlay 画布照样能显示。</p>
+<p>它的特点是“与 3D 世界完全无关”：不受相机的远近裁剪、深度、后处理影响，3D 物体和粒子永远不可能出现在它上面。绝大多数 HUD、菜单、弹窗用它就够了。多个 Overlay 画布之间用 <b>Sort Order</b> 决定先后，数值大的后画、在上面。</p>
+<h4>Screen Space - Camera</h4>
+<p>画布被放在指定相机（<b>Render Camera</b>）前方 <b>Plane Distance</b> 处的一个平面上，大小自动调整到正好铺满这个相机的视野。看起来和 Overlay 差不多，但它是由相机渲染的，于是：</p>
+<ul>
+<li>3D 物体可以出现在 UI 前面：比画布平面更近的不透明物体会挡住 UI（UI 的 Shader 会做深度测试）。这是“3D 物体夹在两层 UI 之间”的基础（案例 2.3）。</li>
+<li>粒子等半透明物体与 UI 的先后，可以用 <b>Sorting Layer</b> 和 <b>Order in Layer</b> 控制，因为此时画布和粒子都是这台相机渲染的半透明对象，按同一套规则排序。</li>
+<li>相机的后处理效果会作用到 UI 上（有时是你想要的，比如整体调色；有时不是，比如 Bloom 让白色文字发光）。</li>
+<li>如果相机是透视相机，把 UI 元素绕 X/Y 轴旋转会有真正的透视效果，可以做“卡牌翻转”之类的 2.5D 动效。</li>
+</ul>
+<p>Plane Distance 要落在相机的近裁剪面和远裁剪面之间，否则整个画布被裁掉看不见。Render Camera 没有赋值时，画布会按 Overlay 的方式渲染，Inspector 里会出现提示。</p>
+<h4>World Space</h4>
+<p>画布变成场景中的一个普通物体：位置、旋转、缩放都由它自己的 RectTransform 决定，可以被任意相机从任意角度看到，和 3D 物体一样有远近、有遮挡。头顶名字和血条、游戏里的电脑屏幕、VR 里的菜单都用它。</p>
+<p>World Space 画布最容易出错的是<b>尺寸</b>。RectTransform 的 Width/Height 是“UI 单位”，而这块画布在世界里的实际大小 = 宽高 × Scale。一般的做法是保持 UI 单位和平时差不多（比如宽 400），再把 Scale 设成 0.005 这样的小数，于是画布宽 400 × 0.005 = 2 米。如果直接从 Overlay 切过来，画布还保持着屏幕像素尺寸（1920×1080），Scale 为 1，那就是一块近两公里宽的板子。另外，World Space 画布的 Canvas 组件上会出现 <b>Event Camera</b> 字段，用来做点击检测，需要把能看到它的相机拖进去，否则点不到。</p>
+<table>
+<tr><th>模式</th><th>适合</th><th>注意</th></tr>
+<tr><td class="k">Overlay</td><td>大部分 HUD、菜单、弹窗、提示</td><td>3D 物体和粒子永远在它下面；不受后处理影响</td></tr>
+<tr><td class="k">Camera</td><td>需要粒子特效在 UI 上播放、3D 模型夹在 UI 中间、UI 也要后处理</td><td>需要指定相机；Plane Distance 在裁剪范围内；注意 3D 物体意外挡住 UI</td></tr>
+<tr><td class="k">World Space</td><td>头顶名字/血条、场景内屏幕、VR/AR 界面</td><td>自己设定尺寸和缩放；要指定 Event Camera 才能点击</td></tr>
+</table>
+
+<p>怎么选？可以按这个顺序问自己：这块 UI 是不是“长在 3D 世界里”的（名字牌、场景里的屏幕、VR 菜单）？是就用 World Space。不是的话，它需不需要和 3D 物体或粒子互相穿插、需不需要相机的后处理？需要就用 Camera。都不需要，就用 Overlay。一个项目里三种模式同时存在是很正常的：主界面和弹窗用 Overlay，带特效的抽卡界面用 Camera，角色头顶用 World Space。唯一要避免的是“为了一个粒子特效把整个项目的 UI 都改成 Camera 模式”，那会把本来很简单的排序问题变复杂。</p>
+<h3 class="sec">2.2 Camera 模式的细节：排序与 UI 相机</h3>
+<p>Screen Space - Camera 模式下，Canvas 组件多出几个属性：</p>
+<div class="kv">
+<span>Render Camera</span><span>由哪台相机渲染这块画布。画布会被放在它的前方并铺满它的视野。</span>
+<span>Plane Distance</span><span>画布平面到相机的距离（世界单位）。同一台相机下的多块画布，在 Sorting Layer 和 Order 都相同时，距离远的先画。</span>
+<span>Sorting Layer</span><span>排序层，在 <span class="menu">Project Settings › Tags and Layers</span> 里定义。层的先后顺序决定渲染先后，优先级最高。它和 GameObject 的 Layer（用于相机剔除和物理）是两个完全不同的概念。</span>
+<span>Order in Layer</span><span>同一排序层内的先后，数值大的后画。代码里对应 <code>canvas.sortingOrder</code>。Overlay 模式下这个字段显示为 Sort Order，含义相同。</span>
+</div>
+<p>半透明对象（UI、粒子、SpriteRenderer）的绘制顺序可以简化成：先比 Sorting Layer，再比 Order in Layer，都相同再按到相机的距离从远到近。不透明的 3D 物体则先画，并写入深度。所以“3D 物体挡不挡 UI”看的是<b>深度</b>（谁离相机近），“粒子在不在 UI 上面”看的是<b>排序</b>（Order 谁大）——这两件事别混在一起。</p>
+<h4>常见的双相机结构</h4>
+<p>项目里常见的做法是用两台相机：主相机渲染 3D 场景，Culling Mask 去掉 UI 层；另建一台 UI 相机，Culling Mask 只勾 UI 层，Clear Flags 设为 Depth only（只清深度、保留下面主相机画好的画面），Depth 比主相机大（后渲染），所有 Camera 模式的画布都指定这台 UI 相机。这样 UI 和 3D 场景互不干扰，主相机可以随意移动、加后处理，UI 都不受影响；UI 相机一般用正交投影。</p>
+<figure><svg viewBox="0 0 600 170" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="20" width="250" height="120" rx="6" fill="#fff" stroke="#e0deef"/>
+<text x="36" y="44" font-weight="bold" fill="#1f2436">Main Camera</text>
+<g font-size="12" fill="#1f2436"><text x="36" y="68">Depth: 0</text><text x="36" y="88">Clear Flags: Skybox</text><text x="36" y="108">Culling Mask: 除 UI 外全部</text><text x="36" y="128" fill="#7a8299">画 3D 场景、可加后处理</text></g>
+<rect x="330" y="20" width="250" height="120" rx="6" fill="#f5f4fd" stroke="#5b4bd6"/>
+<text x="346" y="44" font-weight="bold" fill="#5b4bd6">UI Camera</text>
+<g font-size="12" fill="#1f2436"><text x="346" y="68">Depth: 1（后渲染）</text><text x="346" y="88">Clear Flags: Depth only</text><text x="346" y="108">Culling Mask: 只有 UI</text><text x="346" y="128" fill="#7a8299">Projection: Orthographic</text></g>
+<path d="M270,80 L326,80" stroke="#7a8299" stroke-width="1.6" marker-end="url(#c2a)"/>
+<text x="300" y="160" text-anchor="middle" font-size="12" fill="#7a8299">内置渲染管线下的写法；URP 中改用 Camera Stack（Base + Overlay 相机），思路相同</text>
+</svg><figcaption><b>图 2-3</b>主相机 + UI 相机的常见配置（示意）</figcaption></figure>
+<div class="note warn"><b>注意</b>UI 相机要记得关掉不需要的东西：去掉 Audio Listener（场景里只能有一个），Culling Mask 只留 UI，不需要 MSAA 和 HDR 时关掉。主相机的 Culling Mask 一定要去掉 UI 层，否则 Camera 模式的画布可能被两台相机各画一次。</div>
+<h4>Pixel Perfect</h4>
+<p>Overlay 和 Camera 模式下 Canvas 有一个 <b>Pixel Perfect</b> 勾选框。打开后，UI 元素的顶点会被对齐到最近的屏幕像素上，避免图片边缘落在半个像素上而发虚，像素风游戏和细线条图标会更锐利。代价有两个：一是元素移动时会一格一格地“跳”而不是平滑移动，做滚动列表和动画时很明显；二是需要额外计算，大量元素运动时有开销。它对 World Space 画布无效（源码 <code>Graphic.PixelAdjustPoint</code> 里遇到 World Space 直接返回原值）。一般项目保持关闭，像素风项目才考虑打开；嵌套画布可以通过 Override Pixel Perfect 单独设置。</p>
+
+<h3 class="sec">2.3 Canvas Scaler：三种缩放模式</h3>
+<p>屏幕分辨率千差万别：1280×720 的老手机、2560×1440 的显示器、2778×1284 的新手机。如果 UI 单位和屏幕像素一一对应，那么在 720p 屏幕上正好的按钮，到 1440p 上就只有一半大。<b>Canvas Scaler（画布缩放器）</b>就是解决这个问题的：它计算一个缩放系数 <code>scaleFactor</code>，整个画布按这个系数缩放，于是 <b>画布的逻辑尺寸 = 屏幕像素尺寸 ÷ scaleFactor</b>。我们摆 UI 用的都是逻辑尺寸。</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="10" width="560" height="210" rx="6" fill="#f7f6fd" stroke="#e0deef"/>
+<text x="36" y="34" font-weight="bold" fill="#1f2436">▾ Canvas Scaler</text>
+<g font-size="12" fill="#1f2436">
+<text x="36" y="62">UI Scale Mode</text><rect x="230" y="48" width="320" height="22" rx="3" fill="#fff" stroke="#5b4bd6" stroke-width="1.5"/><text x="238" y="64">Scale With Screen Size ▾</text>
+<text x="36" y="92">Reference Resolution</text><text x="238" y="92">X  1920        Y  1080</text>
+<text x="36" y="120">Screen Match Mode</text><rect x="230" y="106" width="320" height="22" rx="3" fill="#fff" stroke="#c9cde0"/><text x="238" y="122">Match Width Or Height ▾</text>
+<text x="36" y="150">Match</text><text x="230" y="150" font-size="11" fill="#7a8299">Width</text>
+<line x1="270" y1="146" x2="500" y2="146" stroke="#c9cde0" stroke-width="4"/><circle cx="385" cy="146" r="7" fill="#5b4bd6"/><text x="508" y="150" font-size="11" fill="#7a8299">Height</text><text x="556" y="150">0.5</text>
+<text x="36" y="180">Reference Pixels Per Unit</text><text x="238" y="180">100</text>
+</g>
+<text x="36" y="208" font-size="11" fill="#7a8299">切换 UI Scale Mode，下方字段随之变化（如 Constant Pixel Size 显示 Scale Factor）</text>
+</svg><figcaption><b>图 2-4</b>Canvas Scaler 的 Inspector（示意，Scale With Screen Size 模式）</figcaption></figure>
+<h4>Constant Pixel Size（固定像素大小）</h4>
+<p>编辑器新建 Canvas 的默认值。<code>scaleFactor</code> 就是你填的 Scale Factor（默认 1），不随屏幕变化：1 个 UI 单位永远是 Scale Factor 个像素。屏幕越大，UI 看起来越小、能放下的东西越多。适合 PC 上“窗口变大就多显示内容”的工具类界面，或者你打算在代码里根据屏幕自己算缩放。做游戏界面几乎不用它。</p>
+<h4>Scale With Screen Size（随屏幕尺寸缩放）</h4>
+<p>游戏最常用的模式。你给定一个<b>参考分辨率（Reference Resolution）</b>，比如 1920×1080，按这个分辨率设计界面；运行时 Canvas Scaler 比较真实屏幕和参考分辨率，算出缩放系数。屏幕刚好是 1920×1080 时 scaleFactor = 1；屏幕是 3840×2160 时 scaleFactor = 2，一切都放大一倍，看起来和设计稿一模一样。难点在于宽高比不同的屏幕：宽度比例和高度比例不一样，听谁的？这由 Screen Match Mode 决定，2.4 节专门讲。</p>
+<h4>Constant Physical Size（固定物理尺寸）</h4>
+<p>让 UI 元素在任何屏幕上都保持相同的<b>物理尺寸</b>（比如按钮永远是 1 厘米宽），依据是屏幕的 DPI（每英寸像素数）。源码（摘自 com.unity.ugui 1.0.0 <code>Runtime/UI/Core/Layout/CanvasScaler.cs</code>）：</p>
+<pre class="code" data-lang="csharp">float currentDpi = Screen.dpi;
+float dpi = (currentDpi == 0 ? m_FallbackScreenDPI : currentDpi);
+float targetDPI = 1;
+switch (m_PhysicalUnit)
+{
+    case Unit.Centimeters: targetDPI = 2.54f; break;
+    case Unit.Millimeters: targetDPI = 25.4f; break;
+    case Unit.Inches:      targetDPI =     1; break;
+    case Unit.Points:      targetDPI =    72; break;
+    case Unit.Picas:       targetDPI =     6; break;
+}
+SetScaleFactor(dpi / targetDPI);
+SetReferencePixelsPerUnit(m_ReferencePixelsPerUnit * targetDPI / m_DefaultSpriteDPI);
+</pre>
+<p>以默认的 Points（点，1 英寸 = 72 点）为例：在 DPI 为 144 的屏幕上 scaleFactor = 144 / 72 = 2，1 个 UI 单位 = 2 个像素 = 1/72 英寸。<code>Screen.dpi</code> 拿不到时（返回 0）用 Fallback Screen DPI（默认 96）。听上去很理想，但实际中各设备上报的 DPI 并不总是准确，手机和电视的观看距离也完全不同，“物理尺寸相同”未必是想要的效果，所以游戏里很少用。</p>
+<h4>Reference Pixels Per Unit</h4>
+<p>这个值经常被忽略，但它决定了图片的“原始大小”。<code>Image</code> 计算自己的 <code>pixelsPerUnit</code> 时用的是这个公式（摘自 <code>Runtime/UI/Core/Image.cs</code>）：</p>
+<pre class="code" data-lang="csharp">float spritePixelsPerUnit = 100;
+if (activeSprite)
+    spritePixelsPerUnit = activeSprite.pixelsPerUnit;
+if (canvas)
+    m_CachedReferencePixelsPerUnit = canvas.referencePixelsPerUnit;
+return spritePixelsPerUnit / m_CachedReferencePixelsPerUnit;
+</pre>
+<p>精灵导入设置里的 Pixels Per Unit 默认是 100，画布的 Reference Pixels Per Unit 默认也是 100，二者相除等于 1：精灵的 1 个纹理像素 = 1 个 UI 单位。点 Image 的 Set Native Size 时，一张 200×100 的图就会变成 200×100 的 UI 尺寸；九宫格（Sliced）图片的边框宽度也按这个比例换算。如果美术把精灵的 Pixels Per Unit 改成了 200，Set Native Size 后图片只有一半大，九宫格边框也会变细——这时要么统一精灵的 PPU，要么调 Image 的 Pixels Per Unit Multiplier（第 4 章）。<b>建议整个项目的 UI 精灵统一使用 100，画布也保持 100</b>，省掉一大类莫名其妙的尺寸问题。</p>
+
+<h3 class="sec">2.4 Match 原理：对数插值</h3>
+<p>Scale With Screen Size 模式下，Screen Match Mode 有三个选项：<b>Match Width Or Height</b>（按 Match 滑块在宽、高之间插值）、<b>Expand</b>（扩展）、<b>Shrink</b>（收缩）。先看最常用的第一个。设屏幕宽高为 <i>W</i>、<i>H</i>，参考分辨率为 <i>W</i><sub>r</sub>、<i>H</i><sub>r</sub>，Match 滑块的值为 <i>m</i>（0 到 1）。源码是这样算的（摘自 <code>CanvasScaler.cs</code>，<code>kLogBase</code> 是常量 2）：</p>
+<pre class="code" data-lang="csharp">// We take the log of the relative width and height before taking the average.
+// Then we transform it back in the original space.
+// the reason to transform in and out of logarithmic space is to have better behavior.
+// If one axis has twice resolution and the other has half, it should even out if widthOrHeight value is at 0.5.
+// In normal space the average would be (0.5 + 2) / 2 = 1.25
+// In logarithmic space the average is (-1 + 1) / 2 = 0
+float logWidth = Mathf.Log(screenSize.x / m_ReferenceResolution.x, kLogBase);
+float logHeight = Mathf.Log(screenSize.y / m_ReferenceResolution.y, kLogBase);
+float logWeightedAverage = Mathf.Lerp(logWidth, logHeight, m_MatchWidthOrHeight);
+scaleFactor = Mathf.Pow(kLogBase, logWeightedAverage);
+</pre>
+<p>写成公式：</p>
+<div class="formula"><math display="block"><mi>s</mi><mo>=</mo><msup><mn>2</mn><mrow><mo>(</mo><mn>1</mn><mo>−</mo><mi>m</mi><mo>)</mo><mo>·</mo><msub><mi>log</mi><mn>2</mn></msub><mfrac><mi>W</mi><msub><mi>W</mi><mi>r</mi></msub></mfrac><mo>+</mo><mi>m</mi><mo>·</mo><msub><mi>log</mi><mn>2</mn></msub><mfrac><mi>H</mi><msub><mi>H</mi><mi>r</mi></msub></mfrac></mrow></msup><mo>=</mo><msup><mrow><mo>(</mo><mfrac><mi>W</mi><msub><mi>W</mi><mi>r</mi></msub></mfrac><mo>)</mo></mrow><mrow><mn>1</mn><mo>−</mo><mi>m</mi></mrow></msup><mo>·</mo><msup><mrow><mo>(</mo><mfrac><mi>H</mi><msub><mi>H</mi><mi>r</mi></msub></mfrac><mo>)</mo></mrow><mi>m</mi></msup></math></div>
+<p>也就是说，scaleFactor 是“宽度比例”和“高度比例”的<b>加权几何平均</b>，而不是算术平均。<i>m</i> = 0 时只看宽度：scaleFactor = <i>W</i> / <i>W</i><sub>r</sub>，画布的逻辑宽度永远等于参考宽度 1920，高度随屏幕比例变化；<i>m</i> = 1 时只看高度：画布逻辑高度永远是 1080，宽度随屏幕变化；<i>m</i> = 0.5 时两边各让一步。</p>
+<h4>为什么用对数（几何平均）</h4>
+<p>源码注释里举了一个例子：如果屏幕宽度是参考的 2 倍、高度是参考的一半，Match 取 0.5 时，直觉上“两边扯平”，缩放应该是 1。算术平均却是 (2 + 0.5) / 2 = 1.25，偏向了放大；几何平均是 √(2 × 0.5) = 1，正好扯平。原因是缩放是“乘法”性质的量：放大 2 倍和缩小到 1/2 是对称的两个操作，在对数空间里它们是 +1 和 −1，平均起来才是 0。图 2-5 把两种插值画在一起对比。</p>
+<figure><svg viewBox="0 0 600 270" width="600" font-family="PingFang SC" font-size="13">
+<line x1="80" y1="230" x2="530" y2="230" stroke="#1f2436"/><line x1="80" y1="30" x2="80" y2="230" stroke="#1f2436"/>
+<g font-size="12" fill="#7a8299" text-anchor="end">
+<text x="72" y="223">0.5</text><text x="72" y="167">1.0</text><text x="72" y="112">1.5</text><text x="72" y="56">2.0</text></g>
+<g stroke="#e0deef"><line x1="80" y1="163.3" x2="530" y2="163.3"/><line x1="80" y1="107.8" x2="530" y2="107.8"/><line x1="80" y1="52.2" x2="530" y2="52.2"/><line x1="300" y1="30" x2="300" y2="230"/></g>
+<g font-size="12" fill="#7a8299" text-anchor="middle"><text x="80" y="248">0（按宽）</text><text x="300" y="248">0.5</text><text x="520" y="248">1（按高）</text><text x="300" y="266">Match</text></g>
+<text x="40" y="24" font-size="12" fill="#7a8299">scaleFactor</text>
+<path d="M80.0,52.2 L520.0,218.9" stroke="#7a8299" stroke-width="2" stroke-dasharray="6 4" fill="none"/>
+<path d="M80.0,52.2 L102.0,67.1 L124.0,81.0 L146.0,93.9 L168.0,106.0 L190.0,117.3 L212.0,127.8 L234.0,137.7 L256.0,146.8 L278.0,155.4 L300.0,163.3 L322.0,170.8 L344.0,177.7 L366.0,184.2 L388.0,190.2 L410.0,195.9 L432.0,201.1 L454.0,206.0 L476.0,210.6 L498.0,214.9 L520.0,218.9" stroke="#5b4bd6" stroke-width="3" fill="none"/>
+<circle cx="300" cy="163.3" r="5" fill="#5b4bd6"/><circle cx="300" cy="135.6" r="5" fill="#7a8299"/>
+<text x="310" y="180" fill="#5b4bd6" font-weight="bold">对数插值：1.00</text>
+<text x="310" y="130" fill="#7a8299">线性插值：1.25</text>
+<text x="96" y="46" font-size="12" fill="#1f2436">宽度比例 W/Wr = 2</text><text x="440" y="212" font-size="12" fill="#1f2436" text-anchor="end">高度比例 H/Hr = 0.5</text>
+</svg><figcaption><b>图 2-5</b>宽度比例 2、高度比例 0.5 时，scaleFactor 随 Match 的变化。紫色实线是 UGUI 用的对数插值，灰色虚线是线性插值</figcaption></figure>
+<p>实际屏幕的宽高比例差别没这么极端，两种插值的差别通常只有百分之一二，但对数插值保证了一个很好的性质：<b>屏幕宽高比例与参考分辨率相同时，任何 Match 值算出来的结果都一样</b>（宽、高比例相等，加权几何平均就是它本身）。Match 只在“宽高比与设计稿不同”时起作用。</p>
+<h4>算一算：4:3 屏幕上的三个 Match</h4>
+<p>以参考分辨率 1920×1080（16:9）、一块 720×540（4:3）的屏幕为例。宽度比例 720/1920 = 0.375，高度比例 540/1080 = 0.5：</p>
+<table>
+<tr><th>Match</th><th>scaleFactor</th><th>画布逻辑尺寸（屏幕 ÷ scaleFactor）</th><th>效果</th></tr>
+<tr><td class="k">0（按宽）</td><td>0.375</td><td>1920 × 1440</td><td>宽度刚好装下设计稿，上下多出 360 个单位的空间</td></tr>
+<tr><td class="k">0.5</td><td>√(0.375×0.5) ≈ 0.433</td><td>1663 × 1247</td><td>宽度少了一些、高度多了一些</td></tr>
+<tr><td class="k">1（按高）</td><td>0.5</td><td>1440 × 1080</td><td>高度刚好，宽度比设计稿窄了 480 个单位</td></tr>
+</table>
+<p>这三行数字不是算出来贴上的——图 2-7 每一格中间的信息面板，就是 <code>ScreenInfo</code> 组件在截图时实时读出的 <code>canvas.scaleFactor</code> 和画布 <code>rect</code>，和表格完全一致。可以看出一个规律：<b>Match 越偏向某一边，那一边的逻辑尺寸就越接近参考值，另一边则承担全部的比例差</b>。</p>
+
+<h3 class="case"><span class="no">案例 2.1</span>多分辨率适配对比<span class="lv">入门</span></h3>
+<p><b>目标</b>：用一个典型的横屏游戏 HUD（左上头像血条、顶部关卡、右上金币和设置、左下摇杆、右下技能按钮），在 16:9、4:3、21:9 和竖屏四种比例下实拍，再比较不同 Match 的效果，最后给出 Match 的选择建议。</p>
+<p>HUD 的每个元素都用锚点钉在屏幕的某个角或某条边上（第 3 章细讲），中间放一个信息面板，实时显示适配相关的数字：</p>
+<pre class="code" data-file="Ch02/ScreenInfo.cs" data-region="info"></pre>
+<p><code>canvas.renderingDisplaySize</code> 是画布实际渲染到的像素尺寸（Canvas Scaler 计算时用的就是它，对主显示器而言等于屏幕分辨率）；画布 RectTransform 的 <code>rect.size</code> 就是逻辑尺寸。脚本加了 <code>[ExecuteAlways]</code>，不运行也会刷新，在编辑器里切换 Game 视图分辨率就能看到数字变化。</p>
+<figure class="shot">
+<div style="display:flex;gap:6px;align-items:flex-start"><img src="img/ch02-aspect-169.jpg" style="width:56.8%"><img src="img/ch02-aspect-43.jpg" style="width:42.4%"></div>
+<div style="display:flex;gap:6px;align-items:flex-start;margin-top:6px"><img src="img/ch02-aspect-219.jpg" style="width:80.2%"><img src="img/ch02-aspect-portrait.jpg" style="width:19.0%"></div>
+<figcaption><b>图 2-6</b>同一 HUD、Match = 0.5 时在 16:9（左上）、4:3（右上）、21:9（左下）、9:16 竖屏（右下）上的实拍</figcaption></figure>
+<div class="scene">Ch02/Scenes/Ch02_Adaptive.unity</div>
+<p>先说明一下截图里的“屏幕”尺寸：配图是按 960×540、720×540 这样的像素渲染出来的，所以 scaleFactor 都小于 1。这恰好说明了一点：<b>画布的逻辑尺寸只取决于屏幕的宽高比和 Match，与像素多少无关</b>。同样是 16:9，720p、1080p、4K 屏幕上画布的逻辑尺寸都是 1920×1080，只是 scaleFactor 分别为 0.667、1、2。你在 1080p 下摆好的界面，在 4K 屏幕上只是被等比放大，不会变形。</p>
+<p>对照四张图：</p>
+<ul>
+<li><b>16:9</b>：与参考分辨率比例相同，画布正好 1920×1080，一切如设计稿。</li>
+<li><b>4:3</b>：画布变成 1663×1247，比设计稿窄、比设计稿高。因为所有元素都锚在角落，它们只是向中间靠拢了一些，上下留白变多。右下的技能按钮和左下的摇杆之间距离变近，如果设计稿里底部元素本来就排得很满，这里就会重叠。</li>
+<li><b>21:9</b>：画布约 2200×943，比设计稿宽、矮一点。元素向两边散开，中间空了一大片；同时高度只有 943，所有元素都比设计稿小一圈。</li>
+<li><b>竖屏 9:16</b>：画布约 1080×1919，宽度只剩一半多。顶部的头像、关卡、金币挤在一起互相覆盖——横屏设计的界面不可能靠 Canvas Scaler 自动适配竖屏，要么锁定屏幕方向，要么为竖屏单独做一套布局（第 19 章）。</li>
+</ul>
+<h4>不同 Match 的对比</h4>
+<p>把 Match 分别设为 0、0.5、1，在 4:3 和 21:9 上各拍一组。橙色粗框是参考分辨率 1920×1080 那块区域在当前画布中的位置——框内是“设计稿保证有的区域”，框外是多出来的或被裁掉的部分。</p>
+<figure class="shot"><img src="img/ch02-match-43.jpg"><div class="panels"><span>Match = 0</span><span>Match = 0.5</span><span>Match = 1</span></div><figcaption><b>图 2-7</b>4:3 屏幕上 Match 取 0、0.5、1 的效果。Match = 0 时参考区域完整可见、上下多出空间；Match = 1 时参考区域左右被裁掉</figcaption></figure>
+<figure class="shot"><img src="img/ch02-match-219-0.jpg" style="width:78%"><img src="img/ch02-match-219-05.jpg" style="width:78%;margin-top:6px"><img src="img/ch02-match-219-1.jpg" style="width:78%;margin-top:6px"><figcaption><b>图 2-8</b>21:9 屏幕上 Match 取 0（上）、0.5（中）、1（下）。Match = 0 时画布高度只剩 823，元素整体放大、参考区域上下被裁；Match = 1 时参考区域完整，左右多出空间</figcaption></figure>
+<p>两组图放在一起看，规律很清楚：</p>
+<ul>
+<li>屏幕<b>比设计稿宽</b>（21:9）时，Match 偏向 1（按高）能保证设计稿的内容不被裁掉，多出来的宽度分给两侧；偏向 0 则上下被裁，元素还会被放大。</li>
+<li>屏幕<b>比设计稿窄</b>（4:3）时，正好相反：Match 偏向 0（按宽）才能保证内容完整，多出来的高度分给上下；偏向 1 则左右被裁。</li>
+</ul>
+<p>所以没有一个 Match 值能在两种情况下都保证完整。常见的选择有三种：</p>
+<ol>
+<li><b>横屏游戏、目标设备以宽屏手机为主</b>：Match = 1（按高）。手机屏幕越来越长，全面屏都比 16:9 宽，按高匹配保证纵向内容不被挤压，横向多出的空间由锚在两侧的元素自然分开。代价是在 4:3 平板（iPad）上左右会被裁，需要在设计时让中间关键内容不超过 1440 宽，或者针对平板单独处理。</li>
+<li><b>竖屏游戏、竖屏应用</b>：Match = 0（按宽）。参考分辨率设为 1080×1920，宽度永远是 1080，屏幕越长内容区越高（第 3 章案例 3.2 的 App 布局就是这样）。</li>
+<li><b>不确定、兼顾各种设备</b>：Match = 0.5，或者使用下面的 Expand。</li>
+</ol>
+<h4>参考分辨率怎么选</h4>
+<p>参考分辨率最好就是设计稿的尺寸，美术按这个尺寸出图、你按这个尺寸摆界面，数字可以一一对应。横屏游戏常用 1920×1080，竖屏常用 1080×1920；以前很流行的 1280×720 也可以，但现在主流手机都是 1080p 以上，用 720p 做参考时 scaleFactor 普遍大于 1.5，切图如果也是按 720p 出的，放大后会发糊。反过来，参考分辨率选得太大（比如 2560×1440），切图体积和内存都会上去，而低端机上 scaleFactor 小于 0.5，图片被大幅缩小，既浪费又可能出现锯齿。一个经验是：<b>切图按参考分辨率的 1 倍出，参考分辨率接近目标设备的主流分辨率</b>。</p>
+<p>宽高比方面，参考分辨率的比例最好落在目标设备比例范围的中间。比如目标设备从 4:3 的平板到 20:9 的手机都有，用 16:9 做参考，两头的偏差都不算太大；如果只做手机，用 19.5:9（如 2340×1080）做参考，大部分设备都接近设计稿，只需要单独照顾一下平板。</p>
+<h4>Expand 与 Shrink</h4>
+<p>另外两种 Screen Match Mode 不需要你选 Match 值：</p>
+<pre class="code" data-lang="csharp">case ScreenMatchMode.Expand:
+    scaleFactor = Mathf.Min(screenSize.x / m_ReferenceResolution.x, screenSize.y / m_ReferenceResolution.y);
+    break;
+case ScreenMatchMode.Shrink:
+    scaleFactor = Mathf.Max(screenSize.x / m_ReferenceResolution.x, screenSize.y / m_ReferenceResolution.y);
+    break;
+</pre>
+<p><b>Expand（扩展）</b>取宽、高比例中较小的那个。缩放系数小，画布逻辑尺寸就大，结果是画布在一个方向等于参考值、另一个方向<b>大于</b>参考值——参考区域总是<b>完整可见</b>，多出来的部分是额外空间。仔细想一下，它其实就是“屏幕比设计稿宽时用 Match = 1，比设计稿窄时用 Match = 0”的自动版本，也就是上面两组对比图里“参考区域完整”的那一种。</p>
+<p><b>Shrink（收缩）</b>取较大的那个：画布在一个方向等于参考值、另一个方向<b>小于</b>参考值——画布总是被参考区域<b>铺满</b>，但参考区域的一部分会超出屏幕被裁掉。适合全屏背景、过场插图这种“宁可裁一点也不能留黑边”的场合。</p>
+<figure class="shot"><img src="img/ch02-expand-shrink.jpg"><div class="panels"><span>Expand：1920×1440</span><span>Shrink：1440×1080</span></div><figcaption><b>图 2-9</b>4:3 屏幕上的 Expand（左）与 Shrink（右）。橙框是参考分辨率区域：Expand 下它完整可见，Shrink 下它左右超出屏幕</figcaption></figure>
+<div class="cmp"><div class="good"><h5>✓ 推荐</h5>先确定目标设备的宽高比范围，用 Game 视图把最宽和最窄的比例都看一遍；关键内容放在“所有比例下都可见”的安全区域内；HUD 元素一律锚在角和边上。</div><div class="bad"><h5>✗ 避免</h5>只在 16:9 下调界面；把元素的位置写成相对画布中心的绝对坐标；指望一个 Match 值解决所有比例；横屏界面不加处理直接用到竖屏。</div></div>
+<p>配套场景 Ch02_Adaptive 底部有一个 Match 滑块，运行后拖动它，同时切换 Game 视图的分辨率，观察中间面板的数字和四周元素的位置变化：</p>
+<pre class="code" data-file="Ch02/MatchControl.cs"></pre>
+
+<h3 class="sec">2.5 多个 Canvas、嵌套 Canvas 与 Additional Shader Channels</h3>
+<p>一个场景里可以有多个根画布，比如 HUD 一个、弹窗一个、新手引导一个。它们之间谁在上面，按 2.2 节的规则：Overlay 画布之间比 Sort Order；Camera 和 World Space 画布与其他半透明物体一起，比 Sorting Layer、Order in Layer 和距离。所有 Overlay 画布都画在 Camera 画布之上，因为它们是在相机渲染完之后才画的。</p>
+<p>Canvas 也可以<b>嵌套</b>：在某个 UI 元素上再加一个 Canvas 组件，它就成了子画布（Nested Canvas）。默认情况下，子画布在视觉上和普通子节点没区别：按层级顺序绘制、继承父画布的渲染模式和排序。那为什么要嵌套？主要有两个理由：</p>
+<ul>
+<li><b>性能：隔离重建</b>。画布里任何一个元素发生变化（位置、颜色、文字），Canvas 都要重新合并网格（rebatch），而且是以画布为单位。把频繁变化的元素（倒计时、血条、跑马灯）放进独立的子画布，它们变化时只有这个子画布需要重新处理，静态的大背景不受牵连。这就是常说的“动静分离”，第 12、20 章有实测。</li>
+<li><b>排序：Override Sorting</b>。勾选子画布的 Override Sorting 后，它不再跟随父画布的排序，而是用自己的 Sorting Layer 和 Order in Layer 参与全局排序。一个提示气泡挂在 HUD 的按钮下面（跟着按钮移动），却要显示在弹窗之上，就需要它。案例 2.4 演示这一点。</li>
+</ul>
+<div class="note warn"><b>注意</b>子画布上的元素要能被点击，<b>子画布自己也需要一个 Graphic Raycaster</b>。原因是每个 Graphic 都登记在离它最近的那个 Canvas 名下（源码 <code>GraphicRegistry</code>），父画布的 Graphic Raycaster 只检测登记在父画布名下的图形。用代码或菜单加 Canvas 组件时不会自动加 Raycaster，这是嵌套画布后“按钮突然点不动”的常见原因。</div>
+<div class="box"><h4>原理：点击的先后也按画布排序</h4><p>绘制顺序和点击顺序是一致的，这不是巧合，而是 EventSystem 刻意做到的。<code>EventSystem.RaycastAll</code> 收集完所有 Raycaster 的结果后，用一个比较函数排序（摘自 <code>Runtime/EventSystem/EventSystem.cs</code>，有删节）：</p>
+<pre class="code" data-lang="csharp">if (lhs.module != rhs.module)
+{
+    // 不同 Raycaster：先比事件相机的 depth，再比 sortOrderPriority、renderOrderPriority
+}
+if (lhs.sortingLayer != rhs.sortingLayer) { /* 比排序层的先后 */ }
+if (lhs.sortingOrder != rhs.sortingOrder)
+    return rhs.sortingOrder.CompareTo(lhs.sortingOrder);
+// 同一个根画布内才比较 depth（绘制深度）
+if (lhs.depth != rhs.depth &amp;&amp; lhs.module.rootRaycaster == rhs.module.rootRaycaster)
+    return rhs.depth.CompareTo(lhs.depth);
+</pre>
+<p>对 Overlay 画布，GraphicRaycaster 的 <code>sortOrderPriority</code> 就是画布的 Sort Order；画布内部则按 <code>depth</code>——Canvas 在合批时给每个图形算出的绘制深度——排序。所以“Sort Order 大的画布在上面”“同一画布内后画的在上面”这两条规则，对绘制和点击同时成立。第 11 章会完整读一遍这段代码。</p></div>
+<h4>Additional Shader Channels</h4>
+<p>Canvas 组件最下面有一个 <b>Additional Shader Channels</b> 多选框，选项有 TexCoord1、TexCoord2、TexCoord3、Normal、Tangent。UI 网格默认只把顶点位置、颜色和第一套 UV 传给 Shader；如果某个 UI Shader 需要更多的顶点数据（第二套 UV、法线、切线），必须在这里勾上，否则 Shader 读到的是空数据。</p>
+<p>最常见的使用者是 TextMeshPro：它把 SDF 渲染需要的额外参数（如字号相关的缩放、粗体信息）塞在 UV1、法线和切线里。TMP 在生成文字网格时会自动帮你打开这几个通道（摘自 com.unity.textmeshpro 3.0.7 <code>TMPro_UGUI_Private.cs</code>）：</p>
+<pre class="code" data-lang="csharp">// Must ensure the Canvas support the additional vertex attributes used by TMP.
+if (m_canvas.additionalShaderChannels != (AdditionalCanvasShaderChannels)25)
+    m_canvas.additionalShaderChannels |= (AdditionalCanvasShaderChannels)25;
+</pre>
+<p>25 = 1（TexCoord1）+ 8（Normal）+ 16（Tangent）。所以你会发现，放了 TMP 文字的画布这一项会自动变成 “TexCoord1, Normal, Tangent”。打开通道会让这块画布上所有元素的顶点数据都变大一些，所以不需要时不要乱勾。第 13、14 章写自定义网格效果和 Shader 时还会用到它。</p>
+
+<h3 class="case"><span class="no">案例 2.2</span>World Space 头顶名字与血条<span class="lv">进阶</span></h3>
+<p><b>目标</b>：三个角色头顶各有一块名字牌（等级 + 名字 + 血条），无论相机怎么转，名字牌都正对屏幕。</p>
+<figure class="shot"><img src="img/ch02-worldspace.jpg"><figcaption><b>图 2-10</b>World Space 画布做的头顶名字牌。远处的角色名字牌更小，被前面的物体挡住时也会被遮挡——这是它和“屏幕空间跟随”方案最大的区别</figcaption></figure>
+<div class="scene">Ch02/Scenes/Ch02_WorldSpace.unity</div>
+<p><b>思路</b>：每个角色下挂一个 World Space 画布作为名字牌，画布的位置放在角色头顶。剩下的问题是朝向：画布是一块平板，相机转到侧面时就只能看到一条线了，需要一个“看板（Billboard）”脚本让它每帧转向相机。</p>
+<ol class="steps">
+<li>在角色物体上右键 <span class="menu">UI › Canvas</span>，在新画布上把 Render Mode 改成 <b>World Space</b>，把 Event Camera 设为主相机。</li>
+<li>设置 Rect Transform：Pos 设为 (0, 1.6, 0)（角色头顶），Width/Height 设为 420 × 130，<b>Scale 设为 0.0065</b>（三个轴都改），于是名字牌在世界里约 2.7 米 × 0.85 米。</li>
+<li>删除这块画布上的 Canvas Scaler（World Space 下它只影响旧版 Text 的动态字体清晰度，TMP 不需要），如果名字牌不需要点击，Graphic Raycaster 也可以删。</li>
+<li>在画布下加名字底板（圆角 Image）、TMP 名字文字、血条（底图 + 填充）。尺寸按 UI 单位填，和平时做 UI 一样。</li>
+<li>给画布挂上 <code>Billboard</code> 脚本。</li>
+</ol>
+<pre class="code" data-file="Ch02/Billboard.cs" data-region="billboard"></pre>
+<p>这里有两个值得讲的细节。</p>
+<p><b>“与相机朝向一致”而不是“看向相机”</b>。直觉的写法是 <code>transform.LookAt(cam.transform)</code>，让每块名字牌都指向相机的位置。但透视相机下，画面边缘的名字牌指向相机时会有一个角度，和屏幕平面不平行，看起来是歪的，而且每块歪的角度都不同。让所有名字牌的朝向都等于相机的 <code>forward</code>，它们就都和屏幕平面平行，整齐划一。另外注意 UGUI 的“正面”：画布的 <code>forward</code>（Z 轴正方向）要和相机的 <code>forward</code> 同向，文字才是正的；如果用 LookAt 指向相机，Z 轴是朝向相机的，文字会左右镜像。</p>
+<p><b>lockY 选项</b>：俯视角游戏里相机往下看，名字牌也会跟着“躺下”，文字被压扁。只绕 Y 轴旋转（把 forward 的 y 分量清零）可以让名字牌始终竖直，代价是相机俯角很大时名字牌看起来会变矮。两种效果都在场景里试一下。</p>
+<h4>World Space UI 的几个注意点</h4>
+<ul>
+<li><b>近大远小是双刃剑</b>。真实感强，但远处的名字会小到看不清。如果希望名字牌在屏幕上大小恒定，可以根据到相机的距离反向调整 Scale，或者换成“屏幕空间跟随”方案：用 Overlay 画布上的元素，每帧用 <code>Camera.WorldToScreenPoint</code> 把角色头顶的位置换算到屏幕上（第 17 章的头顶血条就是这样做的，还处理了屏幕外和背后的情况）。</li>
+<li><b>会被遮挡</b>。World Space UI 和 3D 物体一样做深度测试，被墙挡住时名字也看不见，这有时是想要的。半透明部分和其他半透明物体之间按距离排序，偶尔会出现排序闪烁。</li>
+<li><b>合批</b>。每个 World Space 画布都是独立的画布，十个角色就是十个画布，至少十次绘制调用。数量多（比如上百个怪物）时，屏幕空间方案往往更省。</li>
+<li><b>点击</b>：需要设置 Event Camera；与 3D 物体重叠时，Graphic Raycaster 的 Blocking Objects 选项可以让 3D 物体挡住 UI 的射线。</li>
+</ul>
+<pre class="code" data-file="Ch02/OrbitCamera.cs"></pre>
+<p>配套场景的相机挂着上面这个简单的环绕脚本：按住左键拖动旋转、滚轮缩放，方便从各个角度观察名字牌。其中 <code>EventSystem.current.IsPointerOverGameObject()</code> 用来判断鼠标是否在 UI 上，避免拖动 UI 时相机也跟着转，第 11 章会详细讲它。</p>
+
+<h3 class="case"><span class="no">案例 2.3</span>让 3D 物体和粒子夹在两层 UI 之间<span class="lv">进阶</span></h3>
+<p><b>目标</b>：做一个“宝石详情”界面：背景、属性面板在后面，一颗旋转的 3D 宝石和闪光粒子在中间，顶栏、折扣横幅和购买按钮在最前面，横幅要盖住宝石的一角。</p>
+<figure class="shot"><img src="img/ch02-sandwich.jpg"><figcaption><b>图 2-11</b>三明治结构：后层画布（背景、属性）、3D 宝石与粒子、前层画布（顶栏、横幅、按钮）。橙色横幅盖住了宝石，粒子盖住了后层背景、但被横幅盖住</figcaption></figure>
+<div class="scene">Ch02/Scenes/Ch02_Sandwich.unity</div>
+<p><b>思路</b>：Overlay 做不到，因为 Overlay 永远在一切之上。改用两块 Screen Space - Camera 画布，指定同一台相机：</p>
+<figure><svg viewBox="0 0 600 200" width="600" font-family="PingFang SC" font-size="13">
+<circle cx="40" cy="100" r="11" fill="#1f2436"/><text x="40" y="136" text-anchor="middle" font-size="12" fill="#1f2436">相机</text>
+<path d="M50,95 L580,20 M50,105 L580,180" stroke="#c9cde0" stroke-dasharray="4 3"/>
+<line x1="130" y1="83" x2="130" y2="117" stroke="#5b4bd6" stroke-width="5"/>
+<rect x="215" y="82" width="36" height="36" fill="#6fa8ff" stroke="#1f2436" transform="rotate(30 233 100)"/>
+<g fill="#ffd27a"><circle cx="200" cy="72" r="3"/><circle cx="262" cy="128" r="3"/><circle cx="270" cy="70" r="3"/><circle cx="196" cy="132" r="3"/></g>
+<line x1="520" y1="30" x2="520" y2="170" stroke="#7a8299" stroke-width="5"/>
+<g font-size="12" text-anchor="middle" fill="#1f2436">
+<text x="130" y="60" fill="#5b4bd6" font-weight="bold">FrontCanvas</text><text x="130" y="150">距离 3，Order 2</text>
+<text x="233" y="160" font-weight="bold">宝石 + 粒子</text><text x="233" y="176">距离约 6.5，粒子 Order 1</text>
+<text x="520" y="22" font-weight="bold">BackCanvas</text><text x="520" y="190">距离 20，Order 0</text>
+</g>
+<text x="370" y="100" text-anchor="middle" font-size="12" fill="#7a8299">不透明的宝石写入深度：挡住更远的 BackCanvas</text>
+<text x="370" y="118" text-anchor="middle" font-size="12" fill="#7a8299">半透明的粒子和 UI 按 Order 排序</text>
+</svg><figcaption><b>图 2-12</b>案例 2.3 的侧视示意：深度决定 3D 物体与 UI 的遮挡，Order 决定粒子与 UI 的先后</figcaption></figure>
+<ol class="steps">
+<li>场景里只用一台透视相机（位置 (0, 0, −10)）。建第一个画布 BackCanvas：Render Mode 选 Screen Space - Camera，Render Camera 拖入这台相机，Plane Distance 填 20，Order in Layer 填 0。放背景图和左侧属性面板。</li>
+<li>建第二个画布 FrontCanvas：同样是 Camera 模式、同一台相机，Plane Distance 填 3，Order in Layer 填 2。放顶栏、返回按钮、横幅和购买按钮。</li>
+<li>在两者之间放 3D 物体：<span class="menu">GameObject › 3D Object › Cube</span>，位置 (0.6, 0.2, −3.5)，到相机的距离约 6.5，介于 3 和 20 之间。挂上 <code>Spin</code> 脚本让它旋转。场景里需要一盏方向光照亮它。</li>
+<li>加粒子：<span class="menu">GameObject › Effects › Particle System</span>，放在宝石的位置，在 Renderer 模块里把 <b>Order in Layer 设为 1</b>。</li>
+<li>点 Play：宝石挡住了背景，横幅盖在宝石上；粒子在背景之上、横幅之下。</li>
+</ol>
+<p>这里同时用到了两套机制，必须分清楚：</p>
+<ul>
+<li><b>宝石和画布之间靠深度</b>。宝石是不透明物体，在 UI 之前渲染并写入深度缓冲；UI 的默认 Shader 会做深度测试但不写深度。BackCanvas 在 20 米处，被更近的宝石挡住的像素测试失败，于是宝石“盖住”了背景；FrontCanvas 在 3 米处，比宝石近，测试通过，于是横幅盖住了宝石。改变的是 Plane Distance，不是 Order。</li>
+<li><b>粒子和画布之间靠排序</b>。粒子是半透明的，不写深度，它和两块画布都在半透明队列里，按 Sorting Layer → Order in Layer → 距离的顺序绘制。粒子 Order = 1，介于 0 和 2 之间，所以夹在中间。如果把粒子的 Order 改成 5，粒子就会画到横幅上面去——即使它离相机更远。</li>
+</ul>
+<div class="note tip"><b>提示</b>如果只需要“粒子在 UI 上面”而不需要 3D 物体，Camera 模式 + 调 Order 就足够。如果项目里所有 UI 都必须用 Overlay（比如已经做了很多），常见替代方案是把 3D 模型用一台单独的相机渲染到 RenderTexture，再用 RawImage 显示在 UI 里，第 19 章会实现这个方案。</div>
+<div class="note warn"><b>注意</b>Camera 模式下 3D 物体“挡住 UI”是双向的：任何离相机比画布平面近的物体都会挡住 UI。如果场景里的 3D 物体可能跑到 UI 相机的视野中（比如 UI 和场景共用主相机），就会出现“UI 被地面切掉一块”的现象（图 2-2 中间那格就是）。这也是推荐用独立 UI 相机的原因之一。</div>
+
+<h4>调参建议</h4>
+<ul>
+<li><b>Plane Distance 留出余量</b>：前后两层画布和中间的 3D 物体之间要留足距离，物体旋转时不能“穿”过画布平面，否则会被切掉一块。物体越大、转得越厉害，间距越要大。</li>
+<li><b>粒子放在画布下面时注意缩放</b>：把粒子系统作为 Camera 画布里某个 UI 元素的子物体（这样它能跟着 UI 移动）时，画布本身有一个很小的缩放，粒子默认的 Scaling Mode（Local）不受父级缩放影响，看起来会大得离谱。把粒子 Main 模块的 Scaling Mode 改成 Hierarchy，它就会跟着画布一起缩放。</li>
+<li><b>多台设备上检查</b>：Camera 画布的大小随相机视野变化，而 3D 物体的大小不随屏幕比例缩放，换到宽屏上 3D 物体和 UI 的相对位置可能会变。重要的对齐关系（比如宝石要正好落在某个框里）要在多个比例下检查。</li>
+</ul>
+<h3 class="case"><span class="no">案例 2.4</span>提示气泡盖过弹窗：嵌套画布与 Override Sorting<span class="lv">进阶</span></h3>
+<p><b>目标</b>：HUD 画布上的“背包”按钮旁边有一个“新获得 3 件装备”的气泡。另一个画布上弹出了系统公告。默认情况下气泡被弹窗盖住；让气泡显示在弹窗之上，而且它仍然是按钮的子物体（按钮移动时气泡跟着走）。</p>
+<figure class="shot"><img src="img/ch02-sorting.jpg"><figcaption><b>图 2-13</b>左：气泡跟随 HudCanvas（Order 0），被 PopupCanvas（Order 10）上的公告盖住；右：气泡所在的子画布开启 Override Sorting、Order 20，盖过了公告</figcaption></figure>
+<div class="scene">Ch02/Scenes/Ch02_Sorting.unity</div>
+<p>场景里有两个根画布：HudCanvas（Sort Order 0）和 PopupCanvas（Sort Order 10）。气泡 Tip 是 HUD 上背包按钮的子物体，它身上加了一个 Canvas 组件（以及 Graphic Raycaster）。不开 Override Sorting 时，Tip 属于 HudCanvas 的一部分，整个 HUD 都画在 PopupCanvas 之前，所以气泡被盖住。勾上 Override Sorting、把 Order 设为 20，它就跳出了 HUD 的排序，作为一个独立单元参与比较：20 &gt; 10，画在公告之上。</p>
+<pre class="code" data-file="Ch02/SortingDemo.cs" data-region="override"></pre>
+<p>运行场景，勾选/取消公告里的开关，观察气泡的变化。点击也一样遵循这个顺序：气泡在上面时，点气泡和公告重叠的区域，收到事件的是气泡。</p>
+<p>Override Sorting 在实际项目里很常用：新手引导的高亮框、拖拽中的物品图标、跟随某个控件但要显示在全局最上层的提示，都可以用这种方式“跳层”，而不必把它们从原来的层级中搬出去。但每多一个开启 Override Sorting 的子画布，就多一个独立的绘制单元，会打断合批，不要滥用。</p>
+
+<p>在规模较大的项目里，建议一开始就规划好画布的排序区间，比如背景层 0～99、普通界面 100～999、弹窗 1000～1999、提示 2000～2999、新手引导 3000 以上，每打开一个界面就在所属区间里分配一个递增的 Order。这样无论界面以什么顺序打开，层级关系都可控，第 16 章的 UI 框架就是按这个思路管理层级的。</p>
+<h3 class="sec">2.6 适配相关的几个细节</h3>
+<p>最后把几个零散但经常被问到的细节集中说一下。</p>
+<h4>Canvas Scaler 只对根画布起作用</h4>
+<p>源码 <code>CanvasScaler.Handle()</code> 第一句就是：</p>
+<pre class="code" data-lang="csharp">if (m_Canvas == null || !m_Canvas.isRootCanvas)
+    return;
+</pre>
+<p>嵌套画布上的 Canvas Scaler 什么也不做，子画布直接沿用根画布的缩放。用菜单在某个 UI 元素下创建 Canvas 时，Unity 也会自动加上 Canvas Scaler，看着有一堆参数，其实没用，可以删掉以免误导。另外，Canvas Scaler 不是在 Update 里计算的，而是订阅了 <code>Canvas.preWillRenderCanvases</code>，在每次画布渲染前重新计算；它还带 <code>[ExecuteAlways]</code>，所以编辑器不运行时改 Game 视图分辨率也会立即生效。</p>
+<h4>屏幕像素与 UI 单位的换算</h4>
+<p>写代码时经常需要在“屏幕像素”和“UI 单位”之间换算，比如把触摸移动的距离（像素）换算成 UI 元素应该移动的距离。关系很简单：<b>屏幕像素 = UI 单位 × scaleFactor</b>（Overlay 和 Camera 模式）。所以拖拽时常见的写法是 <code>rt.anchoredPosition += eventData.delta / canvas.scaleFactor</code>。忘了除以 scaleFactor，元素在高分屏上就会比手指移动得快。更稳妥的做法是用 <code>RectTransformUtility.ScreenPointToLocalPointInRectangle</code> 直接把屏幕点换算到本地坐标，第 3 章案例 3.6 会讲。</p>
+<h4>Game 视图的 Scale 滑块</h4>
+<p>Game 视图顶部有一个 Scale 滑块，在固定分辨率比 Game 窗口还大时，它会自动缩小显示。这个滑块只是“放大镜”，不改变渲染分辨率，也不影响 Canvas Scaler 的计算。判断界面在某个分辨率下的效果，看的是分辨率下拉框，而不是 Scale。同样，Game 视图标题栏的 “Low Resolution Aspect Ratios” 选项只在 Retina 屏的 Mac 上出现，勾上后会以一半的分辨率渲染，此时 UI 的 scaleFactor 也会变成一半，别被它吓到。</p>
+<h4>运行时分辨率会变</h4>
+<p>PC 游戏可以在设置里改分辨率、在窗口和全屏之间切换；手机可以旋转屏幕；折叠屏可以展开。Canvas Scaler 每次渲染前都会重新计算，锚点会自动跟着画布重新定位，所以只要你的布局全靠锚点，这些变化都不需要写代码处理。需要写代码的情况是：你缓存了某个元素的位置或尺寸（比如在 Start 里记下了 <code>rect.width</code>），分辨率变化后它就过时了。可以在组件里实现 <code>OnRectTransformDimensionsChange()</code>，它会在 RectTransform 尺寸变化时被调用，在那里重新计算。</p>
+<h4>多显示器</h4>
+<p>Overlay 画布有一个 Target Display 属性，指定画到第几块显示器上；Camera 和 World Space 画布则跟随相机的 Target Display。Canvas Scaler 在计算非主显示器上的画布时，会改用 <code>Display.displays[i]</code> 的渲染尺寸。一般的游戏用不到，做多屏展示、控制台加主屏的项目才需要关心。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>Overlay 画布在所有相机之后直接盖在屏幕上；Camera 画布由指定相机在 Plane Distance 处渲染，能与 3D 物体互相遮挡；World Space 画布是场景中的一块板，要自己设尺寸、缩放和 Event Camera。</li>
+<li>3D 物体与 Camera/World 画布之间看深度（距离），粒子等半透明物体与画布之间看排序（Sorting Layer → Order in Layer → 距离）。</li>
+<li>Canvas Scaler 决定 scaleFactor，画布逻辑尺寸 = 屏幕像素 ÷ scaleFactor；逻辑尺寸只与宽高比和 Match 有关，与像素多少无关。</li>
+<li>Match 是宽、高比例的加权几何平均（对数插值）：0 按宽、1 按高；屏幕比设计稿宽时偏 1、窄时偏 0 才能保证内容完整。Expand 自动保证参考区域完整可见，Shrink 保证铺满。</li>
+<li>Reference Pixels Per Unit 与精灵的 Pixels Per Unit 共同决定图片的原始大小，项目里统一用 100。</li>
+<li>嵌套画布用于动静分离和 Override Sorting 跳层；子画布需要自己的 Graphic Raycaster 才能点击；TMP 会自动打开 TexCoord1、Normal、Tangent 三个附加通道。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>在 Ch02_Adaptive 场景中把参考分辨率改成 1280×720，界面在 1920×1080 下会变成什么样？画布的逻辑尺寸是多少？先算再验证。</li>
+<li>给一个 21:9 带鱼屏设备设计主菜单时，你会选 Match 多少？如果同时还要支持 4:3 的平板呢？说说理由，并在 Game 视图里验证。</li>
+<li>在 Ch02_WorldSpace 场景中，修改 <code>Billboard</code> 让名字牌在屏幕上的大小保持不变（提示：根据到相机的距离调整 <code>localScale</code>）。</li>
+<li>在 Ch02_Sandwich 场景中，不改任何 Order，只改 Plane Distance，让横幅跑到宝石后面去。再试着只改 Order，让粒子跑到横幅前面来。</li>
+<li>在 Ch02_Sorting 场景里，删掉 Tip 上的 Graphic Raycaster，开启 Override Sorting 后试着点击气泡，会发生什么？为什么？</li>
+</ol></div>
+</section>

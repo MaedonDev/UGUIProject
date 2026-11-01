@@ -1,0 +1,18 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Panel|RadioButtonGroup,RadioDemo
+2|Shadow|Image
+2|Bg|Image
+2|Title|TextMeshProUGUI
+2|Options|HorizontalLayoutGroup
+3|Button_简单|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+4|Outline|Image
+3|Button_普通|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+4|Outline|Image
+3|Button_困难|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+4|Outline|Image
+2|Desc|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,22 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Card_Inspector|ClickCounter
+2|Shadow|Image
+2|Bg|Image
+2|Header|TextMeshProUGUI
+2|Count|TextMeshProUGUI
+2|Button_Add|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_Add5|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+1|Card_Code|ClickCounterByCode
+2|Shadow|Image
+2|Bg|Image
+2|Header|TextMeshProUGUI
+2|Count|TextMeshProUGUI
+2|Button_Add|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_Reset|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+1|Hint|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,41 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,ListBenchmark
+1|NaiveList|Image,ScrollRect
+2|Bg|Image
+2|Viewport|RectMask2D
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|!MailItemTemplate|Image,MailItemView
+3|Highlight|Image
+3|IconBg|Image
+4|Icon|Image
+3|Title|TextMeshProUGUI
+3|Sub|TextMeshProUGUI
+3|Claim|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+1|LoopList|Image,ScrollRect,LoopListView
+2|Bg|Image
+2|Viewport|RectMask2D
+3|Content|
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|!MailItemTemplate|Image,MailItemView
+3|Highlight|Image
+3|IconBg|Image
+4|Icon|Image
+3|Title|TextMeshProUGUI
+3|Sub|TextMeshProUGUI
+3|Claim|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+1|NaiveTitle|TextMeshProUGUI
+1|LoopTitle|TextMeshProUGUI
+1|RunNaive|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|RunLoop|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Result|Image
+2|Output|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

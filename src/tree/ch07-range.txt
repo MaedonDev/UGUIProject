@@ -1,0 +1,39 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|PriceFilter|PriceRangeDemo
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Summary|TextMeshProUGUI
+2|RangeSlider|RangeSlider
+3|HitArea|Image
+3|Track|Image
+3|Slide Area|
+4|Fill|Image
+4|Handle Low|
+5|Shadow|Image
+5|Face|Image
+5|Ring|Image
+5|Tag|Image
+6|Text|TextMeshProUGUI
+4|Handle High|
+5|Shadow|Image
+5|Face|Image
+5|Ring|Image
+5|Tag|Image
+6|Text|TextMeshProUGUI
+3|Text|TextMeshProUGUI
+3|Text|TextMeshProUGUI
+3|Text|TextMeshProUGUI
+3|Text|TextMeshProUGUI
+3|Text|TextMeshProUGUI
+3|Text|TextMeshProUGUI
+2|Button_¥200 以下|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_¥200 – 500|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_¥500 以上|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_不限|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

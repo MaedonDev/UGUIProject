@@ -1,0 +1,533 @@
+<section class="chapter" id="c06" data-title="Button 与 Selectable 体系" data-sub="状态机、过渡、导航、点击事件与各种按钮玩法">
+<div class="chap-head"><div class="num">CHAPTER 06<b>第 6 章</b></div><h2>Button 与 Selectable 体系</h2><p class="lead">按钮是最简单的控件，也是最能体现 UGUI 设计的控件：Button 只有一百多行代码，它的能力几乎都来自父类 Selectable——五种交互状态、三种过渡方式、键盘手柄导航、interactable 与 CanvasGroup。这一章先把 Selectable 的状态机和导航算法读透，再讲 onClick 的几种绑定方式和闭包陷阱，最后做八个案例：五态对比、长按连发、双击、防连点、按下反馈、单选组、手柄菜单和自定义 Selectable 页签。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>Button 的结构，以及它和 Selectable 的分工</div><div>Selectable 状态机：五种状态由三个标志位推导，读源码理解优先级</div><div>Color Tint / Sprite Swap / Animation 三种过渡，Color Multiplier 与 Fade Duration</div><div>Navigation：Automatic 的评分算法、Explicit 显式导航、手柄与键盘</div><div>interactable 与 CanvasGroup.interactable 如何共同决定能否交互</div><div>onClick 的三种绑定方式、循环里的闭包陷阱、RemoveListener 的坑</div><div>八个按钮玩法案例，以及继承 Selectable 写自己的控件</div></div>
+
+<h3 class="sec">6.1 Button 的结构</h3>
+<p>在 Hierarchy 右键 <span class="menu">UI › Button - TextMeshPro</span>，得到一个名为 Button 的物体和它下面的 Text (TMP) 子物体。图 6-1 是本书 UIKit 创建的按钮（结构和菜单创建的完全一致，只是多了一个图标）：</p>
+<figure class="shot"><img src="img/ch06-structure.jpg"><figcaption><b>图 6-1</b> 一个按钮由哪些部分组成（实拍）</figcaption></figure>
+<div class="tree" data-tree="ch06-structure" data-root="Canvas/Button_开始游戏" data-depth="2"></div>
+<p>根物体上有两个关键组件：<b>Image</b> 负责画按钮的底图，<b>Button</b> 负责交互。Button 本身不画任何东西，它通过 <b>Target Graphic</b> 字段引用那个 Image，在状态变化时改它的颜色或精灵。文字是独立的子物体，和交互无关——所以按钮按下时默认只有底图变色，文字不变（想让文字也变色，见 6.3 节的做法）。</p>
+<figure><svg viewBox="0 0 600 320" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="10" width="330" height="300" rx="6" fill="#f7f7fb" stroke="#e0deef"/>
+<rect x="20" y="10" width="330" height="28" rx="6" fill="#e0deef"/><text x="34" y="29" font-weight="bold" fill="#1f2436">Button</text>
+<g fill="#1f2436" font-size="12">
+<text x="32" y="60">Interactable</text><rect x="170" y="48" width="14" height="14" rx="2" fill="#5b4bd6"/>
+<text x="32" y="86">Transition</text><rect x="170" y="73" width="166" height="18" rx="3" fill="#fff" stroke="#5b4bd6" stroke-width="2"/><text x="176" y="86">Color Tint</text>
+<text x="44" y="110">Target Graphic</text><rect x="170" y="98" width="166" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="111">Button (Image)</text>
+<text x="44" y="134">Normal Color</text><rect x="170" y="122" width="166" height="16" rx="2" fill="#ffffff" stroke="#c9cbd6"/>
+<text x="44" y="156">Highlighted Color</text><rect x="170" y="144" width="166" height="16" rx="2" fill="#f5f5f5" stroke="#c9cbd6"/>
+<text x="44" y="178">Pressed Color</text><rect x="170" y="166" width="166" height="16" rx="2" fill="#c8c8c8" stroke="#c9cbd6"/>
+<text x="44" y="200">Selected Color</text><rect x="170" y="188" width="166" height="16" rx="2" fill="#f5f5f5" stroke="#c9cbd6"/>
+<text x="44" y="222">Disabled Color</text><rect x="170" y="210" width="166" height="16" rx="2" fill="#c8c8c8" opacity="0.5" stroke="#c9cbd6"/>
+<text x="44" y="244">Color Multiplier</text><text x="176" y="244">1</text>
+<text x="44" y="264">Fade Duration</text><text x="176" y="264">0.1</text>
+<text x="32" y="290">Navigation</text><rect x="170" y="278" width="100" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="291">Automatic</text><rect x="276" y="278" width="60" height="18" rx="3" fill="#e9e7f7"/><text x="282" y="291" fill="#5b4bd6">Visualize</text>
+</g>
+<g font-size="12" fill="#1f2436">
+<text x="364" y="60">关掉 = Disabled 状态，不响应</text>
+<text x="364" y="86" font-size="11">None / Color Tint / Sprite Swap / Animation</text>
+<text x="364" y="111">过渡作用在哪个 Graphic 上</text>
+<text x="364" y="134">五种状态各自的颜色（ColorBlock）</text>
+<text x="364" y="156">默认值：白、245 灰、200 灰、</text>
+<text x="364" y="174">245 灰、200 灰半透明</text>
+<text x="364" y="244">所有颜色再乘以它（可大于 1）</text>
+<text x="364" y="264">颜色渐变时长（秒）</text>
+<text x="364" y="291">键盘/手柄导航方式，6.4 节</text>
+</g>
+<text x="185" y="306" text-anchor="middle" font-size="11" fill="#7a8299">On Click () 事件列表在组件最下方，图中省略</text>
+</svg><figcaption><b>图 6-2</b> Button 的 Inspector（示意，Transition = Color Tint）</figcaption></figure>
+<p>Inspector 里除了最下面的 <b>On Click ()</b>，其余所有字段都属于 Selectable。Button 的源码去掉注释后不到 60 行，完整摘出来：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Button.cs（去掉了注释）
+public class Button : Selectable, IPointerClickHandler, ISubmitHandler
+{
+    [Serializable]
+    public class ButtonClickedEvent : UnityEvent {}
+
+    [FormerlySerializedAs("onClick")]
+    [SerializeField]
+    private ButtonClickedEvent m_OnClick = new ButtonClickedEvent();
+
+    public ButtonClickedEvent onClick { get { return m_OnClick; } set { m_OnClick = value; } }
+
+    private void Press()
+    {
+        if (!IsActive() || !IsInteractable())
+            return;
+        UISystemProfilerApi.AddMarker("Button.onClick", this);
+        m_OnClick.Invoke();
+    }
+
+    public virtual void OnPointerClick(PointerEventData eventData)
+    {
+        if (eventData.button != PointerEventData.InputButton.Left)
+            return;
+        Press();
+    }
+
+    public virtual void OnSubmit(BaseEventData eventData)
+    {
+        Press();
+        if (!IsActive() || !IsInteractable())
+            return;
+        DoStateTransition(SelectionState.Pressed, false);   // 键盘/手柄确认时，手动闪一下按下态
+        StartCoroutine(OnFinishSubmit());
+    }
+
+    private IEnumerator OnFinishSubmit()
+    {
+        var fadeTime = colors.fadeDuration;
+        var elapsedTime = 0f;
+        while (elapsedTime &lt; fadeTime)
+        {
+            elapsedTime += Time.unscaledDeltaTime;
+            yield return null;
+        }
+        DoStateTransition(currentSelectionState, false);
+    }
+}</pre>
+<p>从这段代码可以确定几件常被问到的事：</p>
+<ul>
+<li><b>点击在“抬起”时触发</b>，而且要求按下和抬起都在同一个按钮上——这是 <code>IPointerClickHandler</code> 的语义（由输入模块判断，第 11 章）。按下后手指滑出按钮再松开，不算点击，这是有意的设计，让用户能“反悔”。</li>
+<li><b>只响应鼠标左键</b>（触屏的手指在 UGUI 里也被当成左键）。右键、中键点击按钮不会触发 onClick，想响应右键要自己实现 IPointerClickHandler。</li>
+<li><b>键盘回车 / 手柄确认键</b>走的是 <code>OnSubmit</code>，同样调用 Press，并用一个协程模拟出“按下再弹起”的视觉效果。</li>
+<li><b>Press 里先检查 IsInteractable</b>，所以不可交互的按钮不会触发 onClick——案例 6.4 防连点正是利用这一点。</li>
+</ul>
+
+<h3 class="sec">6.2 Selectable 的状态机</h3>
+<p>Selectable 是 Button、Toggle、Slider、Scrollbar、InputField、Dropdown 等所有可交互控件的父类。它定义了五种<b>选择状态（SelectionState）</b>：</p>
+<div class="kv">
+<span>Normal</span><span>默认状态。</span>
+<span>Highlighted</span><span>鼠标悬停在上面（触屏上一般看不到，因为手指没有“悬停”）。</span>
+<span>Pressed</span><span>按住不放。</span>
+<span>Selected</span><span>被 EventSystem 选中，即拥有“焦点”：键盘方向键、手柄摇杆的导航以它为起点，回车/确认键作用于它。</span>
+<span>Disabled</span><span>interactable 为 false，或者父级 CanvasGroup 不允许交互。</span>
+</div>
+<p>有意思的是，Selectable 并没有一个“当前状态”的字段。它只记录三个布尔标志，状态是每次需要时<b>推导</b>出来的：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Selectable.cs
+private bool isPointerInside { get; set; }   // 指针在矩形里
+private bool isPointerDown   { get; set; }   // 按下了还没抬起
+private bool hasSelection    { get; set; }   // 被 EventSystem 选中
+
+protected SelectionState currentSelectionState
+{
+    get
+    {
+        if (!IsInteractable())
+            return SelectionState.Disabled;
+        if (isPointerDown)
+            return SelectionState.Pressed;
+        if (hasSelection)
+            return SelectionState.Selected;
+        if (isPointerInside)
+            return SelectionState.Highlighted;
+        return SelectionState.Normal;
+    }
+}</pre>
+<p>if 的顺序就是<b>状态优先级</b>：Disabled &gt; Pressed &gt; Selected &gt; Highlighted &gt; Normal。三个标志由各个事件回调维护，每次改完都调用 <code>EvaluateAndTransitionToSelectionState()</code> 重新推导并播放过渡（图 6-3）：</p>
+<figure><svg viewBox="0 0 600 270" width="600" font-family="PingFang SC" font-size="12">
+<g fill="#1f2436">
+<rect x="10" y="20" width="150" height="34" rx="6" fill="#fff" stroke="#7a8299"/><text x="85" y="42" text-anchor="middle">OnPointerEnter / Exit</text>
+<rect x="10" y="70" width="150" height="34" rx="6" fill="#fff" stroke="#7a8299"/><text x="85" y="92" text-anchor="middle">OnPointerDown / Up</text>
+<rect x="10" y="120" width="150" height="34" rx="6" fill="#fff" stroke="#7a8299"/><text x="85" y="142" text-anchor="middle">OnSelect / OnDeselect</text>
+<rect x="10" y="170" width="150" height="34" rx="6" fill="#fff" stroke="#7a8299"/><text x="85" y="192" text-anchor="middle">interactable / CanvasGroup</text>
+</g>
+<g fill="#5b4bd6"><rect x="200" y="20" width="110" height="34" rx="6" opacity="0.15"/><rect x="200" y="70" width="110" height="34" rx="6" opacity="0.15"/><rect x="200" y="120" width="110" height="34" rx="6" opacity="0.15"/><rect x="200" y="170" width="110" height="34" rx="6" opacity="0.15"/></g>
+<g fill="#5b4bd6" text-anchor="middle"><text x="255" y="42">isPointerInside</text><text x="255" y="92">isPointerDown</text><text x="255" y="142">hasSelection</text><text x="255" y="192">IsInteractable()</text></g>
+<g stroke="#7a8299"><line x1="160" y1="37" x2="200" y2="37"/><line x1="160" y1="87" x2="200" y2="87"/><line x1="160" y1="137" x2="200" y2="137"/><line x1="160" y1="187" x2="200" y2="187"/></g>
+<g stroke="#7a8299"><line x1="310" y1="37" x2="350" y2="110"/><line x1="310" y1="87" x2="350" y2="110"/><line x1="310" y1="137" x2="350" y2="112"/><line x1="310" y1="187" x2="350" y2="114"/></g>
+<rect x="350" y="85" width="120" height="54" rx="8" fill="#ff8a3d" opacity="0.18" stroke="#ff8a3d"/>
+<text x="410" y="108" text-anchor="middle" fill="#1f2436">currentSelection</text><text x="410" y="126" text-anchor="middle" fill="#1f2436">State（推导）</text>
+<line x1="470" y1="112" x2="500" y2="112" stroke="#7a8299"/>
+<rect x="500" y="85" width="90" height="54" rx="8" fill="#fff" stroke="#2fb36a"/>
+<text x="545" y="108" text-anchor="middle" fill="#1f2436">DoState</text><text x="545" y="126" text-anchor="middle" fill="#1f2436">Transition</text>
+<text x="300" y="236" text-anchor="middle" fill="#1f2436" font-size="13">优先级：Disabled ＞ Pressed ＞ Selected ＞ Highlighted ＞ Normal</text>
+<text x="300" y="258" text-anchor="middle" fill="#7a8299">DoStateTransition 按 Transition 类型改颜色 / 换精灵 / 触发动画</text>
+</svg><figcaption><b>图 6-3</b> 事件维护三个标志，状态由标志按优先级推导</figcaption></figure>
+<p>理解了优先级，几个“诡异”现象就有了解释：</p>
+<ul>
+<li><b>点完按钮，它一直保持高亮色</b>。看 <code>OnPointerDown</code>：只要按钮可交互且 Navigation 不是 None，按下时就会 <code>EventSystem.current.SetSelectedGameObject(gameObject)</code>，于是 hasSelection 变成 true。鼠标移走后 isPointerInside 变 false，但 Selected 的优先级高于 Normal，按钮停在 Selected 状态。而 Selected Color 的默认值和 Highlighted Color 一样，看起来就像“卡在高亮”。解决办法按需选择：把 Selected Color 改成和 Normal 一样；或者把按钮的 Navigation 设成 None（不参与导航的按钮点击时不会被选中）；纯触屏项目也可以在点击后 <code>EventSystem.current.SetSelectedGameObject(null)</code>。但如果游戏支持手柄，Selected 状态恰恰是玩家知道“焦点在哪”的唯一线索，不能一关了之（案例 6.7）。</li>
+<li><b>Pressed 盖过 Selected</b>：按住时总是显示按下色，松开后才回到 Selected。</li>
+<li><b>不可交互时其他标志不影响外观</b>：Disabled 排第一。</li>
+</ul>
+<pre class="code" data-lang="csharp">// 摘自 Selectable.cs：按下时顺带“选中”自己
+public virtual void OnPointerDown(PointerEventData eventData)
+{
+    if (eventData.button != PointerEventData.InputButton.Left)
+        return;
+    // Selection tracking
+    if (IsInteractable() &amp;&amp; navigation.mode != Navigation.Mode.None &amp;&amp; EventSystem.current != null)
+        EventSystem.current.SetSelectedGameObject(gameObject, eventData);
+    isPointerDown = true;
+    EvaluateAndTransitionToSelectionState();
+}</pre>
+<p>图 6-4 是五种状态在两种过渡方式下的实拍（截图用 <code>DoStateTransition</code> 直接设置状态；配套场景里可以用鼠标和 Tab 键亲手触发）：</p>
+<figure class="shot"><img src="img/ch06-states.jpg"><figcaption><b>图 6-4</b> 五种状态 × Color Tint / Sprite Swap（实拍）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_ButtonStates.unity</div>
+
+<h3 class="sec">6.3 三种过渡方式</h3>
+<p>状态推导出来后，<code>DoStateTransition</code> 根据 <b>Transition</b> 字段决定怎么表现：</p>
+<pre class="code" data-lang="csharp">// 摘自 Selectable.cs，DoStateTransition（有删节）
+switch (state)
+{
+    case SelectionState.Normal:
+        tintColor = m_Colors.normalColor;
+        transitionSprite = null;                       // Normal 不换图：用 Image 自己的 sprite
+        triggerName = m_AnimationTriggers.normalTrigger;
+        break;
+    case SelectionState.Highlighted:
+        tintColor = m_Colors.highlightedColor;
+        transitionSprite = m_SpriteState.highlightedSprite;
+        triggerName = m_AnimationTriggers.highlightedTrigger;
+        break;
+    // Pressed / Selected / Disabled 同理……
+}
+switch (m_Transition)
+{
+    case Transition.ColorTint:
+        StartColorTween(tintColor * m_Colors.colorMultiplier, instant);
+        break;
+    case Transition.SpriteSwap:
+        DoSpriteSwap(transitionSprite);
+        break;
+    case Transition.Animation:
+        TriggerAnimation(triggerName);
+        break;
+}</pre>
+<h4>Color Tint</h4>
+<pre class="code" data-lang="csharp">// 摘自 Selectable.cs
+void StartColorTween(Color targetColor, bool instant)
+{
+    if (m_TargetGraphic == null)
+        return;
+    m_TargetGraphic.CrossFadeColor(targetColor, instant ? 0f : m_Colors.fadeDuration, true, true);
+}</pre>
+<p><code>CrossFadeColor</code> 修改的是 Target Graphic 的 <b>CanvasRenderer 颜色</b>，不是 <code>Image.color</code>。最终颜色 = 精灵颜色 × Image.color × CanvasRenderer 颜色。这带来三个重要结论：</p>
+<ol>
+<li><b>Color Tint 是乘法</b>，只能把颜色变暗，不能变亮。默认 ColorBlock 的 Highlighted 是 (245,245,245)，乘在一个紫色按钮上几乎看不出变化。想要明显的悬停效果，有两种做法：一是像图 6-4 第一行那样，Image.color 设为白色，把按钮真正的颜色写进 ColorBlock（Normal = 紫色，Highlighted = 浅紫色）；二是把 <b>Color Multiplier</b> 调到大于 1（例如 1.2），让所有状态色整体提亮。</li>
+<li><b>不改 Image.color，也不触发网格重建</b>——CanvasRenderer 的颜色在合批时直接作用，过渡动画每帧的开销很小。也正因为如此，你在代码里修改 <code>image.color</code>（例如案例 6.6 的选中样式）和 Color Tint 的过渡是叠加关系，互不覆盖。</li>
+<li><b>只作用在一个 Graphic 上</b>。按钮文字要跟着变色，可以把文字设为 Target Graphic（但底图就不变了），或者写一个小组件在状态变化时同步改多个 Graphic，最彻底的做法是继承 Selectable 重写 DoStateTransition（案例 6.8）。</li>
+</ol>
+<p><b>Fade Duration</b> 是颜色渐变时长，默认 0.1 秒，使用不受 timeScale 影响的时间（<code>CrossFadeColor</code> 的第三个参数 ignoreTimeScale = true），暂停菜单里按钮照样有过渡。</p>
+<h4>Sprite Swap</h4>
+<p>为每种状态指定一张精灵（Normal 用的就是 Image 本身的 Source Image）。实现只有一行：<code>image.overrideSprite = newSprite;</code>。<code>overrideSprite</code> 是 Image 上一个“临时覆盖”的精灵，不为空时优先显示它，状态回到 Normal 时设回 null，Source Image 本身始终不变。适合按下时图案有明显变化的按钮（图 6-4 第二行：按下时立体按钮的“厚度”消失、面板下沉，Selected 多了一圈金边）。注意 Sprite Swap 没有渐变，而且换精灵会触发网格和材质的重建，比 Color Tint 贵一些；状态图最好在同一个图集里，否则切换时还可能打断合批。</p>
+<h4>Animation</h4>
+<p>状态变化时给同物体上的 Animator 设置一个 Trigger（Normal / Highlighted / Pressed / Selected / Disabled 五个 Trigger 名可以改）。在 Button 的 Transition 选 Animation 后，点 <b>Auto Generate Animation</b>，Unity 会生成一个 Animator Controller 和五个空的动画片段，你在 Animation 窗口里给每个状态录制缩放、旋转、颜色等任意属性的变化。</p>
+<ol class="steps">
+<li>选中按钮，Button 的 <b>Transition</b> 改为 <b>Animation</b>。下面出现 Normal / Highlighted / Pressed / Selected / Disabled Trigger 五个字段，保持默认名即可。</li>
+<li>点击 <b>Auto Generate Animation</b>，选择保存位置。Unity 会在按钮上添加 Animator 组件，并生成一个 Animator Controller（含五个状态和对应的 Trigger 参数）以及五个动画片段。</li>
+<li>打开 <span class="menu">Window › Animation › Animation</span>，选中按钮，在左上角的片段下拉框里切到 Pressed，点录制按钮，把按钮的 Scale 改成 0.9；切到 Highlighted 录制 Scale 1.05……</li>
+<li>Animator 窗口里各状态之间的过渡由 Any State 根据 Trigger 跳转，过渡时长决定了状态之间的融合速度。</li>
+</ol>
+<p>注意 Animator 写回的属性会覆盖你在代码或 Inspector 里设置的值：例如按钮的 Normal 片段里录了 Scale = 1，之后代码再改 localScale 就会被每帧覆盖回去。</p>
+<p>它最灵活，但代价也最大：Animator 只要处于激活状态，<b>每帧都会求值</b>并写回它控制的属性，即使按钮静止不动；写回 RectTransform 或 Graphic 属性还会不断标脏，引起重建。界面上有几十个用 Animation 过渡的按钮时，开销会很可观（第 15、20 章详细分析）。本书的建议是：常规按钮用 Color Tint 或 Sprite Swap，需要缩放、弹跳等动效时用代码补间（案例 6.5），Animation 过渡只留给少数需要复杂动画的特殊按钮。</p>
+
+<h3 class="sec">6.4 导航：键盘与手柄</h3>
+<p>PC 和主机游戏要支持键盘方向键、手柄摇杆在按钮之间移动焦点。EventSystem 的输入模块把方向输入转成 <code>OnMove</code> 事件发给当前选中的物体，Selectable 根据 <b>Navigation</b> 设置找到下一个目标并选中它：</p>
+<div class="kv">
+<span>None</span><span>不参与导航。也不会在点击时被选中（见 6.2 节）。</span>
+<span>Horizontal / Vertical</span><span>只在水平 / 竖直方向自动寻找。勾选 <b>Wrap Around</b> 时，走到头会从另一端出来。</span>
+<span>Automatic</span><span>四个方向都按几何位置自动寻找（默认值）。</span>
+<span>Explicit</span><span>手动指定 Select On Up / Down / Left / Right 四个目标。</span>
+</div>
+<p>Inspector 中 Navigation 旁边的 <b>Visualize</b> 按钮会在 Scene 视图里用黄色箭头画出所有导航关系，调导航时一定要打开它。</p>
+<h4>Automatic 是怎么找的</h4>
+<pre class="code" data-lang="csharp">// 摘自 Selectable.cs，FindSelectable（有删节）
+public Selectable FindSelectable(Vector3 dir)
+{
+    dir = dir.normalized;
+    Vector3 localDir = Quaternion.Inverse(transform.rotation) * dir;
+    // 起点不是中心，而是自己矩形边缘上朝 dir 方向的那个点
+    Vector3 pos = transform.TransformPoint(GetPointOnRectEdge(transform as RectTransform, localDir));
+    float maxScore = Mathf.NegativeInfinity;
+    Selectable bestPick = null;
+    for (int i = 0; i &lt; s_SelectableCount; ++i)
+    {
+        Selectable sel = s_Selectables[i];
+        if (sel == this) continue;
+        if (!sel.IsInteractable() || sel.navigation.mode == Navigation.Mode.None) continue;
+        var selRect = sel.transform as RectTransform;
+        Vector3 selCenter = selRect != null ? (Vector3)selRect.rect.center : Vector3.zero;
+        Vector3 myVector = sel.transform.TransformPoint(selCenter) - pos;
+        float dot = Vector3.Dot(dir, myVector);
+        if (dot &lt;= 0) continue;                       // 在反方向上的不要
+        float score = dot / myVector.sqrMagnitude;    // 越近、越正对着 dir，分数越高
+        if (score &gt; maxScore) { maxScore = score; bestPick = sel; }
+    }
+    return bestPick;
+}</pre>
+<p>评分 <code>dot / |v|²</code> 等价于“方向夹角的余弦 ÷ 距离”：既要近，又要正。源码注释给了一个形象的比喻：从起点朝目标方向吹一个圆形气球，气球最先碰到谁的中心就选谁（图 6-5）。这里有三个要点：候选范围是<b>场景里所有已启用的 Selectable</b>（静态列表 <code>s_Selectables</code>），不分界面、不分 Canvas；不可交互和 Navigation = None 的会被跳过；只看中心点，不看矩形大小。</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="12">
+<rect x="250" y="160" width="100" height="40" rx="6" fill="#5b4bd6"/><text x="300" y="185" text-anchor="middle" fill="#fff">起点按钮</text>
+<circle cx="300" cy="160" r="4" fill="#ff8a3d"/>
+<circle cx="300" cy="105" r="55" fill="#ff8a3d" opacity="0.10" stroke="#ff8a3d" stroke-dasharray="4 3"/>
+<circle cx="300" cy="70" r="90" fill="none" stroke="#ff8a3d" stroke-opacity="0.4" stroke-dasharray="4 3"/>
+<line x1="300" y1="160" x2="300" y2="10" stroke="#1f2436" stroke-width="1.5"/><path d="M294,18 L300,6 L306,18 Z" fill="#1f2436"/><text x="308" y="20" fill="#1f2436">dir = Up</text>
+<rect x="330" y="40" width="90" height="34" rx="6" fill="#fff" stroke="#2fb36a" stroke-width="2"/><circle cx="375" cy="57" r="3" fill="#2fb36a"/><text x="375" y="92" text-anchor="middle" fill="#2fb36a">B：先被碰到 ✓</text>
+<rect x="120" y="10" width="90" height="34" rx="6" fill="#fff" stroke="#7a8299"/><circle cx="165" cy="27" r="3" fill="#7a8299"/><text x="165" y="60" text-anchor="middle" fill="#7a8299">A：更远、更偏</text>
+<rect x="470" y="120" width="90" height="34" rx="6" fill="#fff" stroke="#7a8299"/><circle cx="515" cy="137" r="3" fill="#7a8299"/><text x="515" y="172" text-anchor="middle" fill="#7a8299">C：几乎在正侧方</text>
+<text x="300" y="222" text-anchor="middle" fill="#1f2436" font-size="13">score = dot(dir, v) / |v|²：气球从起点沿 dir 方向膨胀，先碰到谁的中心就选谁</text>
+</svg><figcaption><b>图 6-5</b> Automatic 导航的“吹气球”评分</figcaption></figure>
+<p>布局整齐的网格菜单，Automatic 的结果通常没问题；布局不规则时就可能出人意料。图 6-6 是一个实际的例子：从“设置”出发，四个方向的目标是在截图时调用 <code>FindSelectableOnUp/Down/Left/Right</code> 真实算出来的——“好友”从任何方向都到不了，向下会去“活动”而不是看起来更近的“任务”。</p>
+<figure class="shot"><img src="img/ch06-navigation.jpg"><figcaption><b>图 6-6</b> 不规则布局下的 Automatic 导航（箭头是真实计算结果）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_Navigation.unity</div>
+<p>所以菜单类界面推荐用 <b>Explicit</b> 显式指定。四个方向的目标可以在 Inspector 里拖，也可以用代码按网格批量设置（案例 6.7 的 NavigationUtil）。另外，<code>FindSelectableOnUp</code> 等方法都是 virtual 的，自定义控件可以重写它们实现特殊的导航规则（例如跳过某些项）。</p>
+<h4>谁来产生导航输入</h4>
+<p>StandaloneInputModule 读取旧输入系统的 Horizontal / Vertical 轴（键盘方向键、WASD、手柄左摇杆）产生 Move 事件，读取 Submit / Cancel 按钮（回车、空格、手柄 A / B 键）产生 Submit / Cancel 事件。如果项目使用新的 Input System 包，需要把 EventSystem 上的模块换成 <b>InputSystemUIInputModule</b>，它通过 Input Actions 资源绑定导航和确认（第 11 章）。无论哪种模块，<b>没有选中物体时方向键不会产生任何效果</b>——界面打开时必须主动选中一个起点。</p>
+
+<h3 class="sec">6.5 interactable 与 CanvasGroup</h3>
+<p>能否交互由两个条件共同决定：</p>
+<pre class="code" data-lang="csharp">// 摘自 Selectable.cs
+public virtual bool IsInteractable()
+{
+    return m_GroupsAllowInteraction &amp;&amp; m_Interactable;
+}
+
+bool ParentGroupAllowsInteraction()
+{
+    Transform t = transform;
+    while (t != null)
+    {
+        t.GetComponents(m_CanvasGroupCache);
+        for (var i = 0; i &lt; m_CanvasGroupCache.Count; i++)
+        {
+            if (m_CanvasGroupCache[i].enabled &amp;&amp; !m_CanvasGroupCache[i].interactable)
+                return false;                          // 任何一层祖先的 CanvasGroup 不允许，就不允许
+            if (m_CanvasGroupCache[i].ignoreParentGroups)
+                return true;                           // 遇到“忽略父级”的 CanvasGroup 就停止向上找
+        }
+        t = t.parent;
+    }
+    return true;
+}</pre>
+<p><code>m_Interactable</code> 是按钮自己的 Interactable 勾选框；<code>m_GroupsAllowInteraction</code> 由祖先链上的 <b>CanvasGroup</b> 决定。CanvasGroup 发生变化时，Unity 会通知它下面的所有 UIBehaviour（<code>OnCanvasGroupChanged</code>），Selectable 重新计算并刷新外观。所以要禁用一整块面板里的所有控件，不需要逐个改按钮，在面板上加一个 CanvasGroup、把 <b>Interactable</b> 取消即可，面板里的按钮会一起显示为 Disabled。</p>
+<p>CanvasGroup 还有一个容易混淆的属性 <b>Blocks Raycasts</b>：它控制这块区域<b>是否接收射线</b>。两者的区别：</p>
+<table>
+<tr><th></th><th>Interactable = false</th><th>Blocks Raycasts = false</th></tr>
+<tr><td>控件外观</td><td>显示为 Disabled</td><td>不变</td></tr>
+<tr><td>点击</td><td>射线仍然打在这些控件上，但它们不响应（点击被“吃掉”）</td><td>射线直接穿过，点到下面的东西</td></tr>
+<tr><td>典型用途</td><td>加载中禁止操作、条件不满足时置灰</td><td>淡出动画期间让点击穿透、纯展示的浮层</td></tr>
+</table>
+<p>另外一个细节：把当前选中的按钮设为不可交互时，interactable 的 setter 会 <code>EventSystem.current.SetSelectedGameObject(null)</code> 清掉选中，手柄玩家的焦点会因此“丢失”，案例 6.4 和 6.7 会处理这个问题。</p>
+
+<h3 class="sec">6.6 onClick：绑定方式、闭包陷阱与移除监听</h3>
+<p><code>onClick</code> 是一个 <code>UnityEvent</code>，它有两种监听：</p>
+<ul>
+<li><b>持久监听（Persistent）</b>：在 Inspector 的 On Click () 列表里点 + 号，拖入物体、选择方法。序列化在场景或预制体里，不写代码就能工作，美术和策划也能改。只能绑定 public 方法，参数最多一个，类型只能是 int、float、string、bool 或 UnityEngine.Object（在 Inspector 里填一个固定值）。</li>
+<li><b>运行时监听（Runtime）</b>：代码里 <code>button.onClick.AddListener(...)</code>，不会被序列化，每次运行都要重新添加，通常写在 Awake / Start 里。</li>
+</ul>
+<p>两种监听在 Invoke 时都会被调用（持久监听在前）。第 1 章已经演示过这两种基本用法，这里讲几个进阶话题。持久监听也可以用编辑器代码添加，配套场景 Ch06_Closure 右上角的按钮就是这样绑定的：</p>
+<pre class="code" data-lang="csharp">// 编辑器代码（Ch06/Editor/Shots.cs）：给按钮添加一个带字符串参数的持久监听
+UnityEventTools.AddStringPersistentListener(button.onClick, demo.LogFromInspector, "这条监听存在场景文件里");</pre>
+<p><code>UnityEditor.Events.UnityEventTools</code> 只能在编辑器里用，适合写“按命名规则自动绑定”的工具；运行时代码请始终用 AddListener。</p>
+<h4>循环里的闭包陷阱</h4>
+<p>动态生成一排按钮时，下面的写法是 C# 新手几乎必踩的坑：</p>
+<pre class="code" data-file="Ch06/ClosureDemo.cs" data-region="closure"></pre>
+<p>lambda 表达式 <code>() =&gt; Log("错误写法", i)</code> 捕获的不是 i 当时的值，而是<b>变量 i 本身</b>。for 循环里的 i 在整个循环中只有一个，循环结束后它的值是 5（跳出循环的那个值），所以五个按钮点下去都显示“第 5 个”。解决方法是在循环体内声明一个新的局部变量：每次迭代都是一个新变量，各自被捕获。C# 5 之后 <b>foreach</b> 的循环变量每次迭代都是新的，不存在这个问题（第 4 章的 HitLog 就是 foreach），但 <b>for</b> 循环依然如此，这一点在 C# 规范里一直没有改变。</p>
+<div class="scene">Ch06/Scenes/Ch06_Closure.unity</div>
+<h4>RemoveListener 的坑</h4>
+<p><code>RemoveListener</code> 按委托是否“相等”来查找要移除的监听。对于方法组 <code>button.onClick.AddListener(OnClickStart)</code>，之后 <code>RemoveListener(OnClickStart)</code> 能正确移除，因为两次创建的委托指向同一个对象的同一个方法，判定为相等。但对于 lambda：</p>
+<pre class="code" data-lang="csharp">button.onClick.AddListener(() =&gt; Buy(itemId));
+button.onClick.RemoveListener(() =&gt; Buy(itemId));   // ✗ 移除不掉：这是另一个新的 lambda 实例</pre>
+<p>要能移除，就把 lambda 存进字段：<code>m_OnBuy = () =&gt; Buy(itemId); button.onClick.AddListener(m_OnBuy);</code>，移除时传同一个 <code>m_OnBuy</code>。另外两条规则：<code>RemoveAllListeners()</code> 只清除运行时监听，<b>不会</b>清除 Inspector 里的持久监听；列表项这种会被复用的物体（第 18 章），重新绑定数据前要先移除旧监听，否则点一下会触发好几次——最常见的写法是复用时先 <code>RemoveAllListeners()</code> 再 <code>AddListener</code>。</p>
+
+
+<h3 class="sec">6.7 按钮的工程实践</h3>
+<p>把按钮放进真实界面后，还会遇到一些和单个按钮无关、和“按钮在哪里、和谁在一起”有关的问题。</p>
+<h4>点击区域要够大</h4>
+<p>手机上手指的接触面积远大于鼠标指针。主流的设计规范都给出了最小触控尺寸（苹果的人机界面指南建议不小于 44×44 pt，Material Design 建议 48×48 dp），换算到 1920×1080 参考分辨率的竖屏/横屏界面，通常意味着按钮至少 100 像素左右见方。视觉上想做得小巧时，不必把按钮图做大：给 Target Graphic 设置负的 <b>Raycast Padding</b>（第 4 章）就能在不改变外观的情况下扩大点击范围。相邻的小按钮之间要留出间距，否则扩大后的点击区会互相重叠，Hierarchy 中靠后（绘制在上面）的那个会抢走点击。</p>
+<h4>点在文字或图标上也算点中按钮</h4>
+<p>按钮里的文字、图标如果开着 Raycast Target，射线最先命中的是它们，而不是按钮的底图。点击照样有效，是因为 EventSystem 派发点击时会从命中的物体<b>向上寻找</b>第一个实现了 IPointerClickHandler 的物体（<code>ExecuteEvents.GetEventHandler</code>，第 11 章细讲），找到的正是父物体上的 Button。不过 Button 的悬停、按下状态同样依赖这种向上冒泡，所以通常没有问题；真正要注意的是<b>反过来</b>的情况——按钮上面盖着一个不相干的、开着 Raycast Target 的透明图，射线被它截住，而它的祖先里没有按钮，点击就“消失”了。</p>
+<h4>滚动列表里的按钮</h4>
+<p>ScrollRect 里的按钮会遇到“想滑动列表，结果触发了按钮”的问题。UGUI 的处理是：按下后指针移动超过 EventSystem 的 <b>Drag Threshold</b>（默认 10 像素）就进入拖拽，输入模块此时会给按下的物体发送 PointerUp，并把这次按下标记为“不可点击”（PointerInputModule 中 <code>pointerEvent.eligibleForClick = false</code>），于是松手时不会触发 onClick，拖拽事件则交给 ScrollRect。高分辨率手机上 10 像素太小，手指稍一抖动就变成拖拽，点按钮很难点中，常见做法是按屏幕 DPI 放大 Drag Threshold（第 9、11 章）。</p>
+<h4>多点触控</h4>
+<p>两根手指可以同时按住两个不同的按钮，每根手指有自己的 PointerEventData，状态互不干扰；HoldRepeatButton 这类组件也天然支持。需要注意的是“同一个按钮被两根手指按”的情况：第一根手指抬起时 Button 就会退出 Pressed 状态，第 11 章会讨论如何按 pointerId 区分手指。</p>
+<h4>谁在什么时候触发了点击</h4>
+<p>Button.Press 里有一行 <code>UISystemProfilerApi.AddMarker("Button.onClick", this);</code>：在 Profiler 的 UI 模块里，每次点击都会打一个标记，可以看到这一帧哪个按钮被点击、点击回调花了多少时间。点击后界面卡顿时，先看这里。onClick 回调里如果要做重活（实例化界面、读档、发请求），尽量拆到协程或异步任务里，至少先给出视觉反馈（按下态、加载圈），再开始干活。</p>
+<h4>按钮“点了没反应”的快速排查</h4>
+<p>结合本章读过的源码，按钮不响应时可以按下面的顺序检查（完整的排查流程图见第 21 章）：</p>
+<ol>
+<li><b>场景里有没有 EventSystem</b>，它上面有没有一个启用的输入模块。用代码搭界面最容易漏掉它。</li>
+<li><b>按钮所在的 Canvas 上有没有 GraphicRaycaster</b>。嵌套的子 Canvas 也需要自己的 GraphicRaycaster，否则子 Canvas 里的元素收不到射线。</li>
+<li><b>按钮自身或子物体上是否至少有一个开着 Raycast Target 的 Graphic</b>。把底图的 Raycast Target 关掉、又没有别的 Graphic，按钮就“隐形”了。</li>
+<li><b>是否被别的东西挡住</b>：运行时选中 EventSystem，Inspector 底部的预览面板会显示当前指针下命中的物体（pointerEnter / pointerPress），一眼就能看出是谁截走了点击。</li>
+<li><b>IsInteractable()</b> 是否为 true：自己的 Interactable 和所有祖先 CanvasGroup 的 Interactable 都要勾上；冷却、加载逻辑可能把它关掉后忘了恢复。</li>
+<li><b>onClick 里到底有没有监听</b>：运行时 AddListener 的代码是否真的执行了（物体是否激活、Awake 是否被调用），列表项复用时是否被 RemoveAllListeners 清掉了。</li>
+<li>用 Debug.Log 或 Profiler 里的 <code>Button.onClick</code> 标记确认点击是否到达：到达了说明是回调逻辑的问题，没到达才是事件系统的问题。</li>
+</ol>
+<p>反过来，有时问题是“不该点到的点到了”：alpha 为 0 的按钮、被别的界面盖住但本身仍处于激活状态的按钮，都还能接收射线（GraphicRaycaster 只看矩形和 Raycast Target，不看透明度）。隐藏界面时，要么 SetActive(false)，要么配合 CanvasGroup 把 alpha 和 Blocks Raycasts 一起关掉（第 15 章的淡入淡出、第 20 章的隐藏方式对比）。</p>
+<h4>EventTrigger 组件</h4>
+<p><span class="menu">Add Component › Event › Event Trigger</span> 可以在 Inspector 里给任意物体绑定 PointerEnter、PointerDown、Drag 等所有事件，看起来比写组件省事。但它实现了全部事件接口，挂上之后这个物体会“拦截”所有类型的事件，包括它根本不关心的拖拽、滚轮，导致父级 ScrollRect 收不到拖拽——这是“列表里某一项拖不动”的常见原因。本章的案例都用“只实现需要的接口”的小组件，原因就在这里（第 11 章有详细分析）。</p>
+
+
+<h3 class="sec">6.8 用代码配置 Selectable</h3>
+<p>动态生成的按钮、统一换肤的工具，都需要用代码设置 Selectable 的属性。有几个和 C# 值类型相关的写法要特别注意。</p>
+<p><b>ColorBlock、SpriteState、Navigation 都是结构体</b>。<code>button.colors</code> 返回的是一份拷贝，直接写 <code>button.colors.normalColor = Color.red;</code> 编译器会报错（不能修改返回值的成员）。正确写法是“取出、修改、整体赋值回去”：</p>
+<pre class="code" data-lang="csharp">var cb = button.colors;                 // 拷贝一份
+cb.normalColor = new Color32(0x6C, 0x5C, 0xE7, 255);
+cb.highlightedColor = new Color32(0x8C, 0x80, 0xFF, 255);
+cb.fadeDuration = 0.08f;
+button.colors = cb;                     // 整体赋值：setter 里会立即刷新当前状态的外观
+
+button.transition = Selectable.Transition.SpriteSwap;
+button.spriteState = new SpriteState { pressedSprite = pressed, disabledSprite = disabled };
+
+var nav = button.navigation;
+nav.mode = Navigation.Mode.Explicit;
+nav.selectOnDown = nextButton;
+button.navigation = nav;</pre>
+<p>这几个 setter 内部都会调用 <code>OnSetProperty()</code>，在编辑器非运行状态下立即（instant）刷新外观，运行时则带过渡刷新。<code>ColorBlock.defaultColorBlock</code> 提供了 Unity 的默认配色，可以在它的基础上修改。</p>
+<p>其他常用的 API：</p>
+<div class="kv">
+<span>interactable</span><span>自身的可交互开关。设为 false 时若它正被选中，会清空 EventSystem 的选中。</span>
+<span>IsInteractable()</span><span>综合了 CanvasGroup 的结果，判断“现在到底能不能交互”应该用它，而不是 interactable 字段。</span>
+<span>Select()</span><span>让 EventSystem 选中自己，等价于 <code>EventSystem.current.SetSelectedGameObject(gameObject)</code>，但会检查 <code>alreadySelecting</code>，避免在 OnSelect 回调里递归选中。</span>
+<span>FindSelectableOnUp() 等</span><span>按当前 Navigation 设置求某个方向的目标，自定义控件可重写。</span>
+<span>Selectable.allSelectablesArray</span><span>场景中所有已启用的 Selectable（会分配一个新数组；高频使用时用 <code>AllSelectablesNoAlloc</code> 填入自己的数组）。可以用来写“检查所有按钮的导航是否闭合”之类的调试工具。</span>
+<span>targetGraphic / image</span><span>过渡作用的 Graphic；<code>image</code> 是把 targetGraphic 转成 Image 的便捷属性（Sprite Swap 用它）。</span>
+</div>
+<p>最后提醒一点 Target Graphic 的来历：Selectable 的 <code>Awake()</code> 里有一句 <code>if (m_TargetGraphic == null) m_TargetGraphic = GetComponent&lt;Graphic&gt;();</code>，编辑器里添加组件时的 <code>Reset()</code> 也做同样的事。所以先有 Image、再 <code>AddComponent&lt;Button&gt;()</code>，Target Graphic 会自动指向这个 Image；但如果<b>先加 Button、后加 Image</b>（AddComponent 时 Awake 立即执行，那时还没有 Graphic），或者想让过渡作用在子物体的 Image 上，就必须手动 <code>button.targetGraphic = image;</code>，否则 Color Tint 没有任何效果。射线检测则只看物体及其子物体上有没有开着 Raycast Target 的 Graphic，和 Target Graphic 无关。</p>
+
+<h3 class="case"><span class="no">案例 6.1</span>按钮五种状态对比<span class="lv">入门</span></h3>
+<p><b>目标</b>：做出图 6-4 那样的两排按钮，一排用 Color Tint，一排用 Sprite Swap，在场景里用鼠标和键盘亲手体验五种状态。</p>
+<ol class="steps">
+<li><span class="menu">UI › Button - TextMeshPro</span> 创建按钮。第一排：Image 的 Color 设为白色；在 Button 的 Colors 中按设计填写 Normal（#6C5CE7）、Highlighted（#8C80FF）、Pressed（#4434B0）、Selected（同 Highlighted）、Disabled（浅灰半透明）。</li>
+<li>第二排：Transition 选 <b>Sprite Swap</b>，Source Image 用 Normal 状态的图，下面的 Highlighted / Pressed / Selected / Disabled Sprite 分别拖入对应的图（本章用代码生成了五张立体按钮图，均设置了 32 像素的九宫格边框，可以任意改变尺寸）。</li>
+<li>每排最后一个按钮取消勾选 Interactable，体验 Disabled。</li>
+<li>运行场景：鼠标悬停 = Highlighted；按住 = Pressed；点击后移开鼠标 = Selected（再看 6.2 节的解释）；按 <kbd>Tab</kbd> 或方向键在按钮间移动焦点。</li>
+</ol>
+<p><b>怎么选</b>：Color Tint 只需要一张底图，所有状态共用，换肤只改颜色，内存和包体最省，适合大多数扁平风格的按钮；Sprite Swap 每个状态一张图，适合立体、拟物、像素风这类“按下时形状会变”的按钮，代价是美术工作量和图集空间翻几倍；注意一个按钮只能选一种 Transition，不要试图在子物体上再挂一个 Selectable 来管理图标的颜色——子物体的 Selectable 会截走射线、成为另一个可导航的焦点，按钮反而不工作了。当一个按钮需要底图、文字、图标等多个元素同时随状态变化时，直接用案例 6.8 的自定义 Selectable，由一个组件统一管理所有元素的状态表现。</p>
+<p><b>观察</b>：Color Tint 第四列 Selected 和第二列 Highlighted 颜色一样，这是有意沿用 Unity 默认值的习惯，用来说明“点完按钮为什么像卡在高亮”。Sprite Swap 那一排的按下态文字下移了 3 像素，和图片的下沉对齐——Sprite Swap 只换图，文字位置需要自己处理（可以在案例 6.8 的思路里一起管理）。</p>
+
+<h3 class="case"><span class="no">案例 6.2</span>长按连发<span class="lv">入门</span></h3>
+<p><b>目标</b>：商店购买数量的 + / − 按钮：点一下加减 1；按住不放，0.4 秒后开始连续加减，并且越来越快；到达上限或下限时按钮自动禁用，长按也随之停止。</p>
+<p><b>思路</b>：Button 只在“抬起”时报告一次点击，按住期间没有任何回调。写一个组件监听按下（IPointerDownHandler）和抬起 / 离开（IPointerUpHandler / IPointerExitHandler），在 Update 里按时间表重复触发。它和 onClick 并存：短按时组件还没到首次延迟就松手了，只有 onClick 生效。</p>
+<pre class="code" data-file="Ch06/HoldRepeatButton.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch06/HoldRepeatButton.cs" data-region="logic"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>首次延迟</b>（0.4 秒）区分“点一下”和“按住”。延迟太短，用户想点一下却触发了连发；太长，又显得迟钝。</li>
+<li><b>加速</b>：每次触发后间隔乘以 0.85，最快 0.03 秒一次。数量从 1 加到 99，按住两秒左右就到了。</li>
+<li><b>用 while 补发</b>：低帧率时一帧可能跨过好几个触发点，while 循环把它们都补上，连发速度不受帧率影响。<code>m_NextTime += m_Interval</code>（而不是 <code>= now + interval</code>）也是为了这一点。</li>
+<li><b>OnPointerExit 也要停</b>：手指滑出按钮时停止，和 Button 自身“滑出不算点击”的语义保持一致。</li>
+<li><b>不可交互时停止</b>：数量到 99 时 + 按钮被禁用，Update 里检测到后立即停下。</li>
+</ul>
+<pre class="code" data-file="Ch06/QuantityStepper.cs"></pre>
+<figure class="shot"><img src="img/ch06-hold.jpg"><figcaption><b>图 6-7</b> 数量步进器，+ 按钮处于按下态（实拍）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_HoldRepeat.unity</div>
+<p><b>扩展方向</b>：连发时给数字一点缩放反馈（结合第 5 章的数字跳动）；支持输入框直接输入数量（第 8 章数字步进器）。</p>
+
+<h3 class="case"><span class="no">案例 6.3</span>双击<span class="lv">入门</span></h3>
+<p><b>目标</b>：背包里单击物品是“选中”，双击是“使用”，两种操作互不干扰。</p>
+<p><b>思路</b>：难点不在识别双击，而在<b>区分</b>单击和双击——第一次点击发生时，你不知道会不会有第二次。所以单击要等一个时间窗（0.3 秒），这期间没有第二次点击，才确认为单击。StandaloneInputModule 其实已经在统计连击：<code>PointerEventData.clickCount</code> 在 0.3 秒内连续点击会累加（源码里 <code>private const float doubleClickTime = 0.3f;</code>），判断 <code>eventData.clickCount == 2</code> 就能识别双击，但它不会帮你“推迟单击”。下面的组件同时处理两件事：</p>
+<pre class="code" data-file="Ch06/DoubleClickHandler.cs" data-region="main"></pre>
+<p><code>m_DelaySingle</code> 提供了两种策略。<b>延迟单击</b>（默认）：单击和双击绝对互斥，代价是单击的响应会晚 0.3 秒。<b>立即单击</b>：单击马上响应，双击时会先收到一次单击再收到双击——如果“单击 = 选中、双击 = 使用”，先选中再使用完全合理，这种情况下用立即单击手感更好。按业务语义选择。</p>
+<pre class="code" data-file="Ch06/ItemCardDemo.cs"></pre>
+<figure class="shot"><img src="img/ch06-doubleclick.jpg"><figcaption><b>图 6-8</b> 双击使用物品（实拍）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_DoubleClick.unity</div>
+<p><b>注意</b>：这个组件挂在普通 Image 上就能工作（只要 Raycast Target 开着），不需要 Button。如果物体上同时有 Button，onClick 会在每次点击时都触发，和双击逻辑并存，要想清楚是否需要。移动端的“双击”体验普遍不好，很多游戏改用“单击选中、再点一次已选中的物品 = 使用”或长按菜单。</p>
+
+<h3 class="case"><span class="no">案例 6.4</span>防连点<span class="lv">入门</span></h3>
+<p><b>目标</b>：“领取奖励”按钮点击后进入 3 秒冷却，期间按钮置灰并显示倒计时，遮罩从右向左退去；冷却结束自动恢复。另外提供一个全局的防抖工具，保护网络请求这类跨按钮的操作。</p>
+<p><b>思路</b>：利用 6.1 节读到的 <code>Press()</code>：<code>if (!IsActive() || !IsInteractable()) return;</code>。点击后立刻把 interactable 设为 false，之后无论用户点多快，onClick 都不会再被调用。</p>
+<pre class="code" data-file="Ch06/ButtonCooldown.cs" data-region="main"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>监听顺序无所谓</b>：冷却逻辑通过 AddListener 加在业务监听（持久监听在前）之后，但第一次点击时业务逻辑照常执行，第二次点击在 Press() 里就被拦下了，不会走到任何监听。</li>
+<li><b>遮罩用改锚点，不用 Filled</b>：按钮是圆角的，第 4 章讲过 Filled 不支持九宫格，用它做遮罩，圆角会被压扁。这里把遮罩做成 Sliced 圆角图，冷却进度直接写进 <code>anchorMax.x</code>，遮罩宽度按比例变短，两端圆角保持不变。</li>
+<li><b>禁用态的颜色</b>：Button 进入 Disabled 后 Color Tint 会乘上 Disabled Color，所以按钮整体变暗，再叠加遮罩，层次分明。</li>
+<li><b>焦点会丢</b>：interactable 设为 false 时，如果这个按钮正被选中，setter 会清空选中。支持手柄的游戏，在冷却结束时可以把焦点还给它（记住冷却前是否被选中）。</li>
+</ul>
+<p>按钮级的冷却解决的是“同一个按钮被狂点”。有时需要的是“同一个操作在短时间内只能发生一次”，不管从哪个按钮触发（商店列表里每个“购买”按钮都发同一个请求），用一个按键名做全局节流更合适：</p>
+<pre class="code" data-file="Ch06/ClickGuard.cs" data-region="main"></pre>
+<figure class="shot"><img src="img/ch06-cooldown.jpg"><figcaption><b>图 6-9</b> 防连点按钮的三个时刻（实拍）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_Cooldown.unity</div>
+<p><b>真实项目里</b>：网络请求类按钮，冷却应该持续到请求返回（成功或失败），而不是一个固定时间。把 <code>StartCooldown</code> 改成“请求开始时禁用、回调里恢复”，再加一个超时兜底，防止请求丢失后按钮永远是灰的。</p>
+
+<h3 class="case"><span class="no">案例 6.5</span>按下缩放与音效反馈<span class="lv">入门</span></h3>
+<p><b>目标</b>：按下时按钮缩小到 92%，松开时带一点回弹恢复；每次按下播放一声短促的“咔哒”。音效用代码合成，工程里不需要任何音频文件。</p>
+<pre class="code" data-file="Ch06/PressFeedback.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch06/PressFeedback.cs" data-region="events"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>缩放条件 = 按住且指针在按钮上</b>，和 Button 的 Pressed 状态完全一致：按住后滑出按钮，按钮弹回原大小，此时松手也不会触发点击，视觉和逻辑统一。</li>
+<li><b>阻尼弹簧代替 Lerp</b>：Lerp 只会单调地逼近目标，弹簧（刚度 k、阻尼 d，阻尼比 0.55 &lt; 1）会冲过目标一点再回来，松手时就有“Q 弹”的回弹，图 6-10 右边就是回弹到 1.04 的瞬间。阻尼比越小越弹，等于 1 时恰好不回弹。</li>
+<li><b>缩放的是 Transform，不是尺寸</b>：localScale 不影响布局，按钮在 LayoutGroup 里缩放也不会挤动相邻按钮；改 sizeDelta 则会触发布局重建。</li>
+<li><b>用 Unscaled 时间</b>：暂停菜单里按钮同样要有反馈。</li>
+</ul>
+<pre class="code" data-file="Ch06/PressFeedback.cs" data-region="sound"></pre>
+<p>“咔哒”声是 40 毫秒的 1800 Hz 正弦波加一点白噪声，再乘一个快速衰减的指数包络。<code>AudioClip.Create</code> + <code>SetData</code> 在运行时生成，所有按钮共享一个静态的 clip。真实项目当然会用音效师制作的音频，但这个例子说明了一个结构上的要点：<b>反馈逻辑应该做成可挂载的组件</b>，而不是写在每个按钮的点击回调里。统一的按钮手感（缩放、音效、震动）只需要在预制体上挂一个组件。</p>
+<figure class="shot"><img src="img/ch06-press.jpg"><figcaption><b>图 6-10</b> 按下缩放的三个阶段（实拍，按下态用 DoStateTransition 设置，缩放由 Apply 直接设置）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_Press.unity</div>
+<p><b>移动端提示</b>：触屏没有悬停，Highlighted 状态几乎用不到，按下反馈就是用户唯一的触感确认，比 PC 上重要得多；可以再配合 <code>Handheld.Vibrate</code> 或平台的轻震动接口。</p>
+
+<h3 class="case"><span class="no">案例 6.6</span>单选按钮组<span class="lv">入门</span></h3>
+<p><b>目标</b>：难度选择“简单 / 普通 / 困难”，同一时间只有一个处于选中样式，选择变化时通知外部。</p>
+<p><b>思路</b>：Toggle + ToggleGroup 是 UGUI 内置的方案（第 7 章）。这里用普通 Button 实现，一来演示“业务状态由谁管理”，二来很多设计里的单选项本来就是按钮的样子。</p>
+<pre class="code" data-file="Ch06/RadioButtonGroup.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch06/RadioButtonGroup.cs" data-region="logic"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>闭包陷阱的正确写法</b>：<code>int index = i;</code>，原因见 6.6 节。</li>
+<li><b>选中样式改 Image.color，过渡改 CanvasRenderer 颜色</b>：6.3 节讲过两者是相乘的，所以选中项是紫色、未选中是白色，在此基础上悬停和按下的 Color Tint 照样生效（图 6-11 左边“简单”是悬停态，在白底上叠加了一层淡紫）。如果选中样式也去改 ColorBlock，就会和过渡互相覆盖。</li>
+<li><b>只在变化时通知</b>：重复点击已选中项直接返回，避免外部收到重复事件。</li>
+</ul>
+<figure class="shot"><img src="img/ch06-radio.jpg"><figcaption><b>图 6-11</b> 单选按钮组：“普通”被选中，鼠标悬停在“简单”上（实拍）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_Radio.unity</div>
+
+<h3 class="case"><span class="no">案例 6.7</span>手柄导航菜单<span class="lv">进阶</span></h3>
+<p><b>目标</b>：主菜单五个选项，打开时自动选中第一项；方向键 / 手柄上下移动，到底后循环；一个金色高亮框平滑跟随焦点；鼠标点空白处后焦点丢失，再按方向键能自动找回；回车 / A 键确认。</p>
+<p><b>第一步：显式导航</b>。一列菜单用 Automatic 也能工作，但无法“到底循环”（Wrap Around 只对 Horizontal / Vertical 模式有效），而且界面上如果还有别的按钮，焦点可能被吸走。用代码按网格设置 Explicit 导航：</p>
+<pre class="code" data-file="Ch06/NavigationUtil.cs" data-region="grid"></pre>
+<p><code>Navigation</code> 是结构体，<code>button.navigation.selectOnUp = x</code> 这种写法改的是副本，编译器会直接报错；必须构造一个完整的 Navigation 再整体赋值回去。</p>
+<p><b>第二步：选中与焦点找回</b>。</p>
+<pre class="code" data-file="Ch06/GamepadMenu.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch06/GamepadMenu.cs" data-region="logic"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>OnEnable 里选中第一项</b>：没有选中物体时，方向键不会产生任何导航。也可以设置 EventSystem 的 <b>First Selected</b> 字段，但它只在输入模块激活时（<code>StandaloneInputModule.ActivateModule</code>，通常就是 EventSystem 启动时）生效一次，界面反复打开关闭时还是要在代码里选。</li>
+<li><b>焦点找回</b>：鼠标点击空白处时，EventSystem 会把选中物体清空（点到了不可选中的东西）。Update 里发现“选中为空 + 有方向输入”，就把上一次的选中项还回去。同一个界面同时支持鼠标和手柄，这几行几乎是必需的。</li>
+<li><b>高亮框跟随</b>：框不属于任何按钮，而是一个独立物体，每帧向选中按钮的位置和尺寸靠拢（<code>1 - e^(-speed·dt)</code> 的插值系数与帧率无关）。比起“每个按钮自带一个选中框”，跟随框的移动轨迹本身就在告诉玩家焦点从哪里来、到哪里去。</li>
+<li><b>Selected 状态要明显</b>：ColorBlock 的 Selected 设得比 Highlighted 更亮，配合金框，手柄玩家一眼就能看到焦点。</li>
+</ul>
+<figure class="shot"><img src="img/ch06-gamepad.jpg"><figcaption><b>图 6-12</b> 手柄菜单：焦点在“设置”上（实拍）</figcaption></figure>
+<div class="scene">Ch06/Scenes/Ch06_Gamepad.unity</div>
+<p><b>扩展方向</b>：Cancel 键（Esc / 手柄 B）返回上一级，需要一个界面栈（第 16 章）；打开弹窗时要把导航“关”在弹窗内部，否则方向键会把焦点移到弹窗后面的按钮上——用 Explicit 导航，或者给背后的界面加 CanvasGroup 并关闭 Interactable（不可交互的控件不会被导航选中）。</p>
+
+<h3 class="case"><span class="no">案例 6.8</span>自定义 Selectable：页签按钮<span class="lv">进阶</span></h3>
+<p><b>目标</b>：底部页签栏，每个页签由图标、文字、下方指示条组成。悬停时文字变色并出现浅色底，按下时轻微缩小，键盘焦点在上面时显示橙色焦点框，当前页签显示为主题色并带指示条，禁用的页签半透明。</p>
+<p><b>思路</b>：这么多元素随状态变化，Color Tint 只能管一个 Graphic，Sprite Swap 只能换一张图，Animation 又太重。最干净的做法是<b>继承 Selectable，重写 DoStateTransition</b>：导航、状态推导、interactable、CanvasGroup 支持全部白送，我们只决定“每种状态长什么样”。点击要自己实现，因为点击是 Button 的功能，不是 Selectable 的。</p>
+<pre class="code" data-file="Ch06/TabButton.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch06/TabButton.cs" data-region="ison"></pre>
+<pre class="code" data-file="Ch06/TabButton.cs" data-region="transition"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>两种“选中”不要混</b>：<code>IsOn</code>（是不是当前页签）是业务状态，由 TabBar 管理；Selectable 的 Selected 是交互状态（键盘焦点）。一个页签可以是当前页但没有焦点，也可以有焦点但不是当前页。把它们分开表达（指示条 vs 焦点框），键盘和手柄用户才不会迷惑。</li>
+<li><b>IsOn 变化时手动刷新</b>：业务状态变了，但三个交互标志没变，Selectable 不会自己调用 DoStateTransition，所以 setter 里用 <code>currentSelectionState</code> 主动刷新一次。<code>currentSelectionState</code> 是 protected 的，子类可以直接用。</li>
+<li><b>空引用保护</b>：编辑器里 Selectable 的 <code>OnValidate</code>（Inspector 改任何字段时）和 <code>Reset</code> 也会调用 DoStateTransition，这时引用可能还没拖好。作者第一次搭场景时，代码给字段逐个赋值，每赋一个就触发一次 OnValidate，在第一个字段赋值时就报了空引用——所以要检查所有用到的引用。</li>
+<li><b>保留 base 调用</b>：<code>base.DoStateTransition</code> 让 Inspector 里的 Transition 设置照样生效（本例设为 None）。</li>
+</ul>
+<pre class="code" data-file="Ch06/TabBar.cs"></pre>
+<p>还有一个继承 Selectable（或 Button）时一定会遇到的问题：<b>新加的字段在 Inspector 里看不到</b>。因为 UGUI 给 Selectable 注册了自定义编辑器 <code>SelectableEditor</code>，它只画 Selectable 自己的属性，并且对子类同样生效。解决方法是写一个继承 SelectableEditor 的编辑器，把自己的字段补画出来：</p>
+<pre class="code" data-file="Ch06/Editor/TabButtonEditor.cs" data-region="main"></pre>
+<figure class="shot"><img src="img/ch06-tabs.jpg"><figcaption><b>图 6-13</b> 自定义页签的五种外观：当前页、悬停、按下、键盘焦点、禁用（实拍）</figcaption></figure>
+<div class="tree" data-tree="ch06-tabs" data-root="TabBar/Tab_首页" data-depth="1"></div>
+<div class="scene">Ch06/Scenes/Ch06_Tabs.unity</div>
+<p><b>扩展方向</b>：同样的套路可以写出各种自定义控件——带长按进度的按钮、可以拖动排序的列表项、带“新”角标的入口按钮。只要它需要“可交互状态 + 导航”，就继承 Selectable；只需要接收点击，实现 IPointerClickHandler 就够了。第 7 章会看到 Toggle、Slider 也是同样的结构：Selectable 提供交互状态，子类添加自己的值和事件。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>Button = Selectable + onClick。点击在抬起时触发、只认左键，键盘/手柄确认走 OnSubmit；Press 先检查 IsInteractable，不可交互就不会触发 onClick。</li>
+<li>Selectable 只记录 isPointerInside、isPointerDown、hasSelection 三个标志，状态按 Disabled ＞ Pressed ＞ Selected ＞ Highlighted ＞ Normal 推导；按下即选中，所以点完按钮会停在 Selected。</li>
+<li>Color Tint 改 CanvasRenderer 颜色、与 Image.color 相乘，只能变暗（或用 Color Multiplier 提亮），不触发网格重建；Sprite Swap 用 overrideSprite；Animation 灵活但 Animator 常驻开销大。</li>
+<li>Automatic 导航用 dot/|v|² 评分，在所有已启用的 Selectable 中选最近最正的；不规则布局用 Explicit，Navigation 是结构体要整体赋值；没有选中物体时方向键无效。</li>
+<li>能否交互 = 自身 interactable × 祖先 CanvasGroup.interactable；Blocks Raycasts 决定点击是否穿透；禁用当前选中的按钮会清空焦点。</li>
+<li>onClick 有持久监听和运行时监听；for 循环里先拷贝循环变量再闭包；lambda 要存进字段才能 RemoveListener；RemoveAllListeners 不清持久监听。</li>
+<li>需要多元素随状态变化时，继承 Selectable 重写 DoStateTransition，并写一个继承 SelectableEditor 的编辑器显示新字段。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>写一个组件，让按钮的文字颜色也随五种状态变化（提示：不改源码，可以在同物体上放一个组件，在 Update 里比较按钮的状态——但 currentSelectionState 是 protected 的，想一想除了继承还有什么办法，比如监听指针事件自己维护标志）。比较它和案例 6.8 继承方案的优劣。</li>
+<li>给案例 6.2 加上“按住加速时显示一个环形进度”：用第 4 章的 Radial 360 Filled 图，在首次延迟期间从 0 填到 1，满了开始连发。</li>
+<li>把 6.4 节 Automatic 导航的例子改成 Explicit，让“好友”可以从“邮件”向下到达；然后用 Visualize 检查所有箭头。</li>
+<li>实现一个“确认按钮”：第一次点击文字变成“再次点击确认”并变红，2 秒内再点才真正执行，否则恢复原状。思考它和双击的区别，以及手柄用户怎么使用它。</li>
+<li>阅读 Selectable.cs 中 OnSelect / OnDeselect / OnMove 的实现，回答：Explicit 导航的某个方向留空时按该方向键会发生什么？目标按钮被禁用时呢？</li>
+</ol></div>
+</section>

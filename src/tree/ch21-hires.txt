@@ -1,0 +1,12 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Checker|Image
+1|Result|RawImage
+0|EventSystem|EventSystem,StandaloneInputModule
+0|PromoCanvas|Canvas,CanvasScaler,GraphicRaycaster
+1|PromoCard|
+2|Shadow|Image
+2|Bg|Image
+2|Glow|Image
+2|Text|TextMeshProUGUI
+2|Avatar|Image

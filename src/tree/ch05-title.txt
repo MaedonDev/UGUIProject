@@ -1,0 +1,13 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Glow|Image
+1|Title|TextMeshProUGUI
+1|Subtitle|TextMeshProUGUI
+1|Stars|HorizontalLayoutGroup
+2|Icon_star|Image
+2|Icon_star|Image
+2|Icon_star|Image
+1|Info|TextMeshProUGUI
+1|Button_继 续|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

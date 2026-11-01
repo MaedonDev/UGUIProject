@@ -1,0 +1,28 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,RankPanel
+1|Title|TextMeshProUGUI
+2|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|RankList|Image,ScrollRect,LoopListView
+2|Viewport|RectMask2D
+3|Content|
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|!RowTemplate|Image,RankRowView
+3|Medal|Image
+3|Rank|TextMeshProUGUI
+3|Avatar|Image
+3|Name|TextMeshProUGUI
+3|Score|TextMeshProUGUI
+1|PinnedArea|
+2|MyRankPinned|Image,RankRowView
+3|Shadow|Image
+3|Medal|Image
+3|Rank|TextMeshProUGUI
+3|Avatar|Image
+3|Name|TextMeshProUGUI
+3|Score|TextMeshProUGUI
+1|LocateMe|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_user|Image
+0|EventSystem|EventSystem,StandaloneInputModule

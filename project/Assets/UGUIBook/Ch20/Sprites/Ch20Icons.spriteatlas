@@ -1,0 +1,72 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!687078895 &4343727234628468602
+SpriteAtlas:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Ch20Icons
+  m_EditorData:
+    serializedVersion: 2
+    textureSettings:
+      serializedVersion: 2
+      anisoLevel: 0
+      compressionQuality: 0
+      maxTextureSize: 0
+      textureCompression: 0
+      filterMode: 1
+      generateMipMaps: 0
+      readable: 0
+      crunchedCompression: 0
+      sRGB: 1
+    platformSettings: []
+    packingSettings:
+      serializedVersion: 2
+      padding: 4
+      blockOffset: 1
+      allowAlphaSplitting: 0
+      enableRotation: 0
+      enableTightPacking: 0
+      enableAlphaDilation: 0
+    secondaryTextureSettings: {}
+    variantMultiplier: 1
+    packables:
+    - {fileID: 102900000, guid: 276f54f807cb54b56810f763467f4b9f, type: 3}
+    bindAsDefault: 1
+    isAtlasV2: 0
+    cachedData: {fileID: 0}
+    packedSpriteRenderDataKeys:
+    - 9c36d4a00145647cdb3a3f980024b252: 21300000
+    - 639171543d66a43e1b82954429fe6ff7: 21300000
+    - 4e224425645d24f4381e3977ba612b54: 21300000
+    - ce942c87e7ac94c4ab45959b8efe344f: 21300000
+    - 1ff1b6e863c81421c8e23cfb6006c4c9: 21300000
+    - ccbfa6f97b472418f84591703bd5c036: 21300000
+    - 19f2753c821dd47e5bced26f364ed7ee: 21300000
+    - c3f21c9d1b9b14d3ba734c1167ead559: 21300000
+    - b30feffeee9d649c492c3b5a24027911: 21300000
+  m_MasterAtlas: {fileID: 0}
+  m_PackedSprites:
+  - {fileID: 21300000, guid: 9c36d4a00145647cdb3a3f980024b252, type: 3}
+  - {fileID: 21300000, guid: 639171543d66a43e1b82954429fe6ff7, type: 3}
+  - {fileID: 21300000, guid: 4e224425645d24f4381e3977ba612b54, type: 3}
+  - {fileID: 21300000, guid: ce942c87e7ac94c4ab45959b8efe344f, type: 3}
+  - {fileID: 21300000, guid: 1ff1b6e863c81421c8e23cfb6006c4c9, type: 3}
+  - {fileID: 21300000, guid: ccbfa6f97b472418f84591703bd5c036, type: 3}
+  - {fileID: 21300000, guid: 19f2753c821dd47e5bced26f364ed7ee, type: 3}
+  - {fileID: 21300000, guid: c3f21c9d1b9b14d3ba734c1167ead559, type: 3}
+  - {fileID: 21300000, guid: b30feffeee9d649c492c3b5a24027911, type: 3}
+  m_PackedSpriteNamesToIndex:
+  - item_apple
+  - item_gem
+  - heart
+  - round_16
+  - item_sword
+  - item_coin
+  - star
+  - item_potion_red
+  - item_shield
+  m_RenderDataMap: {}
+  m_Tag: Ch20Icons
+  m_IsVariant: 0

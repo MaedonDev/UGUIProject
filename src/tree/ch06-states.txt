@@ -1,0 +1,31 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Tint_Normal|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Swap_Normal|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Tint_Highlighted|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Swap_Highlighted|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Tint_Pressed|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Swap_Pressed|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Tint_Selected|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Swap_Selected|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Tint_Disabled|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Swap_Disabled|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

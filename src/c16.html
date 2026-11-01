@@ -1,0 +1,343 @@
+<section class="chapter" id="c16" data-title="UI 框架与界面管理" data-sub="层级、界面栈、生命周期、缓存、弹窗队列与绑定代码生成">
+<div class="chap-head"><div class="num">CHAPTER 16<b>第 16 章</b></div><h2>UI 框架与界面管理</h2><p class="lead">前面十五章做的都是“一个界面”。真实项目里有几十上百个界面：主界面、背包、商城、邮件、设置、各种确认框和奖励弹窗，它们要按层级叠放、按返回键逐层关闭、按需加载、用完回收，还要互相通信。这一章从零写一个小而完整的 UI 框架，最后用它走通“主界面 → 背包 → 确认框 → 返回”的全流程。代码可以直接拷进你的项目。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>没有框架时 UI 代码会烂在哪里，框架要解决的到底是哪几件事</div><div>六层界面层级、界面栈与返回键、全屏界面遮挡优化</div><div>界面生命周期：创建、打开、暂停、恢复、关闭、销毁，各自该做什么</div><div>预制体加载（Resources 实现 + 换成 Addressables 的思路）与 LRU 缓存策略</div><div>通用确认框、Toast、带优先级的弹窗队列</div><div>Observable 数据绑定、类型安全的事件中心，以及按命名规则自动生成绑定代码的编辑器工具</div></div>
+
+<h3 class="sec">16.1 为什么需要 UI 框架</h3>
+<p>先看一个没有框架的项目通常会长成什么样。策划要一个背包：程序在场景里放一个 BagPanel，默认隐藏，主界面的按钮 <code>OnClick</code> 里 <code>bagPanel.SetActive(true)</code>。接着要一个出售确认框，于是背包脚本里再引用一个 ConfirmPanel。再后来商城、邮件、活动也要用确认框，每个脚本都拖一个引用；有的界面需要盖在别的界面之上，于是开始手动调 <code>SetAsLastSibling</code>；Android 上按返回键要关掉最上面的界面，于是每个界面的 <code>Update</code> 里都检查一遍 <code>Escape</code>，结果一按返回，三个界面同时关掉了。</p>
+<p>三个月后，主场景里堆着几十个默认隐藏的界面，启动时全部加载、全部 Awake，内存和启动时间都上去了；界面之间的引用像蜘蛛网，改一个界面要动五个脚本；有人在 <code>OnEnable</code> 里订阅了事件却忘了退订，关掉的界面还在后台刷新，偶尔报空引用。这些问题都不是 UGUI 本身的问题，而是<b>缺少一个统一管理界面的地方</b>。</p>
+<p>UI 框架要解决的事情可以归纳成下面几条，本章逐条实现：</p>
+<table>
+<tr><th>问题</th><th>框架的做法</th><th>本章对应</th></tr>
+<tr><td>界面谁盖谁说不清</td><td>固定的层级（Layer），每层一个子 Canvas</td><td>案例 16.1</td></tr>
+<tr><td>返回键关错界面</td><td>界面栈：返回键只交给栈顶界面</td><td>案例 16.3</td></tr>
+<tr><td>初始化、刷新、清理的代码散落各处</td><td>统一的生命周期回调</td><td>案例 16.2</td></tr>
+<tr><td>所有界面常驻场景，启动慢、占内存</td><td>按需从预制体加载，关闭后按策略缓存或销毁</td><td>16.4、案例 16.4</td></tr>
+<tr><td>到处拖确认框、提示框的引用</td><td>一行代码弹确认框、Toast，弹窗排队</td><td>案例 16.5、16.6</td></tr>
+<tr><td>界面之间、界面和玩法之间互相引用</td><td>数据绑定 + 事件中心解耦</td><td>案例 16.7</td></tr>
+<tr><td>每个界面手写一堆 <code>transform.Find</code></td><td>按命名规则自动生成绑定代码</td><td>案例 16.8</td></tr>
+</table>
+<div class="note"><b>注意</b>框架不是越大越好。很多开源 UI 框架功能齐全，但对一个三五个人的团队，读懂并维护它的成本可能比自己写一个还高。本章的框架核心只有 UIManager 和 UIPanel 两个类，加上几个小工具，总共几百行，目标是“每一行你都能看懂、都能改”。</div>
+
+<p>还有一点需要提前说明：框架并不替代前面学过的任何东西。界面内部怎么布局、按钮怎么做反馈、列表怎么滚动，仍然是第 2～15 章的内容；框架只负责界面“之间”的事情。也正因为如此，框架的代码应该非常稳定——一旦写好，几乎不需要随着业务改动。如果你发现每加一个新界面都要去改 UIManager，说明某些本该由界面自己决定的逻辑被错误地放进了框架。本章在设计每个接口时，都会顺带说明“为什么放在这里而不是那里”，读者可以据此判断哪些部分适合按自己的项目修改。</p>
+<h3 class="sec">16.2 框架总览</h3>
+<p>整个框架的结构如图 16-1。UIManager 挂在场景里唯一的根画布 UIRoot 上，它下面按层级建六个子节点；每个界面是一个预制体，根节点挂一个继承自 <code>UIPanel</code> 的脚本。业务代码只和 UIManager 打交道：<code>Open&lt;BagPanel&gt;()</code>、<code>Close(panel)</code>、<code>Back()</code>。</p>
+<figure><svg viewBox="0 0 600 300" width="600" font-family="PingFang SC" font-size="12">
+<rect x="10" y="10" width="580" height="280" rx="10" fill="#f6f5fd" stroke="#e0deef"/>
+<rect x="30" y="30" width="170" height="50" rx="8" fill="#5b4bd6"/><text x="115" y="52" fill="#fff" text-anchor="middle" font-size="14">业务代码</text><text x="115" y="70" fill="#fff" text-anchor="middle">Open / Close / Back</text>
+<rect x="30" y="120" width="170" height="90" rx="8" fill="#fff" stroke="#5b4bd6" stroke-width="2"/><text x="115" y="142" text-anchor="middle" font-size="14" fill="#1f2436">UIManager</text>
+<text x="115" y="162" text-anchor="middle" fill="#7a8299">层级 · 界面栈 · 返回键</text><text x="115" y="180" text-anchor="middle" fill="#7a8299">缓存(LRU) · 弹窗队列</text><text x="115" y="198" text-anchor="middle" fill="#7a8299">Confirm / Toast</text>
+<line x1="115" y1="80" x2="115" y2="118" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a16)"/>
+<defs><marker id="a16" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b4bd6"/></marker><marker id="b16" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ff8a3d"/></marker></defs>
+<rect x="30" y="235" width="170" height="40" rx="8" fill="#fff" stroke="#e0deef"/><text x="115" y="260" text-anchor="middle" fill="#1f2436">IUIAssetLoader（Resources）</text>
+<line x1="115" y1="210" x2="115" y2="233" stroke="#7a8299" stroke-width="1.5" marker-end="url(#a16)"/>
+<rect x="250" y="30" width="150" height="245" rx="8" fill="#fff" stroke="#e0deef"/><text x="325" y="50" text-anchor="middle" font-size="14" fill="#1f2436">UIRoot（Canvas）</text>
+<g fill="#1f2436"><rect x="265" y="62" width="120" height="26" rx="5" fill="#eceaf9"/><text x="325" y="80" text-anchor="middle">Top        ×500</text>
+<rect x="265" y="94" width="120" height="26" rx="5" fill="#eceaf9"/><text x="325" y="112" text-anchor="middle">Guide      ×400</text>
+<rect x="265" y="126" width="120" height="26" rx="5" fill="#eceaf9"/><text x="325" y="144" text-anchor="middle">Toast      ×300</text>
+<rect x="265" y="158" width="120" height="26" rx="5" fill="#ffe7d6"/><text x="325" y="176" text-anchor="middle">Popup ×200 (栈)</text>
+<rect x="265" y="190" width="120" height="26" rx="5" fill="#ffe7d6"/><text x="325" y="208" text-anchor="middle">Normal ×100 (栈)</text>
+<rect x="265" y="222" width="120" height="26" rx="5" fill="#eceaf9"/><text x="325" y="240" text-anchor="middle">Background ×0</text></g>
+<text x="325" y="266" text-anchor="middle" fill="#7a8299">子 Canvas · sortingOrder</text>
+<line x1="200" y1="165" x2="248" y2="165" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a16)"/>
+<rect x="440" y="30" width="135" height="245" rx="8" fill="#fff" stroke="#e0deef"/><text x="507" y="50" text-anchor="middle" font-size="14" fill="#1f2436">界面预制体</text>
+<text x="507" y="72" text-anchor="middle" fill="#7a8299">Resources/UIPanels/</text>
+<g fill="#1f2436"><text x="455" y="100">MainPanel.prefab</text><text x="455" y="124">BagPanel.prefab</text><text x="455" y="148">ConfirmPanel.prefab</text><text x="455" y="172">ToastPanel.prefab</text><text x="455" y="196">RewardPanel.prefab</text></g>
+<text x="507" y="228" text-anchor="middle" fill="#ff8a3d">根节点：UIPanel 子类</text><text x="507" y="248" text-anchor="middle" fill="#ff8a3d">+ 生成的 Xxx.Bind.cs</text>
+<line x1="438" y1="150" x2="402" y2="170" stroke="#ff8a3d" stroke-width="2" marker-end="url(#b16)"/>
+</svg><figcaption><b>图 16-1</b> 框架结构：业务代码只调用 UIManager；UIManager 从加载器拿预制体，实例化后挂到对应层级下</figcaption></figure>
+<p>配套工程里的文件分两组。<code>Ch16/Framework/</code> 是可以原样拷走的框架本体；<code>Ch16/Demo/</code> 是示例界面和数据，演示框架怎么用：</p>
+<div class="kv">
+<span>UILayer.cs</span><span>层级枚举、缓存模式枚举</span>
+<span>UIPanel.cs</span><span>界面基类：生命周期、自动解绑、绑定辅助方法</span>
+<span>UIManager.cs</span><span>核心：层级、打开关闭、界面栈、返回键、加载、缓存、弹窗队列、Confirm/Toast 快捷方法</span>
+<span>UIAssetLoader.cs</span><span>加载器接口与 Resources 实现</span>
+<span>Observable.cs / EventCenter.cs</span><span>数据绑定与事件中心</span>
+<span>ConfirmPanel / ToastPanel / UIPopIn</span><span>通用确认框、飘字提示、弹窗回弹动画</span>
+<span>Editor/UIBindGenerator.cs</span><span>按命名规则生成绑定代码的编辑器工具</span>
+</div>
+
+<h3 class="case"><span class="no">案例 16.1</span>层级：每层一个子 Canvas<span class="lv">进阶</span></h3>
+<p><b>目标</b>：确定界面谁盖谁，与界面打开的先后顺序无关。新手引导的遮罩永远在普通界面之上，断线重连的转圈永远在最上面。</p>
+<p>UGUI 同一个 Canvas 里按层级顺序绘制，后面的盖住前面的（第 1 章）。如果所有界面都直接挂在一个 Canvas 下，“谁在上面”就取决于谁最后 <code>SetAsLastSibling</code>，一旦某个界面在弹窗打开之后才刷新、顺手调了一下兄弟顺序，就会跑到弹窗上面去。解决办法是把界面分成固定的几层：</p>
+<pre class="code" data-file="Ch16/Framework/UILayer.cs" data-region="layer"></pre>
+<p>每一层是 UIRoot 下的一个子节点，上面挂 Canvas 并勾选 <code>overrideSorting</code>，<code>sortingOrder</code> 按层号乘 100。这样做有三个好处：第一，层与层之间的先后由 sortingOrder 决定，和层级面板里的顺序无关；第二，子 Canvas 是独立的重建单元（第 12 章讲过，Canvas 内任何元素变化会导致整个 Canvas 重新合批），Toast 每帧淡出不会连累背包重新合批；第三，界面里需要夹粒子特效时（第 19 章），可以在 100 的间隔里插入粒子的排序值。</p>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="init"></pre>
+<p>注意代码里给每层都加了 <code>GraphicRaycaster</code>。这是一个经常被忽略的坑：<b>GraphicRaycaster 只检测“自己所在 Canvas”上的图形</b>。在源码 <code>GraphicRaycaster.Raycast</code> 里，它通过 <code>GraphicRegistry.GetRaycastableGraphicsForCanvas(canvas)</code> 取图形列表，而子 Canvas 下的 Image 是登记在子 Canvas 名下的。根 Canvas 上的 Raycaster 看不到它们，于是界面能显示却点不动。</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/GraphicRaycaster.cs（Raycast 方法内）
+var canvasGraphics = GraphicRegistry.GetRaycastableGraphicsForCanvas(canvas);
+if (canvasGraphics == null || canvasGraphics.Count == 0)
+    return;
+</pre>
+<p>下面这张图是同时打开主界面、背包、确认框和 Toast 时的样子，每个框标出了它所在的层；层级图显示了 UIRoot 下的结构，注意 MainPanel 名字前的灰色：它被全屏的背包挡住，已经被框架隐藏了（16.3 节解释）。</p>
+<figure class="shot"><img src="img/ch16-layers.jpg"><figcaption><b>图 16-2</b> 四个层同时有内容：Normal 层的背包、Popup 层的确认框、Toast 层的提示、Top 层的调试标签（底部实时显示界面栈）</figcaption></figure>
+<div class="tree" data-tree="ch16-layers" data-root="UIRoot" data-depth="2" data-title="Hierarchy · UIRoot"></div>
+<div class="note tip"><b>提示</b>层的数量因项目而异。有的项目会加一个 <code>HUD</code> 层（战斗界面）放在 Normal 之下，有的会把 Guide 拆成“引导遮罩”和“引导手指”两层。原则是：层只按“必须永远盖住谁”来划分，同一层里的先后交给界面栈。</div>
+
+<h3 class="case"><span class="no">案例 16.2</span>UIPanel 基类与生命周期<span class="lv">进阶</span></h3>
+<p><b>目标</b>：所有界面有统一的“出生到死亡”流程，初始化、刷新、清理各有固定的位置，框架决定调用时机。</p>
+<p>很多人习惯在界面脚本的 <code>Awake</code>、<code>OnEnable</code> 里写初始化。问题在于这些回调由 Unity 在“物体被激活”时调用，而框架有时需要激活一个界面却不希望它刷新（比如从全屏遮挡中恢复显示），有时又需要在不激活的情况下处理它（比如缓存、销毁）。把生命周期完全交给框架驱动，语义就清楚了：</p>
+<figure><svg viewBox="0 0 600 220" width="600" font-family="PingFang SC" font-size="12">
+<defs><marker id="c16" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+<g text-anchor="middle">
+<rect x="10" y="80" width="80" height="44" rx="8" fill="#eceaf9" stroke="#5b4bd6"/><text x="50" y="100" fill="#1f2436">OnCreate</text><text x="50" y="116" fill="#7a8299">实例化后一次</text>
+<rect x="130" y="80" width="80" height="44" rx="8" fill="#5b4bd6"/><text x="170" y="100" fill="#fff">OnOpen(args)</text><text x="170" y="116" fill="#fff">每次打开</text>
+<rect x="260" y="20" width="90" height="44" rx="8" fill="#fff" stroke="#ff8a3d"/><text x="305" y="40" fill="#1f2436">OnPause</text><text x="305" y="56" fill="#7a8299">被别的界面压住</text>
+<rect x="260" y="140" width="90" height="44" rx="8" fill="#fff" stroke="#ff8a3d"/><text x="305" y="160" fill="#1f2436">OnResume</text><text x="305" y="176" fill="#7a8299">回到栈顶</text>
+<rect x="390" y="80" width="80" height="44" rx="8" fill="#5b4bd6"/><text x="430" y="100" fill="#fff">OnClose</text><text x="430" y="116" fill="#fff">自动解绑</text>
+<rect x="510" y="80" width="80" height="44" rx="8" fill="#eceaf9" stroke="#e5484d"/><text x="550" y="100" fill="#1f2436">OnRelease</text><text x="550" y="116" fill="#7a8299">销毁前</text>
+</g>
+<g stroke="#7a8299" stroke-width="1.5" fill="none">
+<line x1="90" y1="102" x2="128" y2="102" marker-end="url(#c16)"/>
+<path d="M210 95 Q240 50 258 45" marker-end="url(#c16)"/><path d="M305 64 L305 138" marker-end="url(#c16)"/>
+<path d="M260 165 Q230 150 212 115" marker-end="url(#c16)"/>
+<line x1="210" y1="110" x2="388" y2="110" marker-end="url(#c16)"/>
+<line x1="470" y1="102" x2="508" y2="102" marker-end="url(#c16)"/>
+<path d="M430 124 Q300 215 170 126" stroke-dasharray="4 3" marker-end="url(#c16)"/>
+</g>
+<text x="300" y="212" text-anchor="middle" fill="#7a8299">Cache / Permanent：关闭后不销毁，下次 Open 直接走 OnOpen</text>
+</svg><figcaption><b>图 16-3</b> 界面生命周期。实线是一次完整的打开-关闭；虚线是缓存命中时的再次打开</figcaption></figure>
+<pre class="code" data-file="Ch16/Framework/UIPanel.cs" data-region="panel"></pre>
+<p>逐个说明各回调里该写什么：</p>
+<div class="kv">
+<span>BindUI</span><span>拿控件引用。由 16.8 的工具生成，不用手写。它在 OnCreate 之前调用，所以 OnCreate 里可以放心用控件。</span>
+<span>OnCreate</span><span>只执行一次的初始化：<code>AddListener</code>、设置静态文字、隐藏模板节点。<b>不要在这里读业务数据</b>，因为缓存的界面下次打开不会再走 OnCreate，数据会是旧的。</span>
+<span>OnOpen(args)</span><span>每次打开都执行：读数据、刷新显示、绑定数据、订阅事件。<code>args</code> 是 <code>Open</code> 时传入的参数，比如要选中的物品。</span>
+<span>OnPause / OnResume</span><span>失去 / 重新获得栈顶位置。典型用途：暂停 / 恢复界面上的倒计时、背景音乐切换、引导检查。</span>
+<span>OnClose</span><span>停止计时器、动画。OnOpen 里通过 <code>AddToOpenScope</code> 登记的绑定会在 OnClose 之后被统一 Dispose，不用手动退订。</span>
+<span>OnRelease</span><span>界面实例被真正销毁前调用，释放界面自己额外加载的资源（大图、特效）。</span>
+</div>
+<p><code>m_OpenScope</code> 是这个基类最有价值的设计。“订阅了忘记退订”是 UI 代码里最常见的内存泄漏和空引用来源：界面关了，事件还挂在全局的事件中心上，下次事件触发时去刷新一个已经隐藏甚至已经销毁的界面。把所有订阅都登记到“打开期间有效”的作用域里，关闭时统一释放，这类问题就从根上消失了。<code>Listen&lt;T&gt;()</code> 是对事件中心的封装，一行代码完成“订阅 + 登记”。</p>
+<div class="note warn"><b>常见坑</b>同一个界面已经打开时再次 <code>Open</code>（比如从两个入口进入背包），框架会再调用一次 OnOpen 来刷新参数。如果 OnOpen 里订阅了事件，第二次就会重复订阅。基类在 <code>InternalOpen</code> 开头判断 <code>IsOpen</code>，先释放上一次的作用域，避免了这个问题。</div>
+
+<h3 class="case"><span class="no">案例 16.3</span>UIManager：打开、关闭、界面栈与返回键<span class="lv">进阶</span></h3>
+<p><b>目标</b>：Normal 和 Popup 层的界面组成一个栈，返回键只交给栈顶；全屏界面打开时，被它完全挡住的界面自动隐藏。</p>
+<p>先看 UIManager 持有的几张表：</p>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="fields"></pre>
+<p><code>m_Opened</code> 记录所有打开中的界面（按名字查找），<code>m_Stack</code> 只记录进栈层的界面，末尾是栈顶。为什么 Toast、Guide、Top 层不进栈？因为返回键的语义是“关掉用户正在操作的那个界面”，而 Toast 只是提示、引导遮罩不该被返回键关掉、断线转圈更不该。</p>
+<h4>打开</h4>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="open"></pre>
+<p>打开分三步：取实例（常驻表、缓存、或者新加载）→ 挂到对应层并放到层内最上面 → 压栈、调用 OnOpen。压栈之前先让原来的栈顶 OnPause。如果要打开的界面<b>已经在栈里</b>（比如背包 → 商城 → 点商城里的“去背包”），框架会关掉它上面的所有界面让它回到栈顶，这和 Android 的 singleTask 启动模式一样，避免栈里出现两个背包。</p>
+<p><code>OpenAsync</code> 是异步版本，适合首次打开很大的界面：加载期间可以在 Top 层显示转圈，加载完再显示。<code>m_Loading</code> 防止加载期间玩家狂点按钮导致同一个界面被加载、实例化多次——这是实际项目里很容易出的 bug。</p>
+<h4>关闭与可见性</h4>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="close"></pre>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="visibility"></pre>
+<p><code>RefreshVisibility</code> 是一个简单但收益很大的优化：从栈顶往下数，遇到第一个全屏界面（<code>FullScreen</code> 勾选的界面），它下面的所有界面都看不见了，直接 <code>SetActive(false)</code>。被挡住的界面不渲染、不参与射线检测，Canvas 合批的元素也少了。背包是全屏的，所以打开背包后主界面被隐藏；确认框不是全屏的（半透明遮罩下还要看到背包），背包保持显示。</p>
+<p>为什么用 SetActive 而不是把 CanvasGroup 的 alpha 设为 0？alpha 为 0 的元素仍然在 Canvas 的合批数据里，仍然要计算网格，只是画出来看不见；SetActive(false) 则彻底把它们移出渲染和事件。代价是重新激活时 Graphic 会在 OnEnable 里标脏、重建一次（第 12 章），对于“关闭背包回到主界面”这种低频操作完全可以接受。第 20 章有各种隐藏方式的实测对比。</p>
+<h4>返回键</h4>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="back"></pre>
+<p>Back 本身只有一行：交给栈顶界面的 <code>OnBack</code>。默认实现是关闭自己；需要特殊处理的界面重写它。主界面在栈底，按返回键不能把自己关了，而是弹出“确定退出游戏吗”；确认框把返回键当作“取消”；正在播放不可跳过的剧情动画时返回 false，表示不处理。这样“返回键怎么办”分散到每个界面自己决定，UIManager 不需要写任何特殊判断。</p>
+<p>在 Unity 里，Android 的物理返回键和桌面的 Esc 都映射为 <code>KeyCode.Escape</code>，UIManager 在 Update 里统一监听一次。这就避免了“每个界面各自监听 Escape，一按关三个”的问题。</p>
+<figure class="shot"><img src="img/ch16-main.jpg"><figcaption><b>图 16-4</b> 示例的主界面（MainPanel，Normal 层，常驻）。底部的标签实时显示界面栈</figcaption></figure>
+<figure class="shot"><img src="img/ch16-bag.jpg"><figcaption><b>图 16-5</b> 打开背包后：栈变成 MainPanel(隐藏) &gt; BagPanel，主界面被全屏的背包挡住而被隐藏</figcaption></figure>
+
+<h3 class="sec">16.4 预制体加载：Resources 与 Addressables</h3>
+<p>框架约定：界面名 = 类名 = 预制体文件名。<code>Open&lt;BagPanel&gt;()</code> 用 <code>typeof(BagPanel).Name</code> 作为 key，交给加载器去找预制体。加载器是一个接口：</p>
+<pre class="code" data-file="Ch16/Framework/UIAssetLoader.cs" data-region="loader"></pre>
+<p>配套工程用 Resources 实现：预制体放在 <code>Ch16/Resources/UIPanels/</code> 下。Resources 的优点是零配置、同步加载简单，缺点也很明显：所有 Resources 目录里的资源都会被打进包体，不管用没用到；启动时 Unity 要为 Resources 建索引，资源越多启动越慢；而且无法热更新。Unity 官方文档也不推荐在正式项目里大量使用 Resources。</p>
+<p>正式项目通常换成 Addressables（或自己管理的 AssetBundle）。因为加载逻辑都封装在 <code>IUIAssetLoader</code> 后面，切换只需要写一个新的实现类，UIManager 一行都不用改。下面是 Addressables 版本的思路（配套工程没有安装 Addressables 包，这段代码未在工程里编译，API 以你安装的包版本为准）：</p>
+<pre class="code" data-lang="csharp">// 需要安装 com.unity.addressables；预制体的 Address 设为界面名
+public class AddressablesUILoader : IUIAssetLoader
+{
+    readonly Dictionary&lt;string, AsyncOperationHandle&lt;GameObject&gt;&gt; m_Handles = new();
+
+    public GameObject Load(string key)
+    {
+        var h = Addressables.LoadAssetAsync&lt;GameObject&gt;(key);
+        h.WaitForCompletion();          // 同步等待：首次打开会卡一下，大界面请用 LoadAsync
+        m_Handles[key] = h;
+        return h.Result;
+    }
+
+    public void LoadAsync(string key, Action&lt;GameObject&gt; done)
+    {
+        var h = Addressables.LoadAssetAsync&lt;GameObject&gt;(key);
+        h.Completed += op =&gt; { m_Handles[key] = op; done(op.Result); };
+    }
+
+    public void Release(string key)
+    {
+        // Addressables 有引用计数：实例销毁后释放句柄，预制体和它依赖的图集才会被卸载
+        if (m_Handles.Remove(key, out var h)) Addressables.Release(h);
+    }
+}
+</pre>
+<h4>同步还是异步</h4>
+<p>同步加载写起来最简单：<code>Open</code> 返回时界面已经显示，调用方可以立刻拿到实例做后续设置。代价是首次打开大界面时，加载预制体、解压图集、实例化几百个节点都挤在同一帧里，玩家会感到明显的卡顿。异步加载把读盘和解压分摊到后台线程与后续几帧，但界面不会立刻出现，调用方要改成回调写法，还要处理“加载过程中玩家又点了别的按钮”“加载回来时 UIManager 已经被销毁”等情况——<code>OpenAsync</code> 里的 <code>m_Loading</code> 与 <code>this == null</code> 判断就是为此准备的。实践中常见的折中是：小界面同步、大界面异步，并在进入主城时用异步预加载几个常用的大界面放进缓存。</p>
+<div class="box"><h4>原理：为什么用 LRU 缓存，而不是对象池</h4><p>对象池适合“同一种东西大量、反复地创建销毁”，比如伤害飘字、子弹、列表项（第 17、18 章）。界面不一样：每种界面通常只有一个实例，问题不是“创建很多个”，而是“要不要把这一个留在内存里”。LRU 的思路是假设最近用过的界面最可能马上再用，在固定的内存预算（容量）内保留它们，超出预算时淘汰最久没用的那个。容量是一个可以根据机型调整的参数：高端机可以缓存 8 个，低端机缓存 2 个。</p></div>
+<p>注意 <code>Release</code> 的调用时机：UIManager 只在界面实例被<b>销毁</b>时调用它，缓存中的界面仍持有预制体。这正是下一节缓存策略要权衡的东西。</p>
+
+<h3 class="case"><span class="no">案例 16.4</span>缓存与销毁策略<span class="lv">进阶</span></h3>
+<p><b>目标</b>：常用界面关了再开不卡，偶尔打开的大界面用完就释放，内存可控。</p>
+<p>每个界面在预制体上选择三种缓存模式之一（<code>UICacheMode</code>）：</p>
+<table>
+<tr><th>模式</th><th>关闭后</th><th>适合</th><th>示例</th></tr>
+<tr><td>Permanent</td><td>隐藏，永不销毁</td><td>随时要用、打开频繁</td><td>主界面、确认框、Toast</td></tr>
+<tr><td>Cache</td><td>放进 LRU 缓存，超出容量销毁最久没用的</td><td>常用但不必常驻</td><td>背包、角色、奖励弹窗</td></tr>
+<tr><td>DestroyOnClose</td><td>立即销毁、释放预制体</td><td>低频且占内存大</td><td>活动页、排行榜、抽卡</td></tr>
+</table>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="cache"></pre>
+<p>LRU（Least Recently Used，最近最少使用）的实现用了一个链表：关闭的界面插到表头，再次打开时从链表里摘出来，超过容量时从表尾淘汰。容量默认 4，可以在 UIManager 的 Inspector 里调。查找用的是线性遍历——缓存里最多几个界面，遍历比维护一个额外的字典更简单，也不会更慢。</p>
+<p>缓存策略没有标准答案，要结合实测（第 20 章介绍 Memory Profiler）。几条经验：</p>
+<ul>
+<li>移动端内存紧张时，订阅 <code>Application.lowMemory</code> 事件调用 <code>ClearCache()</code>，再 <code>Resources.UnloadUnusedAssets()</code>。</li>
+<li>切换大场景（从主城进战斗）时调用 <code>CloseAll()</code> 和 <code>ClearCache()</code>，战斗里用不到主城的界面。</li>
+<li>界面上有大图（活动海报、立绘）时，与其让整个界面 DestroyOnClose，不如在 OnClose 里把大图的引用置空、在 OnOpen 里重新加载，界面本身仍可缓存。</li>
+</ul>
+
+<h3 class="case"><span class="no">案例 16.5</span>通用确认框与 Toast<span class="lv">入门</span></h3>
+<p><b>目标</b>：任何地方一行代码弹确认框，按钮回调用闭包写在调用处；一行代码飘一条提示。</p>
+<pre class="code" data-lang="csharp">UIManager.Confirm("确定以 120 金币出售「铁剑」吗？", () =&gt; model.Sell(item), title: "出售物品", okText: "出售");
+UIManager.Toast("出售成功，获得 120 金币");
+</pre>
+<p>确认框是一个 Popup 层、常驻的界面，参数通过 <code>ConfirmArgs</code> 传入：</p>
+<pre class="code" data-file="Ch16/Framework/ConfirmPanel.cs" data-region="confirm"></pre>
+<p><code>Finish</code> 里有两个细节。第一，先把 <code>m_Args</code> 置空再处理，防止玩家在同一帧双击“确定”导致回调执行两次（比如扣两次钱）。第二，<b>先关闭确认框，再调用回调</b>：如果回调里又弹了一个确认框（“出售成功，是否继续出售？”），由于确认框是同一个实例，先关后开才不会冲突。</p>
+<p>确认框的卡片上挂了 <code>UIPopIn</code>，每次激活时播放一个回弹缩放（EaseOutBack）：</p>
+<pre class="code" data-file="Ch16/Framework/UIPopIn.cs" data-region="popin"></pre>
+<p>动画放在卡片节点上而不是界面根节点上，是为了让半透明遮罩立刻出现、只有卡片在弹。第 15 章有更完整的补间系统，这里只用最小的实现，避免框架依赖动画库。</p>
+<figure class="shot"><img src="img/ch16-confirm.jpg"><figcaption><b>图 16-6</b> 背包里点“出售”弹出确认框。遮罩挡住下层点击，返回键等同于“取消”</figcaption></figure>
+<p>Toast 在 Toast 层、常驻、不进栈，同时最多显示 3 条，新的在下、旧的往上顶，到时间后淡出回收。它用的是 <code>Time.unscaledDeltaTime</code>：游戏暂停（<code>timeScale = 0</code>）时提示也能正常消失。根节点的 CanvasGroup 关掉了 <code>blocksRaycasts</code>，提示不会挡住下面的按钮。</p>
+<pre class="code" data-file="Ch16/Framework/ToastPanel.cs" data-region="toast"></pre>
+<figure class="shot"><img src="img/ch16-sold.jpg"><figcaption><b>图 16-7</b> 左：确认出售后，背包刷新、金币增加、Toast 提示；右：按返回键回到主界面，金币数同步更新，提示还在继续显示</figcaption></figure>
+
+<h3 class="case"><span class="no">案例 16.6</span>弹窗队列<span class="lv">进阶</span></h3>
+<p><b>目标</b>：登录时“签到奖励”“首充礼包”“系统公告”接连要弹，不能叠在一起，要一个关了再弹下一个，并且重要的先弹。</p>
+<p>如果直接连调三次 <code>Open</code>，三个弹窗会同时出现在 Popup 层叠成一摞；如果三个都是同一个 RewardPanel，后两次 Open 会覆盖第一次的参数。正确做法是排队：</p>
+<pre class="code" data-file="Ch16/Framework/UIManager.cs" data-region="queue"></pre>
+<p>入队时立即尝试弹出；只要栈顶还是 Popup 层的界面，就继续等。每当有界面关闭，<code>Close</code> 末尾会调用 <code>TryShowQueuedPopup</code>，于是队列自然向前推进。出队按优先级从高到低，同优先级按入队顺序（<code>Order</code>）先进先出。这里用列表线性找最大值而不是优先队列，原因同样是数量少、代码简单；队列里同时排几十个弹窗本身就是设计问题。</p>
+<p>主界面的“邮件”按钮演示了这个过程：依次入队签到（优先级 0）、公告（0）、首充（10）。签到入队时没有弹窗，立即弹出；公告和首充排队；关掉签到后，首充优先级高，插到公告前面。</p>
+<pre class="code" data-file="Ch16/Demo/MainPanel.cs" data-region="main"></pre>
+<figure class="shot"><img src="img/ch16-queue.jpg"><figcaption><b>图 16-8</b> 弹窗队列：签到 → 首充（优先级高，插队）→ 公告。每个弹窗底部显示队列里还剩几个，领取金币时飘出 Toast</figcaption></figure>
+<p>RewardPanel 底部的“后面还有 N 个弹窗排队”有一个细节：签到弹窗打开的那一刻，另外两个还没入队，如果只在 OnOpen 里读一次 <code>QueuedCount</code> 会显示“这是最后一个”。所以它订阅了 <code>QueueChanged</code> 事件，并且把订阅登记进 OpenScope，关闭时自动退订：</p>
+<pre class="code" data-file="Ch16/Demo/RewardPanel.cs"></pre>
+<div class="note tip"><b>扩展</b>真实项目的弹窗队列往往还要处理：进入战斗时暂停队列、回到主城再继续；某些弹窗有“当天不再提示”；断线重连后清空队列。可以给 <code>QueuedPopup</code> 加一个 <code>Func&lt;bool&gt; condition</code>，出队时检查条件不满足就丢弃。</div>
+
+<h3 class="case"><span class="no">案例 16.7</span>数据绑定与事件中心<span class="lv">进阶</span></h3>
+<p><b>目标</b>：金币变了，主界面、背包标题栏上的金币数自动刷新；卖掉物品后弹出提示，但背包脚本不需要知道“谁来弹提示”。</p>
+<h4>Observable：可观察属性</h4>
+<p>界面刷新最原始的写法是“改完数据手动调 Refresh”。问题是改数据的地方很多（出售、领奖、充值、GM 命令），漏调一处界面就不同步。把数据包成可观察属性，值一变就通知所有绑定者：</p>
+<pre class="code" data-file="Ch16/Framework/Observable.cs" data-region="observable"></pre>
+<p><code>Bind</code> 返回一个 <code>IDisposable</code>，界面在 OnOpen 里绑定、登记到 OpenScope，关闭时自动解绑。<code>invokeNow</code> 默认为 true，绑定时立刻用当前值刷一次，省掉一段初始化代码。再配几个扩展方法，常见的“文字跟着数字变”“物体跟着布尔值显隐”都变成一行：</p>
+<pre class="code" data-file="Ch16/Framework/Observable.cs" data-region="bindext"></pre>
+<p>数据层（Model）里只放数据和修改数据的方法，不引用任何界面：</p>
+<pre class="code" data-file="Ch16/Demo/PlayerModel.cs" data-region="model"></pre>
+<p>这就是 MVP / MVVM 思想的最小落地：Model 是 PlayerModel，View 是预制体上的控件，界面脚本（Presenter）负责把两者绑起来、把用户操作转成对 Model 的调用。不必追求教科书式的分层——对于 UGUI 项目，“界面脚本不存真数据、数据变了自动刷新”这两条做到了，就已经解决了大部分同步问题。</p>
+<div class="note warn"><b>常见坑</b><code>Observable&lt;T&gt;</code> 的 setter 用 <code>EqualityComparer</code> 判断值是否变化。如果 T 是引用类型（比如一个 List），修改列表内容不会触发通知，因为引用没变。这种情况要么改完调 <code>Notify()</code>，要么像 Inventory 那样自己提供 Changed 事件。</div>
+<h4>事件中心</h4>
+<p>“卖掉物品后弹提示”这件事，背包可以直接调 <code>UIManager.Toast</code>，但更多时候一个事件有多个接收者：任务系统要统计出售次数、成就系统要检查“累计出售 100 件”、音效系统要播放金币声。让背包去调用它们，背包就和所有系统耦合在一起。事件中心把“发生了什么”和“谁关心”分开：</p>
+<pre class="code" data-file="Ch16/Framework/EventCenter.cs" data-region="eventcenter"></pre>
+<p>这个实现有三个特点。第一，<b>类型安全</b>：事件是一个 struct（<code>ItemSoldEvent</code>），订阅和发送都用泛型，参数写错编译期就报错，不像字符串事件名那样拼错了运行时才发现。第二，<b>没有字典查找</b>：泛型静态类 <code>Channel&lt;T&gt;</code> 对每个 T 都有独立的静态字段，相当于编译器帮你生成了一张“类型 → 委托”的表。第三，<b>异常隔离</b>：逐个调用监听者并 catch 异常，一个监听者出错不会让后面的都收不到。</p>
+<p>示例里出售的流程是：BagPanel 调 <code>PlayerModel.Sell</code> → Model 改金币、发 <code>ItemSoldEvent</code> → 启动脚本里的全局监听弹 Toast。背包不知道 Toast 的存在，Toast 也不知道背包的存在：</p>
+<pre class="code" data-file="Ch16/Demo/Ch16Bootstrap.cs" data-region="boot"></pre>
+<div class="note deep"><b>深入</b>如果在 Project Settings 里关掉了 Enter Play Mode Options 的 Reload Domain（加快进入播放模式），静态字段在两次播放之间不会被重置，上一次播放留下的订阅还在。所以事件中心提供了 <code>Clear&lt;T&gt;()</code>，并且所有订阅都应该通过 IDisposable 正确释放。配套工程的批处理出图也遇到了同样的问题——多张图在同一个进程里搭景，每张图开始前都要清一下订阅。</div>
+
+<h3 class="case"><span class="no">案例 16.8</span>编辑器工具：按命名规则自动生成绑定代码<span class="lv">高阶</span></h3>
+<p><b>目标</b>：美术在预制体里把需要代码访问的节点按约定命名（<code>btn_Sell</code>、<code>txt_Gold</code>），右键一下就生成取控件的代码，界面脚本里不再出现手写的 <code>transform.Find</code>。</p>
+<p>手写控件引用有两种方式，各有毛病。一种是 <code>[SerializeField]</code> 字段在 Inspector 里拖引用：界面一复杂就要拖几十次，预制体改结构时引用丢了也没有任何提示。另一种是在代码里 <code>transform.Find("DetailCard/go_Detail/btn_Sell")</code>：路径写错只有运行到那一行才报错，改了层级要全局搜索路径字符串。代码生成把两者的优点结合起来：<b>命名即声明</b>，生成的代码有完整的类型，界面脚本像访问普通字段一样使用控件。</p>
+<p>命名规则如下（可以按团队习惯修改 <code>Rules</code> 数组）：</p>
+<pre class="code" data-file="Ch16/Editor/UIBindGenerator.cs" data-region="rules"></pre>
+<p>以背包为例，预制体里带前缀的节点会生成字段，不带前缀的（Bg、Title、SlotBackground……）被忽略：</p>
+<div class="tree" data-tree="ch16-layers" data-root="Normal/BagPanel" data-depth="3" data-hide="SlotBackground,Shadow" data-title="Hierarchy · BagPanel（预制体）"></div>
+<p>生成器递归遍历预制体，收集名字带前缀的节点，检查三类错误：名字重复（会生成两个同名字段）、名字不是合法的 C# 标识符、前缀与组件不符（叫 <code>btn_</code> 却没有 Button）。遇到挂着另一个 UIPanel 的子节点时停止深入——嵌套的子面板由它自己的绑定代码负责：</p>
+<pre class="code" data-file="Ch16/Editor/UIBindGenerator.cs" data-region="build"></pre>
+<p>生成的代码是界面类的另一半 <code>partial class</code>，重写基类的 <code>BindUI</code>。这就是为什么所有示例界面都声明为 <code>partial</code>：手写逻辑在 <code>BagPanel.cs</code>，生成代码在 <code>Generated/BagPanel.Bind.cs</code>，重新生成时只覆盖后者，手写部分永远不会被冲掉。</p>
+<pre class="code" data-file="Ch16/Demo/Generated/BagPanel.Bind.cs"></pre>
+<p>写文件时先和旧内容比较，没变化就不写，避免每次生成都触发 Unity 重新编译：</p>
+<pre class="code" data-file="Ch16/Editor/UIBindGenerator.cs" data-region="write"></pre>
+<p>使用方法：</p>
+<ol class="steps">
+<li>在 Project 窗口里选中界面预制体（根节点挂着 UIPanel 的子类，类声明为 <code>partial</code>）。</li>
+<li>右键 <span class="menu">UGUIBook › 生成 UI 绑定代码</span>（菜单定义在 <code>Assets/</code> 下，所以出现在 Project 窗口的右键菜单和顶部 Assets 菜单里）。</li>
+<li>Console 输出生成路径；如果有命名错误，会逐条列出节点路径。</li>
+<li>等待 Unity 重新编译，界面脚本里就可以直接使用 <code>btn_Sell</code>、<code>txt_Gold</code> 等字段。</li>
+</ol>
+<pre class="code" data-file="Ch16/Editor/UIBindGenerator.cs" data-region="menu"></pre>
+<p>运行时的 <code>Bind&lt;T&gt;</code> 在找不到节点时输出带路径的错误，而不是在后面某行抛出莫名其妙的空引用——预制体被人改了结构、却忘了重新生成时，这条日志能直接告诉你是哪个节点。配套工程的搭景代码在每次保存预制体后自动调用生成器，所以预制体和绑定代码永远一致；你的项目也可以写一个 <code>AssetPostprocessor</code>，在 UI 预制体保存时自动生成。</p>
+<div class="cmp"><div class="good"><h5>✓ 生成器适合</h5>结构稳定、控件多的业务界面；多人协作，美术负责拼预制体、程序负责逻辑。</div><div class="bad"><h5>✗ 不必用</h5>只有两三个控件的小组件（直接 SerializeField 更直观）；列表项这类运行时复用的模板（用第 18 章的方式在 Bind 里赋值）。</div></div>
+
+<h3 class="case"><span class="no">案例 16.9</span>完整示例：主界面 → 背包 → 确认框 → 返回<span class="lv">进阶</span></h3>
+<p><b>目标</b>：把前面所有部件组装起来，在配套场景里完整走一遍。</p>
+<div class="scene">Ch16/Scenes/Ch16_UIFramework.unity</div>
+<p>场景里只有三样东西：相机、挂着 UIManager 的 UIRoot（六个层节点已建好）、挂着 Ch16Bootstrap 的启动物体。所有界面都不在场景里，运行后才从 <code>Resources/UIPanels/</code> 加载。操作流程：</p>
+<ol class="steps">
+<li>运行场景，Bootstrap 初始化数据并 <code>Open&lt;MainPanel&gt;()</code>。底部标签显示 <code>界面栈：MainPanel</code>。</li>
+<li>点右侧“背包”：BagPanel 第一次被加载、实例化，走 OnCreate → OnOpen；主界面 OnPause 并被隐藏。</li>
+<li>点任意格子，右侧详情刷新；点“出售”，ConfirmPanel 弹出，背包 OnPause（仍然显示）。</li>
+<li>点“出售”确认：确认框关闭、背包 OnResume；Model 金币增加并发出事件；Toast 飘出“出售成功”；背包标题栏的金币通过绑定自动刷新，格子通过 Inventory.Changed 重建。</li>
+<li>按 <kbd>Esc</kbd>（手机上是返回键）：背包关闭进入 LRU 缓存，主界面恢复显示，金币数已经是新的。再点“背包”，这次不会重新加载——直接从缓存取出，只走 OnOpen。</li>
+<li>在主界面再按 <kbd>Esc</kbd>：弹出“确定要退出游戏吗？”。点“邮件”体验弹窗队列；点“设置”“开始战斗”会飘 Toast。</li>
+</ol>
+<p>背包界面的完整代码如下，注意它没有任何一行在找控件，也没有一行在“记得刷新金币”：</p>
+<pre class="code" data-file="Ch16/Demo/BagPanel.cs" data-region="bag"></pre>
+<p>格子数量少时，这种“按需补足、多余隐藏”的做法足够了；背包上百格时请换成第 18 章的循环网格。</p>
+<div class="note tip"><b>调参建议</b>在 UIManager 的 Inspector 里把 Cache Capacity 改成 0，再反复打开关闭背包，用 Profiler 观察会发现每次打开都要重新 Instantiate 整个界面——这就是缓存省下的开销。把 Handle Back Key 关掉，可以让游戏自己的输入系统（比如 Input System 的 UI/Cancel 动作）来调用 <code>UIManager.Instance.Back()</code>。</div>
+
+
+<h3 class="sec">16.10 界面栈是怎么变化的</h3>
+<p>把案例 16.9 的操作过程画成界面栈的变化，能更直观地看清各个回调的触发时机。图 16-9 从左到右是五个时刻，每一列从下往上是栈底到栈顶，灰色表示被全屏界面挡住而隐藏的界面：</p>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="12">
+<g text-anchor="middle">
+<text x="60" y="20" fill="#1f2436">① 启动</text><text x="180" y="20" fill="#1f2436">② 打开背包</text><text x="300" y="20" fill="#1f2436">③ 点出售</text><text x="420" y="20" fill="#1f2436">④ 确认</text><text x="540" y="20" fill="#1f2436">⑤ 返回键</text>
+<rect x="15" y="190" width="90" height="34" rx="6" fill="#5b4bd6"/><text x="60" y="212" fill="#fff">MainPanel</text>
+<rect x="135" y="190" width="90" height="34" rx="6" fill="#c9c6dd"/><text x="180" y="212" fill="#fff">MainPanel</text>
+<rect x="135" y="150" width="90" height="34" rx="6" fill="#5b4bd6"/><text x="180" y="172" fill="#fff">BagPanel</text>
+<rect x="255" y="190" width="90" height="34" rx="6" fill="#c9c6dd"/><text x="300" y="212" fill="#fff">MainPanel</text>
+<rect x="255" y="150" width="90" height="34" rx="6" fill="#8f84e6"/><text x="300" y="172" fill="#fff">BagPanel</text>
+<rect x="255" y="110" width="90" height="34" rx="6" fill="#ff8a3d"/><text x="300" y="132" fill="#fff">ConfirmPanel</text>
+<rect x="375" y="190" width="90" height="34" rx="6" fill="#c9c6dd"/><text x="420" y="212" fill="#fff">MainPanel</text>
+<rect x="375" y="150" width="90" height="34" rx="6" fill="#5b4bd6"/><text x="420" y="172" fill="#fff">BagPanel</text>
+<rect x="495" y="190" width="90" height="34" rx="6" fill="#5b4bd6"/><text x="540" y="212" fill="#fff">MainPanel</text>
+<text x="60" y="244" fill="#7a8299">OnCreate+OnOpen</text>
+<text x="180" y="244" fill="#7a8299">Main: OnPause, 隐藏</text>
+<text x="300" y="244" fill="#7a8299">Bag: OnPause, 仍显示</text>
+<text x="420" y="244" fill="#7a8299">Bag: OnResume</text>
+<text x="536" y="244" fill="#7a8299">Main: 显示+OnResume</text>
+<text x="180" y="100" fill="#2fb36a">FullScreen</text>
+<text x="300" y="60" fill="#ff8a3d">Popup 层</text>
+<text x="540" y="140" fill="#7a8299">Bag → LRU 缓存</text>
+</g></svg><figcaption><b>图 16-9</b> 案例 16.9 中界面栈的变化。深色为栈顶，浅紫为显示但失去焦点，灰色为被全屏界面挡住而隐藏</figcaption></figure>
+<p>有两个值得注意的地方。第 ③ 步打开确认框时，背包收到 OnPause 但没有被隐藏，因为确认框不是全屏界面，它的半透明遮罩下仍要看到背包；而第 ② 步打开全屏的背包时，主界面既收到 OnPause 又被隐藏。“失去焦点”和“不可见”是两件独立的事，框架用两套机制分别处理：焦点由栈顶位置决定（OnPause/OnResume），可见性由 <code>RefreshVisibility</code> 根据全屏标记决定。第 ⑤ 步背包关闭后进入缓存，主界面先恢复显示、再收到 OnResume，顺序反过来的话，主界面在 OnResume 里读取控件尺寸会拿到隐藏状态下的旧值。</p>
+
+<h3 class="sec">16.11 工程实践：把框架用好的几条约定</h3>
+<h4>界面预制体规范</h4>
+<p>框架对预制体只有很少的要求，但团队最好写成规范并用工具检查（第 21 章有预制体规范检查工具）：根节点四边拉伸铺满父节点、挂一个 UIPanel 子类和 CanvasGroup；全屏界面在根下第一个子节点放一张能接收射线的底图，否则点击会穿透到被隐藏前的下层界面（在全屏遮挡生效前的那一帧尤其明显）；弹窗必须带全屏遮罩，遮罩的 Raycast Target 保持开启；所有需要代码访问的节点按前缀命名，不需要访问的节点不要带前缀，以免生成一堆无用字段。</p>
+<h4>界面之间如何传参和返回结果</h4>
+<p>打开界面时用 <code>Open&lt;T&gt;(args)</code> 传参，参数建议定义成一个小类（如 <code>ConfirmArgs</code>），而不是传一堆 object 再强转。需要“返回结果”的界面（选择一个英雄、输入一个名字），在参数类里放一个回调 <code>Action&lt;TResult&gt;</code>，界面在确认时先关闭自己再调用回调，和确认框的写法一致。不要让被打开的界面反过来引用打开它的界面——那会重新织起蜘蛛网。</p>
+<h4>转场期间屏蔽输入</h4>
+<p>界面有打开、关闭动画时，动画播放期间玩家可能连点按钮，导致同一个界面被打开两次或在关闭动画中途又被操作。常见做法是在 Top 层放一张全屏透明的 Image 作为“输入屏蔽层”，动画开始时显示、结束时隐藏；或者在动画期间把整个 UIRoot 的 CanvasGroup.interactable 设为 false。返回键也要检查同一个标记。</p>
+<h4>场景切换</h4>
+<p>如果 UI 要跨场景存在，把 UIRoot 放进一个永不卸载的启动场景，或者对它调用 <code>DontDestroyOnLoad</code>。切换场景前调用 <code>CloseAll()</code>，让每个界面正常走完 OnClose、释放订阅；否则场景里的对象被销毁后，常驻界面上残留的引用会变成“已销毁的对象”。反过来，如果每个场景都有自己的 UIRoot，注意 <code>UIManager.Instance</code> 会被新场景的实例接管，旧实例在 OnDestroy 里清空了自己的引用。</p>
+<h4>每个界面要不要单独一个 Canvas</h4>
+<p>本章是每层一个子 Canvas。有些项目会给每个界面的根节点也加 Canvas，好处是界面内部的变化只重建它自己，坏处是每多一个 Canvas 就多至少一个合批批次（不同 Canvas 之间不能合批）。经验做法是：静态为主的界面不单独加；内部有持续动画或频繁刷新的部分（倒计时、滚动列表）单独放一个子 Canvas，做到“动静分离”。具体的测量方法见第 20 章。</p>
+<h4>和新手引导配合</h4>
+<p>引导系统通常需要：找到某个界面里的某个按钮、在 Guide 层画一个挖洞遮罩、只让那个按钮可点（第 14 章的镂空遮罩 + 事件穿透）。有了框架，“找到按钮”可以通过 <code>UIManager.PanelOpened</code> 事件得知界面何时打开，再用生成的字段名或节点路径定位；引导期间可以让 <code>Back()</code> 直接返回 false，防止玩家用返回键跳出引导。</p>
+
+<h3 class="sec">16.12 常见问题排查</h3>
+<div class="kv">
+<span>界面显示了但点不动</span><span>先看它所在的层节点上有没有 GraphicRaycaster（案例 16.1）；再看界面根节点的 CanvasGroup 是否被设成了 blocksRaycasts=false；最后看是否被更高层的透明元素挡住，比如 Toast 层忘了关 blocksRaycasts。第 21 章的射线调试工具可以直接列出鼠标下的所有命中。</span>
+<span>返回键一按关了两个界面</span><span>检查是否还有别的脚本在 Update 里监听 Escape。框架接管返回键之后，所有界面都应该通过重写 OnBack 来响应，不要再自己监听按键。</span>
+<span>重新打开界面时显示的是上次的数据</span><span>刷新代码写在了 OnCreate 或 Awake 里。缓存的界面再次打开只走 OnOpen，数据读取必须放在 OnOpen。</span>
+<span>关闭界面后 Console 报 MissingReferenceException</span><span>某个订阅没有释放，事件触发时去访问了已销毁的界面。把订阅改成 <code>AddToOpenScope(...)</code> 或 <code>Listen&lt;T&gt;()</code>，并检查 C# 事件（如 Inventory.Changed）是否在关闭时退订。</span>
+<span>弹窗队列卡住不往下弹</span><span>队列只在“有界面关闭”时推进。如果某个弹窗是用 SetActive(false) 直接隐藏的、没有走 UIManager.Close，框架不知道它关了，栈顶一直是它。界面一律用 <code>Close()</code> 关闭。</span>
+<span>Open 返回 null</span><span>Console 会输出“找不到界面预制体”和完整路径。检查预制体是否在某个 Resources/UIPanels/ 目录下、文件名是否与类名完全一致（大小写敏感），根节点是否挂了 UIPanel 子类。</span>
+<span>生成的绑定代码编译报“类型已定义”</span><span>界面类没有声明 partial。生成的是 <code>public partial class Xxx</code>，手写的那一半也必须是 partial，且命名空间一致。</span>
+</div>
+<p>最后再强调一次框架的边界：它管理的是“界面”这一级的生命周期与组织方式，不应该知道任何具体业务。当你发现想在 UIManager 里写 <code>if (panel is BagPanel)</code> 时，说明这段逻辑应该放回 BagPanel 自己的回调里，或者通过事件中心通知出去。保持框架小而通用，它才能在项目的整个生命周期里一直被大家读懂、信任和使用。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>UI 框架解决的是“几十个界面如何共存”：层级、栈、生命周期、加载缓存、通信，而不是控件本身。</li>
+<li>层级用子 Canvas + overrideSorting 实现，排序与层级面板顺序无关；子 Canvas 必须有自己的 GraphicRaycaster。</li>
+<li>Normal 和 Popup 层进栈，返回键只交给栈顶的 OnBack；全屏界面会隐藏它下面的界面。</li>
+<li>生命周期由框架驱动：OnCreate 只做一次性初始化，数据刷新放在 OnOpen；打开期间的订阅登记到 OpenScope，关闭时自动释放。</li>
+<li>加载器抽象成接口，Resources 换 Addressables 只换实现；缓存分 Permanent / Cache(LRU) / DestroyOnClose 三档。</li>
+<li>确认框先关后回调、防双击；Toast 不进栈、用 unscaled 时间；弹窗按优先级排队，关一个弹一个。</li>
+<li>Observable 让数据驱动界面，泛型事件中心让模块解耦；命名规则 + 代码生成消灭手写的 transform.Find。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>照着 BagPanel 做一个 SettingsPanel（Popup 层、Cache 模式），包含音量滑块和两个开关，用生成器生成绑定代码，并让主界面的“设置”按钮打开它。</li>
+<li>给 UIManager 加一个 <code>OpenAsync</code> 的转圈提示：加载超过 0.2 秒时在 Top 层显示 Loading，加载完隐藏。</li>
+<li>给 UIPanel 加 <code>PlayOpenAnimation</code> / <code>PlayCloseAnimation</code> 两个虚方法，关闭动画播完再真正 SetActive(false)。想一想：关闭动画期间玩家又按了返回键，应该怎么处理？</li>
+<li>实现“当天不再提示”的弹窗：入队时检查 PlayerPrefs 里的日期，已提示过的直接丢弃。</li>
+<li>写一个 AssetPostprocessor，在 <code>Resources/UIPanels/</code> 下的预制体被保存时自动调用 UIBindGenerator。</li>
+</ol></div>
+</section>

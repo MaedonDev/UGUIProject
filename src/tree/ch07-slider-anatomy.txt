@@ -1,0 +1,24 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Slider|Slider
+2|Background|Image
+2|Fill Area|
+3|Fill|Image
+2|Handle Slide Area|
+3|Handle|Image
+4|Ring|Image
+1|Slider|Slider
+2|Background|Image
+2|Fill Area|
+3|Fill|Image
+2|Handle Slide Area|
+3|Handle|Image
+4|Ring|Image
+1|Slider|Slider
+2|Background|Image
+2|Fill Area|
+3|Fill|Image
+2|Handle Slide Area|
+3|Handle|Image
+4|Ring|Image
+0|EventSystem|EventSystem,StandaloneInputModule

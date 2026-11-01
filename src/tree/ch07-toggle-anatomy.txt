@@ -1,0 +1,23 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Card|
+2|Shadow|Image
+2|Bg|Image
+2|Toggle_开启背景音乐|Toggle
+3|Background|Image
+4|Checkmark|Image
+3|Label|TextMeshProUGUI
+2|Toggle_显示伤害数字|Toggle
+3|Background|Image
+4|Checkmark|Image
+3|Label|TextMeshProUGUI
+1|Parts|
+2|Shadow|Image
+2|Bg|Image
+2|Background|Image
+2|Checkmark|Image
+2|Label|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

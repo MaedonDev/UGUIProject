@@ -1,0 +1,41 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,TagCloud
+1|Text|TextMeshProUGUI
+1|TagBox|Image,FlowLayoutGroup,ContentSizeFitter
+2|Tag_动作|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_角色扮演|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_开放世界|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_像素风|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_多人联机|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_Roguelike|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_策略|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_剧情丰富|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_休闲|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_二次元|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_卡牌|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_生存建造|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_解谜|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+2|Tag_音乐节奏|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+1|!Templates|
+2|TagTemplate|Image,Button,HorizontalLayoutGroup
+3|Text (TMP)|TextMeshProUGUI
+1|InputField|Image,TMP_InputField
+2|Outline|Image
+2|Text Area|RectMask2D
+3|Placeholder|TextMeshProUGUI,LayoutElement
+3|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

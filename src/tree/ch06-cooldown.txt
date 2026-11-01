@@ -1,0 +1,16 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Button_领取奖励|Image,Button,ButtonCooldown
+2|CooldownOverlay|Image
+2|Text (TMP)|TextMeshProUGUI
+1|Button_领取奖励|Image,Button,ButtonCooldown
+2|CooldownOverlay|Image
+2|Text (TMP)|TextMeshProUGUI
+1|Button_领取奖励|Image,Button,ButtonCooldown
+2|CooldownOverlay|Image
+2|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

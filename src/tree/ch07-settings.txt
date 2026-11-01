@@ -1,0 +1,63 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|SettingsPanel|SettingsPanel
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|IconButton_close|Image,Button
+3|Icon_close|Image
+2|Text|TextMeshProUGUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Value|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Value|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Segmented|Image,ToggleGroup
+3|Toggle_低|Toggle,ToggleLabelColor
+4|Background|Image
+5|Checkmark|Image
+4|Label|TextMeshProUGUI
+3|Toggle_中|Toggle,ToggleLabelColor
+4|Background|Image
+5|Checkmark|Image
+4|Label|TextMeshProUGUI
+3|Toggle_高|Toggle,ToggleLabelColor
+4|Background|Image
+5|Checkmark|Image
+4|Label|TextMeshProUGUI
+3|Toggle_极致|Toggle,ToggleLabelColor
+4|Background|Image
+5|Checkmark|Image
+4|Label|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Switch|Toggle,SwitchToggle
+3|Track|Image
+3|Knob|
+4|Shadow|Image
+4|Face|Image
+2|Text|TextMeshProUGUI
+2|Switch|Toggle,SwitchToggle
+3|Track|Image
+3|Knob|
+4|Shadow|Image
+4|Face|Image
+2|Line|Image
+2|Hint|TextMeshProUGUI
+2|Button_恢复默认|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_保存|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

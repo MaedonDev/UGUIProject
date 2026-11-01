@@ -1,0 +1,9 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Parent|Image
+2|Outline|Image
+2|Target|Image
+3|Label|TextMeshProUGUI
+1|RectProbe|Image,RectProbe
+2|Values|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

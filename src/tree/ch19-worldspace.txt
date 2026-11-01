@@ -1,0 +1,44 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|Directional Light|Light
+0|Floor|MeshFilter,MeshRenderer,MeshCollider
+0|Kiosk|MeshFilter,MeshRenderer,BoxCollider,WorldConsole
+0|KioskFoot|MeshFilter,MeshRenderer
+0|ConsoleCanvas (World Space)|Canvas,GraphicRaycaster
+1|Screen|Image
+1|Text|TextMeshProUGUI
+2|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Button_暖光|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Button_冷光|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Button_霓虹|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Slider|Slider
+2|Background|Image
+2|Fill Area|
+3|Fill|Image
+2|Handle Slide Area|
+3|Handle|Image
+4|Ring|Image
+1|Text|TextMeshProUGUI
+0|LampPole|MeshFilter,MeshRenderer
+0|Bulb|MeshFilter,MeshRenderer
+0|LampLight|Light
+0|NPC_铁匠 老王|MeshFilter,MeshRenderer
+1|Nameplate|Canvas,Billboard
+2|Bg|Image
+2|Text|TextMeshProUGUI
+0|NPC_商人 小李|MeshFilter,MeshRenderer
+1|Nameplate|Canvas,Billboard
+2|Bg|Image
+2|Text|TextMeshProUGUI
+0|NPC_守卫|MeshFilter,MeshRenderer
+1|Nameplate|Canvas,Billboard
+2|Bg|Image
+2|Text|TextMeshProUGUI

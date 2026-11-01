@@ -1,0 +1,28 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Scroll View|Image,ScrollRect
+2|Viewport|Image,Mask
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+4|Item_1|Image,LayoutElement
+5|Label|TextMeshProUGUI
+4|Item_2|Image,LayoutElement
+5|Label|TextMeshProUGUI
+4|Item_3|Image,LayoutElement
+5|Label|TextMeshProUGUI
+4|Item_4|Image,LayoutElement
+5|Label|TextMeshProUGUI
+4|Item_5|Image,LayoutElement
+5|Label|TextMeshProUGUI
+4|Item_6|Image,LayoutElement
+5|Label|TextMeshProUGUI
+4|Item_7|Image,LayoutElement
+5|Label|TextMeshProUGUI
+4|Item_8|Image,LayoutElement
+5|Label|TextMeshProUGUI
+2|Scrollbar Horizontal|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,34 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ServerCard|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Dropdown|Image,TMP_Dropdown
+3|Outline|Image
+3|Label|TextMeshProUGUI
+3|Arrow|Image
+3|!Template|Image,ScrollRect
+4|Viewport|Mask,Image
+5|Content|
+6|Item|Toggle
+7|Item Background|Image
+7|Item Checkmark|Image
+7|Item Label|TextMeshProUGUI
+4|Scrollbar|Image,Scrollbar
+5|Sliding Area|
+6|Handle|Image
+4|Outline|Image
+3|_Proxy|
+1|Controls|DropdownOptionsDemo
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Button_添加一个选项|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_删除最后一个选项|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_重置|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Log|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

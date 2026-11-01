@@ -1,0 +1,56 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,MenuController
+1|Background|Image,AspectRatioFitter
+1|Shade|Image
+1|MainPage|
+2|Title|
+3|TitleText|TextMeshProUGUI
+3|SubTitle|TextMeshProUGUI
+2|Buttons|VerticalLayoutGroup
+3|Button_开始游戏|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+4|Icon_play|Image
+3|Button_设置|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+4|Icon_gear|Image
+3|Button_退出|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+4|Icon_close|Image
+1|Hint|TextMeshProUGUI
+1|Version|TextMeshProUGUI
+1|!SettingsPage|
+2|SettingsCard|
+3|Shadow|Image
+3|Bg|Image
+3|Title|TextMeshProUGUI
+3|Toggle_背景音乐|Toggle
+4|Background|Image
+5|Checkmark|Image
+4|Label|TextMeshProUGUI
+3|Toggle_音效|Toggle
+4|Background|Image
+5|Checkmark|Image
+4|Label|TextMeshProUGUI
+3|VolumeLabel|TextMeshProUGUI
+3|Slider|Slider
+4|Background|Image
+4|Fill Area|
+5|Fill|Image
+4|Handle Slide Area|
+5|Handle|Image
+6|Ring|Image
+3|Tip|TextMeshProUGUI
+2|IconButton_back|Image,Button
+3|Icon_back|Image
+1|!QuitDialog|
+2|Mask|Image
+2|DialogCard|
+3|Shadow|Image
+3|Bg|Image
+3|Message|TextMeshProUGUI
+3|Detail|TextMeshProUGUI
+3|Button_Cancel|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+3|Button_Quit|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

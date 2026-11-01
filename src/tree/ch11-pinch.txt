@@ -1,0 +1,14 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Viewport|Image,RectMask2D,PinchZoom
+2|Map|Image
+3|Pin|Image
+3|Text|TextMeshProUGUI
+3|Pin|Image
+3|Text|TextMeshProUGUI
+3|Pin|Image
+3|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Finger1|
+1|Finger2|
+0|EventSystem|EventSystem,StandaloneInputModule

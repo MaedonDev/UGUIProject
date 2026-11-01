@@ -1,0 +1,21 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Card|
+2|Shadow|Image
+2|Bg|Image
+2|InputField_空|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|InputField (TMP)|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Caret|
+5|sel|Image
+5|bar|Image
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

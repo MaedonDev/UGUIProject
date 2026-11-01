@@ -1,0 +1,49 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,ChatDemo
+1|TopBar|Image
+2|Text|TextMeshProUGUI
+1|Scroll View|Image,ScrollRect
+2|Viewport|RectMask2D
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+4|Time|TextMeshProUGUI,LayoutElement
+4|Row_Left(Clone)|HorizontalLayoutGroup
+5|Avatar|Image,LayoutElement
+5|Bubble|Image,VerticalLayoutGroup,MaxSizeLayoutElement
+6|Text|TextMeshProUGUI
+4|Row_Right(Clone)|HorizontalLayoutGroup
+5|Avatar|Image,LayoutElement
+5|Bubble|Image,VerticalLayoutGroup,MaxSizeLayoutElement
+6|Text|TextMeshProUGUI
+4|Row_Left(Clone)|HorizontalLayoutGroup
+5|Avatar|Image,LayoutElement
+5|Bubble|Image,VerticalLayoutGroup,MaxSizeLayoutElement
+6|Text|TextMeshProUGUI
+4|Row_Right(Clone)|HorizontalLayoutGroup
+5|Avatar|Image,LayoutElement
+5|Bubble|Image,VerticalLayoutGroup,MaxSizeLayoutElement
+6|Text|TextMeshProUGUI
+4|Row_Right(Clone)|HorizontalLayoutGroup
+5|Avatar|Image,LayoutElement
+5|Bubble|Image,VerticalLayoutGroup,MaxSizeLayoutElement
+6|Text|TextMeshProUGUI
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+1|!Templates|
+2|Row_Left|HorizontalLayoutGroup
+3|Avatar|Image,LayoutElement
+3|Bubble|Image,VerticalLayoutGroup,MaxSizeLayoutElement
+4|Text|TextMeshProUGUI
+2|Row_Right|HorizontalLayoutGroup
+3|Avatar|Image,LayoutElement
+3|Bubble|Image,VerticalLayoutGroup,MaxSizeLayoutElement
+4|Text|TextMeshProUGUI
+1|InputBar|Image,HorizontalLayoutGroup
+2|InputField|Image,TMP_InputField,LayoutElement
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|Button_发送|Image,Button,LayoutElement
+3|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,18 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,BlockerSwitch
+1|Stage|
+2|Shadow|Image
+2|Bg|Image
+2|Button_领取奖励|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+3|Icon_gift|Image
+2|Result|TextMeshProUGUI
+2|Blocker|Image
+1|ProbePanel|Image,PointerProbe
+2|ProbeText|TextMeshProUGUI
+1|Toggle_Blocker 的 Raycast Target|Toggle
+2|Background|Image
+3|Checkmark|Image
+2|Label|TextMeshProUGUI
+1|Hint|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

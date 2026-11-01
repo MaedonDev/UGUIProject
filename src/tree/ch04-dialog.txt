@@ -1,0 +1,23 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Dim|Image
+1|Dialog|Image
+2|Title|TextMeshProUGUI
+2|Body|TextMeshProUGUI
+2|Rewards|HorizontalLayoutGroup
+3|Slot_item_coin|Image
+4|Icon_item_coin|Image
+3|Slot_item_gem|Image
+4|Icon_item_gem|Image
+3|Slot_item_potion_red|Image
+4|Icon_item_potion_red|Image
+2|Buttons|HorizontalLayoutGroup
+3|Button_领取|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+3|Button_关闭|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+2|ResizeHandle|Image,DialogResizer
+1|TypeSwitch|Image,Button,ImageTypeSwitch
+2|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

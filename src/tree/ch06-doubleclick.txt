@@ -1,0 +1,21 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,ItemCardDemo
+1|破晓之剑|Image,DoubleClickHandler
+2|Icon_item_sword|Image
+2|!SelectFrame|Image
+2|Name|TextMeshProUGUI
+1|生命药水|Image,DoubleClickHandler
+2|Icon_item_potion_red|Image
+2|SelectFrame|Image
+2|Name|TextMeshProUGUI
+1|橡木盾|Image,DoubleClickHandler
+2|Icon_item_shield|Image
+2|!SelectFrame|Image
+2|Name|TextMeshProUGUI
+1|回城卷轴|Image,DoubleClickHandler
+2|Icon_item_scroll|Image
+2|!SelectFrame|Image
+2|Name|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

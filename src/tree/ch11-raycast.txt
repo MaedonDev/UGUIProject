@@ -1,0 +1,14 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Card|Image
+2|Icon(raycast off)|Image
+2|Title(raycast off)|TextMeshProUGUI
+2|Button|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Watermark(CanvasGroup)|Image,CanvasGroup
+1|P|
+1|Result|Image
+0|EventSystem|EventSystem,StandaloneInputModule
+0|TopCanvas(order 10)|Canvas,CanvasScaler,GraphicRaycaster
+1|Toast|Image
+2|Text|TextMeshProUGUI

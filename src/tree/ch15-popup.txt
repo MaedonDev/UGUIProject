@@ -1,0 +1,16 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,PopupDemo
+1|Background|Image
+1|Button_打开弹窗|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Popup|PopupAnim
+2|Dim|Image,CanvasGroup
+2|Panel|CanvasGroup
+3|Shadow|Image
+3|Bg|Image
+3|Text|TextMeshProUGUI
+3|Icon_gift|Image
+3|Button_收下|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

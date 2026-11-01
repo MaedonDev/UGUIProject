@@ -1,0 +1,12 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,CoinFly,CoinDemo
+1|TopBar|Image
+2|CoinIcon|Image
+2|Text|TextMeshProUGUI,NumberRoller
+1|Chest|Image
+1|Button_领取 1200 金币|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|FlyLayer|
+2|!CoinTemplate|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

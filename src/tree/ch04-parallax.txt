@@ -1,0 +1,9 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Sky|RawImage
+1|Sun|Image
+1|HillsFar|RawImage,UVScroller
+1|HillsNear|RawImage,UVScroller
+1|TitleBg|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

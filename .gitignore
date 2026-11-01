@@ -1,0 +1,19 @@
+# 《UGUI 从入门到精通》私有仓库：书的源文件、配套 Unity 工程、网站生成器、宣传图。下面这些都能重新生成，不进仓库。
+.venv/
+build/
+web/
+ugui.html
+UGUI从入门到精通_麦冬.pdf
+UGUI从入门到精通_配套工程.zip
+tools/node_modules
+tools/*.log
+project/Library/
+project/Logs/
+project/UserSettings/
+project/Temp/
+project/obj/
+project/*.csproj
+project/*.sln
+__pycache__/
+*.pyc
+.DS_Store

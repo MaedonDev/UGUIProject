@@ -1,0 +1,87 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Device_21:9 带鱼屏|Image
+2|Screen|RectMask2D,AspectLayout
+3|Bg|Image
+3|TopBar|Image
+4|Avatar|Image
+4|Name|TextMeshProUGUI
+4|Coins|Image
+5|Icon_item_coin|Image
+5|Text|TextMeshProUGUI
+4|IconButton_gear|Image,Button
+5|Icon_gear|Image
+3|Banner|Image,RectMask2D
+4|Art|Image,AspectRatioFitter
+4|Shade|Image
+4|Title|TextMeshProUGUI
+3|Menu|GridLayoutGroup
+4|Button_开始游戏|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_play|Image
+4|Button_商店|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_bag|Image
+4|Button_背包|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_gift|Image
+4|Button_设置|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_gear|Image
+1|Device_16:9|Image
+2|Screen|RectMask2D,AspectLayout
+3|Bg|Image
+3|TopBar|Image
+4|Avatar|Image
+4|Name|TextMeshProUGUI
+4|Coins|Image
+5|Icon_item_coin|Image
+5|Text|TextMeshProUGUI
+4|IconButton_gear|Image,Button
+5|Icon_gear|Image
+3|Banner|Image,RectMask2D
+4|Art|Image,AspectRatioFitter
+4|Shade|Image
+4|Title|TextMeshProUGUI
+3|Menu|GridLayoutGroup
+4|Button_开始游戏|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_play|Image
+4|Button_商店|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_bag|Image
+4|Button_背包|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_gift|Image
+4|Button_设置|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_gear|Image
+1|Device_4:3 平板横放|Image
+2|Screen|RectMask2D,AspectLayout
+3|Bg|Image
+3|TopBar|Image
+4|Avatar|Image
+4|Name|TextMeshProUGUI
+4|Coins|Image
+5|Icon_item_coin|Image
+5|Text|TextMeshProUGUI
+4|IconButton_gear|Image,Button
+5|Icon_gear|Image
+3|Banner|Image,RectMask2D
+4|Art|Image,AspectRatioFitter
+4|Shade|Image
+4|Title|TextMeshProUGUI
+3|Menu|GridLayoutGroup
+4|Button_开始游戏|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_play|Image
+4|Button_商店|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_bag|Image
+4|Button_背包|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_gift|Image
+4|Button_设置|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+5|Icon_gear|Image
+0|EventSystem|EventSystem,StandaloneInputModule

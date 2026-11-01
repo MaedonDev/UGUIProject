@@ -1,0 +1,15 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text|TextMeshProUGUI
+1|Button_确定|Image,Button,HorizontalLayoutGroup,ContentSizeFitter
+2|Text (TMP)|TextMeshProUGUI
+1|Button_下一步|Image,Button,HorizontalLayoutGroup,ContentSizeFitter
+2|Text (TMP)|TextMeshProUGUI
+1|Button_领取全部奖励并返回主界面|Image,Button,HorizontalLayoutGroup,ContentSizeFitter
+2|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Tooltip|Image,VerticalLayoutGroup,ContentSizeFitter
+2|Text|TextMeshProUGUI
+1|Tooltip|Image,VerticalLayoutGroup,ContentSizeFitter
+2|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

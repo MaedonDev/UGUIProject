@@ -1,0 +1,24 @@
+0|Main Camera|Camera,AudioListener
+0|BackCanvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Background|Image,AspectRatioFitter
+1|StatsCard|
+2|Bg|Image
+2|Line0|TextMeshProUGUI
+2|Line1|TextMeshProUGUI
+2|Line2|TextMeshProUGUI
+2|Line3|TextMeshProUGUI
+2|Line4|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|Directional Light|Light
+0|Gem|MeshFilter,BoxCollider,MeshRenderer,Spin
+0|Sparkles|ParticleSystem,ParticleSystemRenderer
+0|FrontCanvas|Canvas,CanvasScaler,GraphicRaycaster
+1|TopBar|Image
+1|IconButton_back|Image,Button
+2|Icon_back|Image
+1|Title|TextMeshProUGUI
+1|Banner|Image
+2|Text|TextMeshProUGUI
+1|Button_购买  680|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_item_gem|Image

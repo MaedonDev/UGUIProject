@@ -1,0 +1,18 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Background|Image
+1|Text|TextMeshProUGUI
+1|Menu|GamepadMenu
+2|Button_继续游戏|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_新游戏|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_设置|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_制作人员|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_退出|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|SelectionFrame|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,20 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|FeedPanel|FeedDemo
+2|Shadow|Image
+2|Bg|Image
+2|Header|Image
+3|Text|TextMeshProUGUI
+4|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Scroll View|Image,ScrollRect,PullToRefresh
+3|Viewport|RectMask2D
+4|Content|VerticalLayoutGroup,ContentSizeFitter
+5|RefreshHeader|LayoutElement
+6|Icon_arrow_down|Image
+6|Label|TextMeshProUGUI
+5|Footer|TextMeshProUGUI,LayoutElement
+2|!PostTemplate|Image,LayoutElement
+3|Avatar|Image
+3|Name|TextMeshProUGUI
+3|Body|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

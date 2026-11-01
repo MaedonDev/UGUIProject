@@ -1,0 +1,23 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Normal_0|Image
+1|Gray_0|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Normal_1|Image
+1|Gray_1|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Normal_2|Image
+1|Gray_2|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Normal_3|Image
+1|Gray_3|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Normal_4|Image
+1|Gray_4|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Normal_5|Image
+1|Gray_5|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,348 @@
+<section class="chapter" id="c09" data-title="ScrollRect 与遮罩" data-sub="滚动、惯性、吸附、嵌套与下拉刷新">
+<div class="chap-head"><div class="num">CHAPTER 09<b>第 9 章</b></div><h2>ScrollRect 与遮罩</h2><p class="lead">背包、商城、排行榜、聊天记录、设置列表、任务日志、好友名单——几乎每个游戏界面里都有滚动区域。ScrollRect 只有一个组件，却同时管着拖拽、惯性、回弹、滚轮、两根滚动条和视口裁剪。本章先把它的结构与源码里的几条公式讲透，再做商城列表、跳转到第 N 项、轮播图、横竖嵌套、下拉刷新五个最常见的需求。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>ScrollRect 的结构：Viewport、Content、两根 Scrollbar 各司何职</div><div>Movement Type、Inertia、Deceleration Rate 等参数的真实含义（读 LateUpdate 源码）</div><div>normalizedPosition 是怎么算出来的，为什么要等布局完成再设置</div><div>Content 尺寸为什么必须交给 LayoutGroup + ContentSizeFitter</div><div>Mask 与 RectMask2D 的区别与选择</div><div>分页吸附、横竖嵌套冲突、下拉刷新这几类“经典难题”的解法</div></div>
+
+<h3 class="sec">9.1 ScrollRect 的结构</h3>
+<p>滚动的本质很简单：<b>一块比窗口大的内容（Content），在一个固定大小的窗口（Viewport）后面移动，窗口之外的部分被裁掉</b>。ScrollRect 负责“移动”，遮罩负责“裁掉”。在 Hierarchy 里右键 <span class="menu">UI › Scroll View</span> 创建一个，层级如下：</p>
+<div class="tree" data-tree="ch09-anatomy" data-root="Canvas/Scroll View" data-depth="2" data-title="Hierarchy · Scroll View（菜单默认结构）"></div>
+<figure class="shot"><img src="img/ch09-anatomy.jpg"><figcaption><b>图 9-1</b> 左：临时关掉 Viewport 上的 Mask，可以看到 Content（绿框）比 Viewport（蓝框）大，ScrollRect 通过移动 Content 来“滚动”；右：Mask 开启，只有 Viewport 内的部分可见</figcaption></figure>
+<div class="kv">
+<span>Scroll View</span><span>根节点：Image（半透明背景，也是拖拽的接收面）+ ScrollRect 组件。</span>
+<span>Viewport</span><span>视口，铺满根节点，带 <code>Mask</code> + <code>Image</code>（Show Mask Graphic 关闭）。它定义“窗口”的大小，并裁掉窗口外的内容。</span>
+<span>Content</span><span>内容的容器，所有列表项都放在它下面。默认锚点在顶部、轴心 (0, 1)，宽度跟随 Viewport、高度 300。ScrollRect 滚动时改的就是它的 <code>anchoredPosition</code>。</span>
+<span>Scrollbar Horizontal / Vertical</span><span>两根滚动条（第 7 章的 Scrollbar），ScrollRect 会根据内容和视口的比例设置它们的 size 与 value，反过来拖动滚动条也会移动内容。</span>
+</div>
+<p>有几个默认设置值得留意：两根滚动条的可见性都是 <b>Auto Hide And Expand Viewport</b>（内容放得下时自动隐藏滚动条、并让视口占满滚动条原来的位置），间距是 −3（滚动条和视口略微重叠）。这个“扩展视口”功能要求 Viewport 和两根滚动条都是 ScrollRect 的直接子物体，ScrollRect 会接管 Viewport 的锚点和尺寸（Inspector 里会显示 “Some values driven by ScrollRect”）。</p>
+<div class="note tip"><b>配套工程用的是 RectMask2D</b>菜单创建的 Viewport 用 Mask + Image。本书的 <code>UIKit.ScrollView()</code> 把它换成了 <code>RectMask2D</code>：对矩形视口来说两者效果一样，但 RectMask2D 不需要模板缓冲、不会额外增加绘制批次，通常更省（9.6 节对比，第 14、20 章深入）。只有视口不是矩形（圆角、异形）时才需要 Mask，这是全书统一的约定。</div>
+
+<h4>与 Scrollbar 的双向联动</h4>
+<p>ScrollRect 和它的两根滚动条是“互相驱动”的：滚动时，ScrollRect 在 LateUpdate 里发现位置或尺寸变了，就调用 <code>UpdateScrollbars</code> 设置滚动条的 size 与 value；拖动滚动条时，滚动条的 onValueChanged 触发 ScrollRect 在 OnEnable 里注册的 <code>SetVerticalNormalizedPosition</code>，反过来移动 Content。size 的计算有一个细节：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/ScrollRect.cs（UpdateScrollbars）
+if (m_ContentBounds.size.y &gt; 0)
+    m_VerticalScrollbar.size = Mathf.Clamp01((m_ViewBounds.size.y - Mathf.Abs(offset.y)) / m_ContentBounds.size.y);
+else
+    m_VerticalScrollbar.size = 1;
+m_VerticalScrollbar.value = verticalNormalizedPosition;</pre>
+<p>分子里减去了越界量 <code>|offset|</code>：Elastic 拉过头时，滚动条的滑块会<b>变短</b>，就像手机系统列表拉到头时滚动条被“挤扁”一样，这是一个刻意的视觉反馈。另一个值得知道的点是 <b>Auto Hide And Expand Viewport</b> 的实现：ScrollRect 同时实现了 ILayoutGroup，在布局阶段的 <code>SetLayoutHorizontal</code> 里先把视口铺满、强制重建一次 Content 的布局看是否放得下，放不下再把视口缩窄、给滚动条腾出位置、再重建一次——也就是说，开启这个选项的滚动视图，在内容变化时可能触发 Content 的多次布局重建。内容频繁变化的列表（如实时日志）可以改用 Permanent 或 Auto Hide，省掉这部分开销。</p>
+
+<p>最后说一下 ScrollRect 自己的那张 Image：根节点上的 Image 不只是背景，它还是“空白处也能拖动”的保证——列表项之间的缝隙、内容不满一屏时下方的空白，射线命中的都是它，事件再冒泡到同一物体上的 ScrollRect。把它删掉或关掉 Raycast Target，就会出现“只有按在列表项上才能拖”的问题。不想要背景色，就把颜色的 Alpha 设为 0，而不是禁用组件。</p>
+<h3 class="sec">9.2 Inspector 字段</h3>
+<div class="kv">
+<span>Content</span><span>被移动的内容。必须设置，否则 ScrollRect 的 IsActive() 返回 false，什么都不做。</span>
+<span>Horizontal / Vertical</span><span>允许哪个方向滚动。只竖向滚动的列表一定要关掉 Horizontal，否则手指稍微斜着拖，内容会左右晃。</span>
+<span>Movement Type</span><span>越界时的行为：<b>Unrestricted</b> 不限制，可以拖到任何位置；<b>Elastic</b>（默认）可以拖出边界，松手后弹回；<b>Clamped</b> 严格限制在边界内。</span>
+<span>Elasticity</span><span>Elastic 模式下回弹的平滑时间（秒），默认 0.1。越大回弹越慢、越“软”。</span>
+<span>Inertia</span><span>松手后是否继续按惯性滑动。</span>
+<span>Deceleration Rate</span><span>惯性的衰减率，默认 0.135：<b>每过 1 秒，速度剩下原来的 13.5%</b>。0 表示立即停止，1 表示永不减速。</span>
+<span>Scroll Sensitivity</span><span>鼠标滚轮 / 触控板滚动量的倍率，默认 1。源码里是 <code>position += scrollDelta * m_ScrollSensitivity</code>，而滚轮每一格的 scrollDelta 通常只有 1 左右（以实际平台为准），也就是每格只移动约 1 个画布单位，在 1920×1080 参考分辨率的画布上几乎感觉不到。PC 游戏通常要调到 20～50。</span>
+<span>Viewport</span><span>视口。不设时用 ScrollRect 自身的矩形当视口。</span>
+<span>Horizontal / Vertical Scrollbar</span><span>关联的滚动条，以及它们的 Visibility（Permanent / Auto Hide / Auto Hide And Expand Viewport）和 Spacing。</span>
+<span>On Value Changed (Vector2)</span><span>滚动位置变化时触发，参数是 normalizedPosition。拖动、惯性、回弹期间每帧都会触发。</span>
+</div>
+
+<h4>常用 API</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>content</code> / <code>viewport</code></td><td>内容与视口的 RectTransform，可以运行时替换（比如切换页签时换一组内容）。</td></tr>
+<tr><td><code>normalizedPosition</code>、<code>horizontalNormalizedPosition</code>、<code>verticalNormalizedPosition</code></td><td>读写滚动位置（0～1），设置时会清零对应方向的速度。</td></tr>
+<tr><td><code>velocity</code></td><td>当前惯性速度（Content 单位/秒），可读可写。写一个速度就能用代码“甩”一下列表。</td></tr>
+<tr><td><code>StopMovement()</code></td><td>速度清零，立即停止惯性滑动。</td></tr>
+<tr><td><code>onValueChanged</code></td><td>位置变化事件，参数为 normalizedPosition。</td></tr>
+<tr><td><code>OnBeginDrag / OnDrag / OnEndDrag / OnScroll</code></td><td>都是 public virtual，可继承重写，也可以由别的组件手动调用来转发事件（案例 9.4）。</td></tr>
+<tr><td><code>Rebuild</code> / <code>SetLayoutHorizontal</code> 等</td><td>ScrollRect 同时是 ICanvasElement 和 ILayoutGroup，参与画布重建和布局流程，一般不需要手动调用。</td></tr>
+</table>
+
+<h3 class="sec">9.3 拖拽、惯性与回弹：读 LateUpdate</h3>
+<p>ScrollRect 的手感全部由两段代码决定：拖拽时的 <code>OnDrag</code>，以及每帧都在跑的 <code>LateUpdate</code>。先看拖拽：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/ScrollRect.cs（OnDrag，节选）
+var pointerDelta = localCursor - m_PointerStartLocalCursor;
+Vector2 position = m_ContentStartPosition + pointerDelta;
+
+// Offset to get content into place in the view.
+Vector2 offset = CalculateOffset(position - m_Content.anchoredPosition);
+position += offset;
+if (m_MovementType == MovementType.Elastic)
+{
+    if (offset.x != 0)
+        position.x = position.x - RubberDelta(offset.x, m_ViewBounds.size.x);
+    if (offset.y != 0)
+        position.y = position.y - RubberDelta(offset.y, m_ViewBounds.size.y);
+}
+SetContentAnchoredPosition(position);
+
+private static float RubberDelta(float overStretching, float viewSize)
+{
+    return (1 - (1 / ((Mathf.Abs(overStretching) * 0.55f / viewSize) + 1))) * viewSize * Mathf.Sign(overStretching);
+}</pre>
+<p>Content 的目标位置是“按下时的位置 + 手指移动量”，所以内容会严格跟着手指走。<code>CalculateOffset</code> 算出“要把内容拉回边界内需要移动多少”（没越界时为 0），先把位置拉回边界，再用 <code>RubberDelta</code> 把一个<b>打了折扣的</b>越界量加回去——这就是橡皮筋效果：手指越界拉得越多，内容跟得越吃力，但永远不会超过一个视口的长度。</p>
+<figure><svg viewBox="0 0 600 260" width="600" font-family="PingFang SC" font-size="12">
+<text x="60" y="22" fill="#1f2436" font-size="13" font-weight="600">Elastic：手指越界量 → 内容实际越界量</text>
+<line x1="60" y1="200" x2="285" y2="200" stroke="#7a8299"/><line x1="60" y1="200" x2="60" y2="35" stroke="#7a8299"/>
+<polyline fill="none" stroke="#e0deef" stroke-width="2" stroke-dasharray="5 4" points="60.0,200.0 82.0,168.0 104.0,136.0 126.0,104.0 148.0,72.0 170.0,40.0 280.0,40.0"/>
+<polyline fill="none" stroke="#5b4bd6" stroke-width="3" points="60.0,200.0 65.5,195.7 71.0,191.7 76.5,187.8 82.0,184.1 87.5,180.7 93.0,177.3 98.5,174.2 104.0,171.1 109.5,168.3 115.0,165.5 120.5,162.8 126.0,160.3 131.5,157.9 137.0,155.5 142.5,153.3 148.0,151.1 153.5,149.0 159.0,147.0 164.5,145.1 170.0,143.2 175.5,141.4 181.0,139.7 186.5,138.0 192.0,136.4 197.5,134.8 203.0,133.3 208.5,131.8 214.0,130.4 219.5,129.0 225.0,127.7 230.5,126.4 236.0,125.1 241.5,123.9 247.0,122.7 252.5,121.5 258.0,120.4 263.5,119.3 269.0,118.2 274.5,117.2 280.0,116.2"/>
+<text x="64" y="218" fill="#7a8299">0</text><text x="160" y="218" fill="#7a8299">1 个视口</text><text x="250" y="218" fill="#7a8299">2 个视口</text>
+<text x="30" y="44" fill="#7a8299">1</text><text x="182" y="132" fill="#5b4bd6">拉 1 个视口 → 只移动 0.35 个</text>
+<text x="60" y="240" fill="#7a8299">虚线：不打折扣（跟手）；实线：RubberDelta</text>
+<text x="340" y="22" fill="#1f2436" font-size="13" font-weight="600">Inertia：松手后的速度衰减</text>
+<line x1="340" y1="200" x2="565" y2="200" stroke="#7a8299"/><line x1="340" y1="200" x2="340" y2="35" stroke="#7a8299"/>
+<polyline fill="none" stroke="#ff8a3d" stroke-width="2.5" points="340.0,40.0 345.5,45.5 351.0,50.7 356.5,55.8 362.0,60.7 367.5,65.5 373.0,70.0 378.5,74.5 384.0,78.7 389.5,82.9 395.0,86.9 400.5,90.7 406.0,94.4 411.5,98.0 417.0,101.5 422.5,104.9 428.0,108.1 433.5,111.2 439.0,114.3 444.5,117.2 450.0,120.0 455.5,122.7 461.0,125.4 466.5,127.9 472.0,130.4 477.5,132.7 483.0,135.0 488.5,137.2 494.0,139.4 499.5,141.4 505.0,143.4 510.5,145.4 516.0,147.2 521.5,149.0 527.0,150.8 532.5,152.4 538.0,154.1 543.5,155.6 549.0,157.1 554.5,158.6 560.0,160.0"/>
+<polyline fill="none" stroke="#5b4bd6" stroke-width="3" points="340.0,40.0 345.5,55.2 351.0,69.0 356.5,81.5 362.0,92.8 367.5,103.0 373.0,112.3 378.5,120.6 384.0,128.2 389.5,135.0 395.0,141.2 400.5,146.8 406.0,151.9 411.5,156.5 417.0,160.6 422.5,164.4 428.0,167.8 433.5,170.8 439.0,173.6 444.5,176.1 450.0,178.4 455.5,180.5 461.0,182.3 466.5,184.0 472.0,185.5 477.5,186.9 483.0,188.2 488.5,189.3 494.0,190.3 499.5,191.2 505.0,192.1 510.5,192.8 516.0,193.5 521.5,194.1 527.0,194.7 532.5,195.2 538.0,195.6 543.5,196.1 549.0,196.4 554.5,196.8 560.0,197.1"/>
+<polyline fill="none" stroke="#2fb36a" stroke-width="2.5" points="340.0,40.0 345.5,62.3 351.0,81.4 356.5,97.9 362.0,112.1 367.5,124.3 373.0,134.9 378.5,143.9 384.0,151.7 389.5,158.4 395.0,164.2 400.5,169.2 406.0,173.5 411.5,177.2 417.0,180.3 422.5,183.1 428.0,185.4 433.5,187.5 439.0,189.2 444.5,190.7 450.0,192.0 455.5,193.1 461.0,194.1 466.5,194.9 472.0,195.6 477.5,196.2 483.0,196.7 488.5,197.2 494.0,197.6 499.5,197.9 505.0,198.2 510.5,198.5 516.0,198.7 521.5,198.9 527.0,199.0 532.5,199.2 538.0,199.3 543.5,199.4 549.0,199.5 554.5,199.5 560.0,199.6"/>
+<text x="344" y="218" fill="#7a8299">0</text><text x="440" y="218" fill="#7a8299">1 秒</text><text x="545" y="218" fill="#7a8299">2 秒</text>
+<text x="470" y="125" fill="#ff8a3d">0.5</text><text x="430" y="175" fill="#5b4bd6">0.135（默认）</text><text x="365" y="165" fill="#2fb36a">0.05</text>
+<text x="340" y="240" fill="#7a8299">纵轴：速度 / 松手瞬间速度</text>
+</svg><figcaption><b>图 9-2</b> 左：Elastic 模式的橡皮筋曲线（手指越界一个视口，内容只越界约 35%）；右：不同 Deceleration Rate 下惯性速度随时间的衰减</figcaption></figure>
+<p>再看 LateUpdate 中“松手之后”的部分：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/ScrollRect.cs（LateUpdate，节选）
+float deltaTime = Time.unscaledDeltaTime;
+Vector2 offset = CalculateOffset(Vector2.zero);
+if (!m_Dragging &amp;&amp; (offset != Vector2.zero || m_Velocity != Vector2.zero))
+{
+    Vector2 position = m_Content.anchoredPosition;
+    for (int axis = 0; axis &lt; 2; axis++)
+    {
+        // Apply spring physics if movement is elastic and content has an offset from the view.
+        if (m_MovementType == MovementType.Elastic &amp;&amp; offset[axis] != 0)
+        {
+            float speed = m_Velocity[axis];
+            float smoothTime = m_Elasticity;
+            if (m_Scrolling)
+                smoothTime *= 3.0f;
+            position[axis] = Mathf.SmoothDamp(m_Content.anchoredPosition[axis], m_Content.anchoredPosition[axis] + offset[axis], ref speed, smoothTime, Mathf.Infinity, deltaTime);
+            ...
+        }
+        // Else move content according to velocity with deceleration applied.
+        else if (m_Inertia)
+        {
+            m_Velocity[axis] *= Mathf.Pow(m_DecelerationRate, deltaTime);
+            if (Mathf.Abs(m_Velocity[axis]) &lt; 1)
+                m_Velocity[axis] = 0;
+            position[axis] += m_Velocity[axis] * deltaTime;
+        }
+        ...
+    }
+}
+if (m_Dragging &amp;&amp; m_Inertia)
+{
+    Vector3 newVelocity = (m_Content.anchoredPosition - m_PrevPosition) / deltaTime;
+    m_Velocity = Vector3.Lerp(m_Velocity, newVelocity, deltaTime * 10);
+}</pre>
+<ul>
+<li><b>用 unscaledDeltaTime</b>：暂停游戏（timeScale = 0）不影响滚动，滚动列表在暂停菜单里照样好用。</li>
+<li><b>越界就回弹</b>：Elastic 模式下只要内容越界，就用 <code>Mathf.SmoothDamp</code> 拉回边界，平滑时间就是 Elasticity。用鼠标滚轮滚过头时（m_Scrolling），平滑时间乘以 3，回弹更柔和。</li>
+<li><b>没越界就按惯性滑</b>：每帧速度乘以 <code>decelerationRate<sup>deltaTime</sup></code>，这是一个与帧率无关的指数衰减。由它可以推出一个实用结论：松手后的总滑行距离 ≈ 松手速度 ÷ (−ln decelerationRate)。默认 0.135 时 −ln 0.135 ≈ 2.0，<b>滑行距离约等于松手速度乘以 0.5 秒</b>；改成 0.05，滑行距离缩短到约三分之一秒的量。想让列表“滑得远一点”，就把这个值调大。</li>
+<li><b>拖动时的速度怎么来</b>：每帧用“这一帧内容移动了多少 ÷ 帧时间”估算速度，再用 Lerp 平滑。所以快速甩动后停住不动再松手，速度会在停住的那几帧里衰减到接近 0，不会再滑——这符合直觉。</li>
+<li><b>Clamped 模式</b>：没有回弹，每帧计算后直接把位置夹回边界内。适合下拉框列表这种“不需要弹性手感”的场合，TMP_Dropdown 的模板就用的 Clamped。</li>
+</ul>
+<div class="note"><b>为什么是 LateUpdate</b>业务代码通常在 Update 里增删列表项、修改内容。ScrollRect 放在 LateUpdate 里，能在同一帧拿到最新的内容尺寸再计算边界和回弹；它还会在开头调用 <code>EnsureLayoutHasRebuilt()</code>，如果这一帧的布局还没重建过，就先强制 <code>Canvas.ForceUpdateCanvases()</code>。</div>
+
+<h3 class="sec">9.4 Bounds 与 normalizedPosition</h3>
+<p>ScrollRect 内部不直接比较 RectTransform，而是把 Viewport 和 Content 都换算成<b>视口本地坐标系里的包围盒</b>（m_ViewBounds、m_ContentBounds），再做所有计算。normalizedPosition 就是从这两个包围盒算出来的：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/ScrollRect.cs
+public float verticalNormalizedPosition
+{
+    get
+    {
+        UpdateBounds();
+        if ((m_ContentBounds.size.y &lt;= m_ViewBounds.size.y) || Mathf.Approximately(m_ContentBounds.size.y, m_ViewBounds.size.y))
+            return (m_ViewBounds.min.y &gt; m_ContentBounds.min.y) ? 1 : 0;
+        return (m_ViewBounds.min.y - m_ContentBounds.min.y) / (m_ContentBounds.size.y - m_ViewBounds.size.y);
+    }
+    ...
+}</pre>
+<div class="formula"><math display="block"><mrow><mi>verticalNormalizedPosition</mi><mo>=</mo><mfrac><mrow><msub><mi>view</mi><mi>min.y</mi></msub><mo>−</mo><msub><mi>content</mi><mi>min.y</mi></msub></mrow><mrow><msub><mi>content</mi><mi>height</mi></msub><mo>−</mo><msub><mi>view</mi><mi>height</mi></msub></mrow></mfrac></mrow></math></div>
+<figure><svg viewBox="0 0 600 240" width="600" font-family="PingFang SC" font-size="13">
+<rect x="70" y="20" width="150" height="200" fill="#f1f8f4" stroke="#2fb36a" stroke-width="2"/><text x="145" y="38" fill="#2fb36a" text-anchor="middle">Content</text>
+<rect x="60" y="80" width="170" height="80" fill="none" stroke="#1e88e5" stroke-width="3"/><text x="145" y="125" fill="#1e88e5" text-anchor="middle">Viewport</text>
+<line x1="240" y1="160" x2="240" y2="220" stroke="#ff8a3d" stroke-width="2"/><polygon points="235,215 240,222 245,215" fill="#ff8a3d"/><polygon points="235,165 240,158 245,165" fill="#ff8a3d"/>
+<text x="250" y="195" fill="#ff8a3d">view.min − content.min（下面露出的部分）</text>
+<line x1="40" y1="20" x2="40" y2="220" stroke="#7a8299"/><text x="28" y="125" fill="#7a8299" text-anchor="middle" transform="rotate(-90 28 125)">content 高</text>
+<text x="300" y="60" fill="#1f2436">分母 = content 高 − view 高 = 可滚动的总距离</text>
+<text x="300" y="86" fill="#1f2436">= 1：Content 顶端贴着视口顶端（列表在最上面）</text>
+<text x="300" y="112" fill="#1f2436">= 0：Content 底端贴着视口底端（列表在最下面）</text>
+<text x="300" y="138" fill="#7a8299">内容比视口矮：只返回 0 或 1，设置它也没有效果</text>
+</svg><figcaption><b>图 9-3</b> verticalNormalizedPosition 的几何含义。注意竖直方向 1 是顶部、0 是底部，与直觉“从上往下是 0→1”相反</figcaption></figure>
+<p>设置 normalizedPosition 时，<code>SetNormalizedPosition</code> 反过来解出 Content 的 anchoredPosition，并把该方向的速度清零（所以设置位置会打断惯性）。这里有两个高频的坑：</p>
+<ol>
+<li><b>竖直方向 1 是顶部</b>。“滚到底”要设 <code>verticalNormalizedPosition = 0</code>，很多人写成 1 然后困惑“怎么回到了顶上”。</li>
+<li><b>必须在 Content 尺寸正确之后设置</b>。刚往 Content 里加完一批列表项，LayoutGroup 和 ContentSizeFitter 还没执行（它们要等到这一帧渲染前的布局重建），此时 Content 还是旧尺寸，算出来的位置是错的。要么先 <code>Canvas.ForceUpdateCanvases()</code>（或对 Content 调用 <code>LayoutRebuilder.ForceRebuildLayoutImmediate</code>），要么等一帧再设置。<code>SetNormalizedPosition</code> 内部虽然也会调用 EnsureLayoutHasRebuilt，但它只在“ScrollRect 自己还从未完成过布局”时才强制重建，不能依赖。</li>
+</ol>
+<p>还有一个隐藏的规则在 <code>AdjustBounds</code> 里：<b>内容比视口小时，内容包围盒会被扩大到视口大小，扩大的方向由 Content 的轴心决定</b>。轴心在顶部 (y = 1) 时向下扩，于是内容少时贴着顶部、无法滚动——这正是我们想要的。如果你把 Content 的轴心改成了居中，内容少时它会在视口中间上下“漂”，Elastic 回弹也会把它拉到奇怪的位置。<b>竖向列表的 Content 轴心放在顶部，横向列表放在左边</b>，这是约定俗成的规矩。</p>
+
+<h3 class="sec">9.5 Content 的尺寸：交给 LayoutGroup 和 ContentSizeFitter</h3>
+<p>ScrollRect 只认 Content 的 RectTransform 尺寸。往 Content 下面加了 50 个列表项，如果 Content 自己的高度还是 300，ScrollRect 就认为内容只有 300 高，滚不动，列表项全部溢出在 Content 的矩形之外。所以 Content 上几乎总是挂着两个组件：</p>
+<ul>
+<li><b>VerticalLayoutGroup / HorizontalLayoutGroup / GridLayoutGroup</b>：负责把子物体一个接一个排好（第 10 章详解）。它们会计算出“排完所有子物体需要的尺寸”，即 preferred size。</li>
+<li><b>ContentSizeFitter</b>：把竖直方向（横向列表则是水平方向）设为 <code>Preferred Size</code>，让 Content 的高度等于 LayoutGroup 算出的 preferred height。</li>
+</ul>
+<ol class="steps">
+<li>选中 Content，<span class="menu">Add Component › Layout › Vertical Layout Group</span>，设置 Padding 和 Spacing；勾选 Control Child Size 的 Width 和 Height，取消 Child Force Expand 的 Height。</li>
+<li>再 <span class="menu">Add Component › Layout › Content Size Fitter</span>，Vertical Fit 选 <code>Preferred Size</code>。</li>
+<li>列表项上挂 <code>Layout Element</code> 设置 Preferred Height（或者让列表项自身提供 preferred height，比如文字）。</li>
+<li>保持 Content 的锚点在顶部横向拉伸、轴心 (0.5, 1) 或 (0, 1)。</li>
+</ol>
+<p>这样增删列表项时 Content 会自动变高变矮，ScrollRect 和滚动条随之更新。三个案例（商城、跳转、下拉刷新）都是这个结构。为了让 ContentSizeFitter 的计算结果在同一帧可用，前面提到的 <code>Canvas.ForceUpdateCanvases()</code> 会经常出现。</p>
+<div class="note warn"><b>编辑模式下滚动条总是显示</b>ScrollRect 判断“是否需要滚动”的属性 <code>vScrollingNeeded</code> 在非 Play 模式下直接返回 true（源码里 <code>if (Application.isPlaying) ... return true;</code>），所以编辑器里 Auto Hide 的滚动条始终可见，进入 Play 模式后才会按内容多少自动隐藏。不要因此以为可见性设置没生效。</div>
+<div class="box"><h4>ForceUpdateCanvases 不是免费的</h4><p><code>Canvas.ForceUpdateCanvases()</code> 会立即对<b>所有</b>画布执行一遍布局和图形重建（相当于提前跑一次本该在渲染前执行的 willRenderCanvases）。在一次操作里调用一两次没有问题，但不要在循环里每加一项就调用一次，也不要放在 Update 里每帧调用。只关心某一个 Content 的尺寸时，用 <code>LayoutRebuilder.ForceRebuildLayoutImmediate(content)</code> 更精确，它只重建这一棵子树的布局。批量添加列表项时，正确的顺序是：先全部添加，再强制重建一次，最后设置滚动位置。</p></div>
+<div class="note"><b>列表项很多时</b>LayoutGroup + ContentSizeFitter 会为<b>每一个</b>列表项创建物体、参与布局和渲染。几百个以内问题不大；上千个（排行榜、邮件、聊天记录）就必须改用“只创建屏幕内那几个、滚动时复用”的虚拟列表，第 18 章专门实现。</div>
+
+<h4>列表里的按钮为什么不会被误触</h4>
+<p>滚动列表里放满了按钮，手指按在按钮上滑动列表，松手时按钮却不会被点击——这是事件系统和 ScrollRect 配合的结果，值得了解一下流程：</p>
+<figure><svg viewBox="0 0 600 190" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="20" width="120" height="44" rx="6" fill="#5b4bd6"/><text x="70" y="47" fill="#fff" text-anchor="middle">按下按钮</text>
+<rect x="160" y="20" width="200" height="44" rx="6" fill="#fff" stroke="#5b4bd6"/><text x="260" y="38" fill="#1f2436" text-anchor="middle">pointerPress = 按钮</text><text x="260" y="55" fill="#7a8299" text-anchor="middle" font-size="12">pointerDrag = ScrollRect（向上找）</text>
+<rect x="390" y="20" width="200" height="44" rx="6" fill="#fff" stroke="#5b4bd6"/><text x="490" y="38" fill="#1f2436" text-anchor="middle">移动超过 Drag Threshold</text><text x="490" y="55" fill="#7a8299" text-anchor="middle" font-size="12">ScrollRect.OnBeginDrag</text>
+<line x1="130" y1="42" x2="155" y2="42" stroke="#7a8299" stroke-width="2"/><line x1="360" y1="42" x2="385" y2="42" stroke="#7a8299" stroke-width="2"/>
+<rect x="160" y="100" width="430" height="44" rx="6" fill="#fcf2ef" stroke="#e5484d"/><text x="375" y="118" fill="#1f2436" text-anchor="middle">给按钮发 PointerUp，pointerPress 置空、eligibleForClick = false</text><text x="375" y="135" fill="#7a8299" text-anchor="middle" font-size="12">按钮恢复正常态，之后松手也不会触发 onClick</text>
+<line x1="490" y1="64" x2="490" y2="96" stroke="#7a8299" stroke-width="2"/>
+<text x="10" y="175" fill="#7a8299">（StandaloneInputModule.ProcessDrag 中的逻辑；没超过拖拽阈值就松手，才算一次点击）</text>
+</svg><figcaption><b>图 9-4</b> 按在按钮上拖动列表时的事件流转</figcaption></figure>
+<p>由此也能理解两个现象：其一，EventSystem 的 <b>Drag Threshold</b> 太小（高分辨率手机上 10 像素很短），手指轻微抖动就被判定为拖拽，按钮会“点不动”——可以按屏幕 DPI 放大这个阈值，例如 <code>EventSystem.current.pixelDragThreshold = (int)(Screen.dpi / 160f * 10)</code>（Screen.dpi 可能返回 0，要做保护）。其二，如果列表项上的组件自己实现了拖拽接口，pointerDrag 就会是它而不是 ScrollRect，列表也就滚不动了（9.7 节的表）。</p>
+
+<h3 class="sec">9.6 Mask 与 RectMask2D 初识</h3>
+<p>Viewport 的裁剪由遮罩组件完成，UGUI 有两种：</p>
+<figure class="shot"><img src="img/ch09-masks.jpg"><figcaption><b>图 9-5</b> 同样的内容、同样的滚动位置：没有遮罩时内容溢出；Mask + 圆角图片按图片形状裁剪；RectMask2D 只能裁矩形，但可以用 Softness 让边缘渐隐</figcaption></figure>
+<div class="scene">Ch09/Scenes/Ch09_Masks.unity</div>
+<table>
+<tr><th></th><th>Mask</th><th>RectMask2D</th></tr>
+<tr><td>原理</td><td>模板缓冲（Stencil）：先把遮罩图片写进模板缓冲，子物体只在模板值匹配的像素上绘制</td><td>裁剪矩形：把视口矩形传给子物体的材质，在 Shader 里丢弃矩形外的像素，并在 CPU 端剔除完全在外面的物体</td></tr>
+<tr><td>形状</td><td>任意，取决于遮罩 Image 的 Alpha（圆角、圆形、异形）</td><td>只能是轴对齐矩形（旋转后不再准确）</td></tr>
+<tr><td>额外绘制</td><td>需要遮罩图形本身的写入和结束时的还原，会增加批次，并打断与外部元素的合批</td><td>不需要额外绘制</td></tr>
+<tr><td>边缘</td><td>硬边</td><td>可设置 Softness 柔化边缘、Padding 调整裁剪边距</td></tr>
+<tr><td>适用</td><td>圆角视口、圆形头像、异形区域</td><td>绝大多数矩形滚动区域</td></tr>
+</table>
+<p>结论是：<b>滚动视图默认用 RectMask2D</b>，只有视口必须是圆角或异形时才用 Mask。RectMask2D 还会对完全落在视口外的子物体做剔除（不提交绘制），长列表里能省下不少开销。两者的完整原理、嵌套规则、与自定义 Shader 的兼容，以及“软遮罩”的实现，都在第 14 章；开销实测在第 20 章。</p>
+
+<div class="note warn"><b>Mask 的两个设置细节</b>① Mask 依赖同一物体上的 Graphic（通常是 Image）提供形状，Image 的 Alpha 为 0 的像素不写入模板，所以“圆角”来自精灵本身的透明角；如果把 Image 的颜色 Alpha 调成 0，所有像素都不会写入模板，子物体会全部消失——想隐藏遮罩图本身，应该取消勾选 <code>Show Mask Graphic</code>，而不是把颜色调透明。② Mask 判断的是像素是否被写入模板，与 Image 的 Raycast Target 无关；但射线检测会额外考虑遮罩：Mask 和 RectMask2D 都实现了 ICanvasRaycastFilter，点击位置在遮罩范围外时，射线不会命中其中的子物体，所以视口外被裁掉的列表项不会响应点击。</div>
+
+<h3 class="case"><span class="no">案例 9.1</span>商城列表<span class="lv">入门</span></h3>
+<p><b>目标</b>：一个四列的商品网格，商品数据来自配置（名称、图标、价格、角标），点击价格按钮购买、扣金币并提示；列表可上下滚动，PC 上鼠标滚轮也好用。</p>
+<figure class="shot"><img src="img/ch09-shop.jpg"><figcaption><b>图 9-6</b> 商城列表滚动到中部时的样子。Content 上是 GridLayoutGroup（固定 4 列）+ ContentSizeFitter，卡片由模板按数据生成</figcaption></figure>
+<p>搭建要点：</p>
+<ol class="steps">
+<li>创建 Scroll View，关掉 Horizontal，删掉横向滚动条；把 Viewport 的 Mask + Image 换成 RectMask2D。</li>
+<li>Content 上挂 <code>Grid Layout Group</code>：Cell Size 334×390、Spacing 26、Constraint 选 <code>Fixed Column Count</code> = 4；再挂 <code>Content Size Fitter</code>，Vertical Fit = Preferred Size。</li>
+<li>做一张卡片作为模板（图标、名称、价格按钮、角标），放在 Content <b>之外</b>并设为未激活——放在 Content 里的话，即使未激活，也得记得在生成时跳过它。</li>
+<li>ScrollRect 的 Scroll Sensitivity 调到 30。</li>
+</ol>
+<pre class="code" data-file="Ch09/ShopList.cs" data-region="build"></pre>
+<p>生成卡片时直接 <code>Instantiate(模板, content)</code>，GridLayoutGroup 会接管卡片的位置和尺寸，代码里一个坐标都不用算。循环里给按钮加监听时，同样要先把循环变量拷贝一份（<code>var goods = g;</code>），这里 foreach 的迭代变量在 C# 5 之后其实每次循环都是新变量，拷贝一份是为了让意图一目了然，也防止将来改成 for 循环时踩坑。</p>
+<p><b>刷新数据时保持滚动位置</b>：商品列表刷新（比如购买后库存变化）时，最省事的做法是销毁全部卡片再重建，但重建后列表会跳回顶部。更好的做法是复用已有卡片、只更新数据；如果必须重建，先记下 <code>verticalNormalizedPosition</code>（或者更精确地，记下 Content 的 anchoredPosition.y），重建并强制布局后再恢复。列表长度变化时，按 anchoredPosition 恢复能让“当前看到的那一行”保持不动，按 normalized 恢复则会让位置按比例漂移。</p>
+<div class="scene">Ch09/Scenes/Ch09_Shop.unity</div>
+<div class="note tip"><b>体验细节</b>① 网格列数随屏幕宽度变化（手机竖屏 2 列、平板 4 列）可以根据 Viewport 宽度动态设置 constraintCount，第 10 章案例会写一个按宽度自动算列数的网格。② 商品图标来自远程下载时，先显示占位图再替换，避免列表跳动。③ 购买按钮在列表里，用户滑动列表时手指经常落在按钮上——UGUI 的按钮只在“按下和抬起在同一个物体上、且没有发生拖拽”时才触发点击（拖拽一旦开始，EventSystem 会取消 pointerPress），所以滑动列表不会误触购买，这是 ScrollRect 与 Button 配合良好的原因。</div>
+
+<h3 class="case"><span class="no">案例 9.2</span>滚动到第 N 项<span class="lv">进阶</span></h3>
+<p><b>目标</b>：列表有 100 项，输入序号后平滑滚动到该项，可选择让它出现在视口的顶部、中间或底部，并高亮闪一下；用户在滚动过程中一拖动，就立刻停止自动滚动。</p>
+<figure class="shot"><img src="img/ch09-scrollto.jpg"><figcaption><b>图 9-7</b> 跳转到第 37 项、居中对齐。目标项被高亮，正好位于视口正中</figcaption></figure>
+<p><b>思路</b>：把“让第 N 项出现在视口的 align 处”翻译成 verticalNormalizedPosition。设 <i>H</i><sub>c</sub> 为 Content 高度、<i>H</i><sub>v</sub> 为视口高度、<i>t</i> 为目标项顶端到 Content 顶端的距离、<i>h</i> 为目标项高度。要让目标项的 align 点对齐视口的 align 点，Content 需要向上滚动的距离是 <i>s</i> = <i>t</i> + <i>h</i>·align − <i>H</i><sub>v</sub>·align，而 normalized = 1 − <i>s</i> / (<i>H</i><sub>c</sub> − <i>H</i><sub>v</sub>)，再夹到 0～1（最前面几项无法居中，就停在顶端）。</p>
+<pre class="code" data-file="Ch09/ScrollRectUtil.cs" data-region="calc"></pre>
+<p>目标项的位置用 <code>TransformPoint</code> / <code>InverseTransformPoint</code> 换算到 Content 本地坐标，而不是直接读 <code>anchoredPosition</code>——列表项的锚点和轴心各式各样，直接读 anchoredPosition 很容易算错，坐标换算则与锚点无关。函数开头的 <code>Canvas.ForceUpdateCanvases()</code> 保证列表刚生成完也能算对（9.4 节的第 2 个坑）。</p>
+<pre class="code" data-file="Ch09/SmoothScroller.cs" data-region="scroll"></pre>
+<ul>
+<li>开始滚动前调用 <code>StopMovement()</code> 清掉惯性速度，否则用户刚甩了一下列表再点“跳转”，惯性和动画会抢着改位置。</li>
+<li>动画直接改 <code>verticalNormalizedPosition</code>，用 EaseOutCubic 缓动、unscaledDeltaTime 计时。</li>
+<li>用户一按下鼠标就停止动画，把控制权还给手指。示例为了简短直接读 <code>Input.GetMouseButtonDown(0)</code>；更严谨的做法是在 ScrollRect 所在物体上实现 <code>IBeginDragHandler</code>，只有拖动这个列表时才打断。</li>
+</ul>
+<p>“滚动到指定项”最常见的特例是<b>聊天的“贴底”</b>：新消息到来时，如果用户本来就停在最底部，就自动滚到底；如果用户正在往上翻历史，就不要打扰他，而是显示一个“有 3 条新消息”的提示按钮，点击后再滚到底。判断“本来就在底部”要在添加新消息<b>之前</b>读取 verticalNormalizedPosition（加完之后内容变高，它必然不再是 0），并留一点容差（例如 ≤ 0.01，或者用像素距离判断）。</p>
+<div class="scene">Ch09/Scenes/Ch09_ScrollTo.unity</div>
+<div class="note"><b>变高列表与虚拟列表</b>本例的计算基于“目标项已经存在并且布局完成”。在第 18 章的虚拟列表里，屏幕外的项根本没有物体，跳转要改为根据数据（每项的高度累加）直接算出位置，原理与本例的公式相同。</div>
+
+<h3 class="case"><span class="no">案例 9.3</span>轮播图 + 圆点指示<span class="lv">进阶</span></h3>
+<p><b>目标</b>：活动横幅轮播，一屏一页；左右拖动翻页，松手后吸附到整页；快速甩动即使没拖过半页也翻页；底部圆点指示当前页；4 秒无操作自动翻到下一页。</p>
+<figure class="shot"><img src="img/ch09-carousel.jpg"><figcaption><b>图 9-8</b> 左：松手吸附后正好停在第 2 页，对应圆点拉长；右：拖动到第 2、3 页之间的状态，松手后由 PageView 决定吸附到哪一页</figcaption></figure>
+<p><b>思路</b>：横向 ScrollRect + 每页宽度等于视口宽度。ScrollRect 自带的惯性会让页面停在任意位置，所以关掉惯性，改由我们在松手时决定目标页，再用动画滑过去。第 <i>k</i> 页（共 <i>n</i> 页）对应的 horizontalNormalizedPosition 恰好是 <i>k</i> / (<i>n</i> − 1)，换算非常简单。</p>
+<pre class="code" data-file="Ch09/PageView.cs" data-region="page"></pre>
+<ul>
+<li><b>和 ScrollRect 挂在同一个物体上</b>：ExecuteEvents 会对物体上所有实现了某个接口的组件都调用一遍（第 11 章），所以 PageView 和 ScrollRect 会同时收到 OnBeginDrag / OnEndDrag，PageView 无需转发任何事件，只是“旁听”。</li>
+<li><b>决定目标页</b>：默认取最近的整页（四舍五入）；如果松手时手指速度超过阈值，就在<b>开始拖动时所在的页</b>基础上按方向翻一页。用开始页而不是当前最近页做基准，是为了避免“拖过半页又快速甩回来”时一下翻两页。</li>
+<li><b>吸附动画</b>用 <code>Mathf.SmoothDamp</code> 逼近目标位置，SmoothDamp 自带“先快后慢”的手感，并且中途被拖动打断也不会跳变。</li>
+<li><b>速度怎么算</b>：<code>e.delta</code> 是最后一帧手指的移动量，除以帧时间得到像素/秒。注意它是屏幕像素，不同分辨率的设备上阈值的“手感”不同，严谨一点可以除以 Canvas 的 scaleFactor 换算到参考分辨率下的像素。</li>
+<li>圆点指示放在 ScrollRect 下、Viewport 之外，所以不会被裁剪也不会跟着滚动；当前页的圆点拉长成胶囊，这是近年常见的样式。</li>
+</ul>
+<p><b>页面跟随滚动的视觉效果</b>：很多轮播图会让两侧的页面略小、略暗，中间那页放大——即“卡片流”效果。实现方法是监听 ScrollRect 的 onValueChanged，对每一页计算它的中心到视口中心的距离，按距离设置 localScale 和颜色。由于只是改 Transform 和颜色，不改尺寸，不会触发布局重建；颜色变化会让该图形重建网格，页数不多时开销可以忽略。同样的手法还能做视差背景：背景图按 horizontalNormalizedPosition 的一定比例平移，滚动时前景和背景速度不同，画面更有层次。</p>
+<div class="scene">Ch09/Scenes/Ch09_Carousel.unity</div>
+<div class="note tip"><b>无限循环轮播</b>本例到最后一页后“回卷”到第一页，会快速倒着滑过所有页。要做真正的无限循环，常见做法是首尾各多放一个“假页”（最后一页的副本放在最前、第一页的副本放在最后），滑到假页后无动画地瞬移到对应的真页；或者干脆不用 ScrollRect，自己维护三个页面槽位循环复用。后者的思路就是第 18 章的虚拟列表。</div>
+
+<h3 class="case"><span class="no">案例 9.4</span>横竖嵌套滚动<span class="lv">高阶</span></h3>
+<p><b>目标</b>：应用商店式的首页——整页上下滚动，里面每一个分类是一排可以左右滑动的卡片。要求：手指按在卡片上竖着拖，整页上下滚；横着拖，只滚这一排。</p>
+<figure class="shot"><img src="img/ch09-nested.jpg"><figcaption><b>图 9-9</b> 外层竖向 ScrollRect 里嵌套了 6 个横向的 NestedScrollRect；第二排已被横向拖动过一段</figcaption></figure>
+<p><b>问题出在哪</b>：手指按下时，事件系统从命中的卡片图片开始往上找第一个实现了拖拽接口的组件，找到的是<b>内层</b>横向 ScrollRect，之后这一整次拖拽的所有事件都只发给它。内层只能横向滚动，竖向的移动量被它直接丢掉——外层根本收不到事件，于是“按在卡片上竖着拖，页面纹丝不动”。</p>
+<p><b>解决思路</b>：让内层在 <code>OnBeginDrag</code> 时判断这次拖动的主方向：如果是自己负责的方向，就自己处理；否则就把这一次拖拽的 OnBeginDrag、OnDrag、OnEndDrag 全部转交给外层 ScrollRect。ScrollRect 的这些方法都是 <code>public virtual</code>，继承它、重写这几个方法即可：</p>
+<pre class="code" data-file="Ch09/NestedScrollRect.cs" data-region="route"></pre>
+<ul>
+<li>方向用“按下点到当前点的总位移”判断。OnBeginDrag 发生在手指移动超过拖拽阈值（EventSystem 的 Drag Threshold，默认 10 像素）的那一刻，此时总位移已经足够判断方向；用单帧 delta 则容易受抖动影响。</li>
+<li>判断结果在整次拖拽期间保持不变（m_RouteToParent），直到 OnEndDrag 才重置。不要在 OnDrag 里每帧重新判断，否则斜着拖时两层会轮流抢着滚，画面抖动。</li>
+<li><code>OnInitializePotentialDrag</code> 在按下时就转给外层一份：外层正在惯性滑动时，手指按下应该让它停住，这正是外层 OnInitializePotentialDrag 里“速度清零”的作用。</li>
+<li>鼠标滚轮同理：横向列表收到竖向滚轮，转给外层，否则鼠标停在某一排上时滚轮“失灵”。（ScrollRect 默认会把只能横向滚动的列表收到的竖向滚轮转换成横向滚动，这里我们改变了这个行为。）</li>
+<li>外层 ScrollRect 在 Awake 里通过 <code>transform.parent.GetComponentInParent&lt;ScrollRect&gt;()</code> 找到——从父节点开始找，否则会找到自己。</li>
+</ul>
+<p>继承 ScrollRect 的方案要求把内层列表的组件换成 NestedScrollRect。如果内层列表来自第三方插件、不方便改类型，也可以写一个独立组件挂在内层同一物体上：实现 IBeginDragHandler 等接口“旁听”事件，判断方向后在需要时禁用内层 ScrollRect 并调用外层的对应方法——思路相同，只是要处理好“禁用内层、拖完再启用”的时机。</p>
+<div class="scene">Ch09/Scenes/Ch09_Nested.unity</div>
+<div class="note warn"><b>同方向嵌套</b>竖向列表里再嵌一个竖向列表（比如可折叠分组里的长文本框）是另一种冲突：内层滚到头时，用户希望继续拖就带动外层。做法是在内层的 OnDrag 里检测“已经到达边界且继续往同一方向拖”，此时把事件转给外层——比本例多了一个边界判断。这种交互在移动端很常见但不容易做好，能避免就尽量避免。</div>
+
+<h3 class="case"><span class="no">案例 9.5</span>下拉刷新与上拉加载<span class="lv">高阶</span></h3>
+<p><b>目标</b>：好友动态列表。列表在顶端时继续往下拉，顶部出现“下拉刷新”提示，拉过阈值变成“松开立即刷新”，松手后显示“正在刷新…”并保持住，数据回来后插入新动态、提示收起；滚到底部时自动加载下一页，加载完三页后显示“没有更多了”。</p>
+<figure class="shot"><img src="img/ch09-pullrefresh.jpg"><figcaption><b>图 9-10</b> 左：下拉超过阈值，提示变为“松开立即刷新”（箭头翻转）；右：滚到底部触发加载更多。左图的下拉状态是在截图前把 Content 的位置设为下拉 170 像素后画出的</figcaption></figure>
+<p><b>思路</b>：完全基于 Elastic 模式。内容在顶端时继续下拉，Content 的顶端会离开视口顶端（anchoredPosition.y 变成负数），离开的距离就是“下拉了多少”；松手后 Elastic 会把它弹回。我们要做的只是：</p>
+<ol>
+<li>在 Content 顶端外侧放一个提示条（Content 的子物体，但 LayoutElement 设 ignoreLayout，锚在 Content 顶端、轴心在底边，平时位于 Content 上方的视口外），下拉时它自然被“拉”进视口。</li>
+<li>监听 onValueChanged，根据下拉距离切换提示文字和箭头方向。</li>
+<li>在 ScrollRect 同一物体上实现 <code>IEndDragHandler</code>，松手时如果已过阈值就开始刷新。</li>
+<li>刷新期间提示条要<b>留在</b>视口里，而 Elastic 会把内容弹回、把提示条带出视口——这是唯一的难点。</li>
+</ol>
+<pre class="code" data-file="Ch09/PullToRefresh.cs" data-region="pull"></pre>
+<p>第 4 点的解法：松手开始刷新时，给 Content 的 VerticalLayoutGroup 加一段等于提示条高度的顶部 padding，并把提示条的轴心改到顶边，让它“住进” Content 里面；Content 因此变高、所有列表项下移了一个提示条的高度，为了画面不跳，同时把 Content 往上挪同样的距离（<code>Nudge</code>）。此时 Content 仍处在越界状态，Elastic 回弹会平滑地把它拉到顶端——结果就是提示条稳稳停在列表顶部。刷新结束时反向操作：去掉 padding、把提示条移回外侧、Content 下挪补偿，然后回弹把提示条平滑地收出视口。整个过程没有写一行动画代码，全靠 ScrollRect 自己的回弹。</p>
+<p>为什么不在刷新期间把 Movement Type 改成 Unrestricted 来“定住”内容？因为那样内容会停在用户松手时的任意位置（可能拉下来 300 像素），而且刷新期间用户再拖动时没有边界可言；改成 Clamped 又会让内容瞬间跳回顶端、提示条直接消失。加 padding 的方案让“刷新中”变成一个合法的边界状态，ScrollRect 的所有行为（拖动、惯性、回弹）都继续正常工作，这是它最大的好处。</p>
+<p><code>Nudge</code> 里先调用 <code>LayoutRebuilder.ForceRebuildLayoutImmediate</code>，让 padding 的变化立即反映到 Content 尺寸上，再改位置；否则 ScrollRect 下一帧按旧尺寸计算回弹，会出现一帧的跳动。</p>
+<pre class="code" data-file="Ch09/PullToRefresh.cs" data-region="state"></pre>
+<p>上拉加载更简单：onValueChanged 中检测 <code>verticalNormalizedPosition ≤ 0</code>（滚到底，或者 Elastic 越过了底部），并且当前没在加载、还有更多数据，就触发 onLoadMore；数据回来后追加列表项，把“加载更多”提示移到最后。条件里还检查了“内容比视口高”——内容不满一屏时 normalizedPosition 恒为 0 或 1，不加这个判断会在一打开界面就无限触发加载。</p>
+<p>数据层（模拟请求、插入或追加条目）放在 <code>FeedDemo</code> 里，PullToRefresh 只通过 onRefresh / onLoadMore 两个事件和 EndRefresh / EndLoadMore 两个方法与外界交互，可以直接拿去给任何竖向列表用。</p>
+<div class="scene">Ch09/Scenes/Ch09_PullRefresh.unity</div>
+<div class="note tip"><b>调参与扩展</b>① 阈值一般取提示条高度左右（本例 140 像素）。② 刷新期间应禁止再次触发刷新（代码里 Refreshing 状态会忽略 onValueChanged）。③ RubberDelta 以视口尺寸为基准：同样的手指距离，视口越高，内容被拉下来的距离越多；如果希望不同尺寸的列表手感一致，可以按视口高度的比例来设置阈值，而不是写死像素。④ 提示条里的箭头可以换成随下拉距离旋转的进度圈，刷新中改为持续旋转的加载图标（第 15 章）。</div>
+
+<h3 class="sec">9.7 常见问题与性能提示</h3>
+<table>
+<tr><th>现象</th><th>原因与解决</th></tr>
+<tr><td>拖不动 / 拖了又弹回原处</td><td>Content 尺寸没有比 Viewport 大（忘了加 ContentSizeFitter），或者 Content 的轴心/锚点不对。用图 9-1 的方法临时关掉遮罩看看 Content 的实际范围。</td></tr>
+<tr><td>只有拖空白处能滚，拖列表项不能滚</td><td>列表项上有组件拦截了拖拽事件（实现了 IDragHandler，例如 Slider、另一个 ScrollRect、自定义的拖拽脚本）。参考案例 9.4 转发事件。按钮不会拦截拖拽。</td></tr>
+<tr><td>拖空白处滚不动，拖列表项能滚</td><td>空白处没有能接收射线的 Graphic。给根节点或 Viewport 留一张 Raycast Target 开启的 Image（可以全透明）。</td></tr>
+<tr><td>设置 normalizedPosition 后位置不对</td><td>布局还没重建（9.4 节），先 Canvas.ForceUpdateCanvases()；或者方向弄反了（竖直 1 是顶部）。</td></tr>
+<tr><td>竖向列表左右晃</td><td>Horizontal 没关，或者 Content 比 Viewport 宽一点点（例如列表项宽度超出）。</td></tr>
+<tr><td>滚轮几乎不动</td><td>Scroll Sensitivity 默认 1，调到 20～50。</td></tr>
+<tr><td>滚动时掉帧</td><td>常见原因：列表项太多（换虚拟列表，第 18 章）；列表项带 Outline/Shadow 等昂贵效果；滚动时触发了 Layout 重建（例如 onValueChanged 回调里改了布局）；用了 Mask 打断合批。用 Profiler 和 Frame Debugger 定位（第 20 章）。</td></tr>
+</table>
+<p>关于性能，先记住一条结论：<b>单纯移动 Content 不会触发子物体的网格重建</b>——Content 的 anchoredPosition 变了，子物体的世界位置随之变化，但它们的网格是相对自身的，不需要重新生成；Canvas 只需要重新合批（RectMask2D 下还要重新计算裁剪和剔除）。所以滚动本身很便宜，真正的开销来自滚动过程中你额外做的事情，以及子物体的数量。把滚动列表放进单独的子 Canvas，可以避免它每帧的合批影响到界面其余部分，这条“动静分离”的原则第 20 章会用实测数据说明。</p>
+
+<h3 class="sec">9.8 ScrollRect 的另类用法与移动端注意事项</h3>
+<h4>可拖动的大地图</h4>
+<p>ScrollRect 并不只能做“列表”。把一张比屏幕大得多的地图图片放进 Content，同时打开 Horizontal 和 Vertical，就得到了一个可以四向拖动、带惯性和回弹的世界地图或关卡选择图，代码量为零。几个要点：Content 的锚点和轴心都放在中心，尺寸设为地图图片的尺寸（不需要 LayoutGroup）；Movement Type 用 Clamped 或 Elastic，保证地图边缘不会被拖进屏幕中间；关卡按钮作为 Content 的子物体摆在地图上，会跟着一起移动。想要“点击某个关卡后地图自动把它移到屏幕中央”，用案例 9.2 的方法分别算出横竖两个方向的 normalizedPosition 即可。双指缩放 ScrollRect 不支持，需要自己读取两个触点的距离变化去改 Content 的 localScale，并注意缩放后 Content 的包围盒变了，边界计算会自动跟上（ScrollRect 用的是世界角点换算到视口坐标的包围盒，已经包含了缩放）——双指手势的实现见第 11 章。</p>
+<h4>移动端</h4>
+<ul>
+<li><b>多指同时拖动</b>：ScrollRect 不区分是哪根手指，第二根手指在同一个列表上开始拖动时，会重新记录拖动起点，两根手指交替调用 OnDrag，内容可能来回跳动。对体验要求高的列表，可以继承 ScrollRect，在 OnBeginDrag 里记下第一根手指的 <code>pointerId</code>，后续只处理这根手指的 OnDrag / OnEndDrag。</li>
+<li><b>帧率与惯性</b>：惯性和回弹都按 unscaledDeltaTime 计算，与帧率无关；但松手速度是由最后几帧的位移估算的，低帧率设备上估算更粗糙，滑动手感会“发飘”。保证滚动时的帧率比调任何参数都重要。</li>
+<li><b>Drag Threshold</b>：高 DPI 手机上默认 10 像素的拖拽阈值很短，列表里的按钮容易“点不动”，按 DPI 放大（见 9.5 节末的图 9-4 说明）。</li>
+<li><b>安全区与圆角屏</b>：全屏列表的上下两端要留出安全区，否则最后一项可能被系统手势条遮住；更好的做法是让 Viewport 铺满屏幕、只给 Content 的 VerticalLayoutGroup 加上下 padding，这样列表能滚到圆角下面，看起来更自然（安全区组件见第 3 章）。</li>
+</ul>
+<div class="note"><b>World Space 画布里的滚动</b>ScrollRect 在 World Space 画布中同样可用，拖拽时的坐标换算用的是事件里的 pressEventCamera，遮罩建议用 RectMask2D。注意 VR / 3D 场景里，画布倾斜后 RectMask2D 的矩形裁剪仍然在画布平面内进行，表现正确；但如果 Content 有自己的旋转，RectMask2D 的剔除可能不准确，这时改用 Mask。</div>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>根节点的 Image 是“空白处也能拖”的保证，不要删，透明即可；Scroll Sensitivity 在 PC 上要调大。</li>
+<li>ScrollRect 通过移动 Content 的 anchoredPosition 实现滚动，Viewport 上的遮罩负责裁剪；Content 必须比 Viewport 大才能滚动，尺寸交给 LayoutGroup + ContentSizeFitter。</li>
+<li>Elastic 模式下拖拽越界用 RubberDelta 打折（越拉越吃力，最多一个视口），松手后用 SmoothDamp 回弹（Elasticity 为平滑时间）；惯性速度每秒衰减为 decelerationRate 倍，滑行距离约为松手速度 ÷ (−ln rate)。</li>
+<li>verticalNormalizedPosition：1 是顶部，0 是底部；只有内容比视口大时才有意义；设置前要确保布局已重建。竖向列表的 Content 轴心放在顶部。</li>
+<li>矩形视口用 RectMask2D，圆角/异形视口才用 Mask；隐藏遮罩图要取消 Show Mask Graphic，而不是把颜色调透明。</li>
+<li>列表里的按钮不会被滑动误触，因为拖拽一开始事件系统就取消了按钮的按下状态；高 DPI 设备上要适当放大拖拽阈值。</li>
+<li>和 ScrollRect 挂在同一物体上的组件能“旁听”同一次拖拽（PageView、PullToRefresh）；继承 ScrollRect 重写拖拽方法可以把事件转交给外层（NestedScrollRect）。</li>
+<li>下拉刷新的关键是把“刷新中”做成合法的边界状态（顶部 padding），而不是和 ScrollRect 的回弹对抗。</li>
+<li>跳转到指定项：用坐标换算求出目标项在 Content 中的位置，再换算成 normalizedPosition；平滑滚动前 StopMovement。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>把案例 9.2 扩展到横向列表：写一个 <code>HorizontalPositionFor</code>，并做一个“横向选关界面”，点击某一关时让它滚到正中间。</li>
+<li>给案例 9.3 的轮播图实现真正的无限循环（首尾假页方案），并在页数只有 1 页时隐藏圆点、禁用拖动。</li>
+<li>在案例 9.4 的基础上实现“同方向嵌套”：竖向外层列表里放一个竖向的长文本框，内层滚到头后继续拖动能带动外层。</li>
+<li>修改案例 9.5：刷新期间如果用户又把列表往上推（让提示条离开视口），刷新结束时不要让列表跳动。思考 Nudge 补偿在这种情况下是否仍然正确。</li>
+<li>给案例 9.3 的轮播图加上“卡片流”效果：中间页 1.0 倍、两侧页 0.85 倍并降低亮度，滚动时连续变化；并验证在 Profiler 中这个效果没有引起每帧的布局重建。</li>
+<li>做一个可以四向拖动的关卡地图：地图尺寸 4096×2048，点击关卡按钮时地图把它平滑移动到屏幕中央，已经在边缘的关卡则尽量靠近中央。</li>
+<li>用 <code>System.Diagnostics.Stopwatch</code> 在配套工程里测一测：商城列表分别放 100、1000 个商品时，生成全部卡片的耗时，以及滚动时每帧 <code>Canvas.willRenderCanvases</code> 前后的耗时，记录你的机器型号与 Unity 版本。</li>
+</ol></div>
+</section>

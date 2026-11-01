@@ -1,0 +1,26 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ShopPanel|ShopList
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Coins|Image
+3|Icon_item_coin|Image
+3|Value|TextMeshProUGUI
+2|Scroll View|Image,ScrollRect
+3|Viewport|RectMask2D
+4|Content|GridLayoutGroup,ContentSizeFitter
+3|Scrollbar Vertical|Image,Scrollbar
+4|Sliding Area|
+5|Handle|Image
+2|!GoodsTemplate|Image
+3|Icon|Image
+3|Name|TextMeshProUGUI
+3|Buy|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+4|Icon_item_coin|Image
+3|Tag|Image
+4|Text|TextMeshProUGUI
+2|Toast|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

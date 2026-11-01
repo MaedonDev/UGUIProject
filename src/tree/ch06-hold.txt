@@ -1,0 +1,18 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ShopItem|QuantityStepper
+2|Shadow|Image
+2|Bg|Image
+2|IconBg|Image
+3|Icon_item_potion_red|Image
+2|Name|TextMeshProUGUI
+2|Price|TextMeshProUGUI
+2|IconButton_minus|Image,Button,HoldRepeatButton
+3|Icon_minus|Image
+2|ValueBg|Image
+2|Value|TextMeshProUGUI
+2|IconButton_plus|Image,Button,HoldRepeatButton
+3|Icon_plus|Image
+2|Total|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

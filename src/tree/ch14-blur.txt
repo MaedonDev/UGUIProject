@@ -1,0 +1,37 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,BlurSnapshot,BlurDemo
+1|Background|Image
+1|Text|TextMeshProUGUI
+1|Item0|
+2|Shadow|Image
+2|Bg|Image
+2|Icon_item_sword|Image
+2|Text|TextMeshProUGUI
+1|Item1|
+2|Shadow|Image
+2|Bg|Image
+2|Icon_item_shield|Image
+2|Text|TextMeshProUGUI
+1|Item2|
+2|Shadow|Image
+2|Bg|Image
+2|Icon_item_potion_blue|Image
+2|Text|TextMeshProUGUI
+1|Item3|
+2|Shadow|Image
+2|Bg|Image
+2|Icon_item_gem|Image
+2|Text|TextMeshProUGUI
+1|Button_打开弹窗|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|!Popup|
+2|BlurBackground|RawImage
+2|Dim|Image
+2|Dialog|
+3|Shadow|Image
+3|Bg|Image
+3|Text|TextMeshProUGUI
+3|Icon_item_gem|Image
+3|Button_收下|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

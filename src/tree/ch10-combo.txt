@@ -1,0 +1,11 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|HorizontalLayoutGroup|Image,HorizontalLayoutGroup
+2|Outline|Image,LayoutElement
+2|Child1|Image,LayoutElement
+2|Child2|Image,LayoutElement
+2|Child3|Image,LayoutElement
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

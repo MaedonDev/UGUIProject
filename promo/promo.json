@@ -1,0 +1,131 @@
+{
+  "pdf": "../UGUI从入门到精通_麦冬.pdf",
+  "colors": {
+    "main": "#5b4bd6",
+    "dark": "#1f2436",
+    "soft": "#f1effc",
+    "accent": "#ff8a3d",
+    "ink": "#1f2436",
+    "paper": "#f8f7fd",
+    "muted": "#7a8299",
+    "line": "#e0deef"
+  },
+  "cover_char": "界",
+  "kicker": "麦冬 · UGUI 实战",
+  "title_html": "UGUI<br>从入门<br>到精通",
+  "subtitle": "Unity 界面开发实战全解",
+  "hook": "119 个配套场景，打开就能运行。",
+  "tags": [
+    "122 个案例",
+    "556 页",
+    "配套工程"
+  ],
+  "author_line": "麦冬 著",
+  "format_line": "PDF 电子书 · 556 页 · 附 Unity 配套工程",
+  "xhs_title": "UGUI 从入门到精通",
+  "pain_kicker": "做 Unity 界面的你",
+  "pain_title": "是不是也遇到过",
+  "pains": [
+    "换个分辨率，界面就错位、出屏",
+    "按钮点了没反应，不知道从哪查",
+    "列表一长就卡，界面一多就乱",
+    "美术要的效果，不知道怎么实现"
+  ],
+  "pain_answer": "从第一个按钮讲到源码原理、UI 框架和性能优化，每个结论都有能跑的代码。",
+  "toc_kicker": "全书目录",
+  "toc_title": "5 个部分 · 21 章 · 附录速查",
+  "toc": [
+    [
+      "02",
+      "Canvas 与屏幕适配",
+      "三种模式、Canvas Scaler、Match"
+    ],
+    [
+      "03",
+      "RectTransform 与锚点",
+      "换算公式、SafeArea"
+    ],
+    [
+      "05",
+      "Text 与 TextMeshPro",
+      "SDF、中文字体、图文混排"
+    ],
+    [
+      "06",
+      "Button 与 Selectable 体系",
+      "状态机、导航、长按连发"
+    ],
+    [
+      "10",
+      "自动布局",
+      "Layout 重建、流式布局"
+    ],
+    [
+      "11",
+      "事件系统",
+      "射线、拖拽、摇杆、双指缩放"
+    ],
+    [
+      "12",
+      "Graphic、Canvas 与重建",
+      "脏标记、合批实测"
+    ],
+    [
+      "14",
+      "UI Shader、遮罩与模板",
+      "Stencil、软遮罩、模糊"
+    ],
+    [
+      "16",
+      "UI 框架与界面管理",
+      "界面栈、缓存、弹窗队列"
+    ],
+    [
+      "17",
+      "游戏 HUD 实战",
+      "血条、飘字、小地图、技能"
+    ],
+    [
+      "18",
+      "列表、背包与无限滚动",
+      "循环列表、拖拽背包"
+    ],
+    [
+      "20",
+      "性能优化",
+      "50 组实测、Overdraw"
+    ]
+  ],
+  "toc_extra": "附录：API 速查 · 事件顺序 · 重建流程 · 常见问题 · 术语表",
+  "sample_title": "完整代码 + 实拍截图",
+  "sample_pages": [
+    300,
+    463
+  ],
+  "sample_caption": "案例代码 · 运行截图 · 原理图 · 源码对照",
+  "specs_title": "一本讲透 UGUI 的实战书",
+  "specs": [
+    [
+      "页数",
+      "556 页"
+    ],
+    [
+      "案例",
+      "122 个"
+    ],
+    [
+      "场景",
+      "119 个"
+    ],
+    [
+      "配图",
+      "260+ 幅"
+    ]
+  ],
+  "for_whom": [
+    "会用 Unity、想系统学好 UI 的开发者",
+    "做过 UGUI、想搞懂原理和优化的程序",
+    "要搭 UI 框架、做 HUD 和背包的团队"
+  ],
+  "specs_note": "基于 Unity 2022.3 LTS + UGUI 1.0.0 + TextMeshPro 3.0.7；绝大部分内容也适用于 2021 与 Unity 6。本书与 Unity Technologies 无关联。"
+}

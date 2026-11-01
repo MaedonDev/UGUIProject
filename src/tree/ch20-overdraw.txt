@@ -1,0 +1,122 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|CityScreen|
+2|CityBg|Image
+2|Button_建筑 0|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_建筑 1|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_建筑 2|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_建筑 3|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_建筑 4|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_建筑 5|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_建筑 6|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_建筑 7|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+1|BagScreen|
+2|Bg|Image
+2|DecoGlow|Image
+2|Vignette|Image
+2|Title|TextMeshProUGUI
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_sword|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_shield|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_potion_red|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_gem|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_coin|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_apple|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_key|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_scroll|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_sword|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_shield|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_potion_red|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_gem|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_coin|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_apple|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_key|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_scroll|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_sword|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_shield|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_potion_red|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_gem|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_coin|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_apple|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_key|Image
+2|SlotShadow|Image
+2|SlotBg|Image
+2|SlotFrame|Image
+2|Icon_item_scroll|Image
+0|EventSystem|EventSystem,StandaloneInputModule

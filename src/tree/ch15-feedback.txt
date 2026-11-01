@@ -1,0 +1,11 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,FeedbackDemo
+1|Icon_item_coin|Image
+1|Text|TextMeshProUGUI,NumberRoller
+1|Button_领取|Image,Button,Breathing
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_gift|Image
+1|Button_购买 5000|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

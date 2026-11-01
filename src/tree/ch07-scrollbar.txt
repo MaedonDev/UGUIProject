@@ -1,0 +1,41 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Scrollbars|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Scrollbar|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|Text|TextMeshProUGUI
+2|Scrollbar|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|Text|TextMeshProUGUI
+2|Scrollbar|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|Text|TextMeshProUGUI
+2|Scrollbar|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|Text|TextMeshProUGUI
+2|Scrollbar|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+1|Vertical|
+2|Shadow|Image
+2|Bg|Image
+2|Scrollbar|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|Text|TextMeshProUGUI
+2|Scrollbar|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+0|EventSystem|EventSystem,StandaloneInputModule

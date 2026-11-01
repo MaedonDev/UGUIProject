@@ -1,0 +1,397 @@
+<section class="chapter" id="c05" data-title="文字：Text 与 TextMeshPro" data-sub="SDF 原理、中文字体方案、排版、富文本、材质预设与文字特效">
+<div class="chap-head"><div class="num">CHAPTER 05<b>第 5 章</b></div><h2>文字：Text 与 TextMeshPro</h2><p class="lead">文字是界面里信息密度最高的元素，也是中文项目最容易踩坑的地方：字体包太大、放大发糊、描边一加就花、缺字变方块。这一章先讲清旧版 Text 与 TextMeshPro 的根本区别——有符号距离场（SDF），再把字体资源的每个参数和中文字体方案用实拍对比讲透，最后做六个案例：创建中文字体、描边投影标题、图文混排、可点击链接、打字机和数字跳动。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>旧版 Text 与 TextMeshPro 的区别，为什么新项目一律用 TMP</div><div>SDF 原理：为什么放大不糊、为什么描边和阴影几乎免费</div><div>Font Asset Creator 每个参数的含义，以及用代码生成字体资源</div><div>中文字体方案：动态字体、静态常用字库、Fallback 链、多图集</div><div>对齐、换行、溢出模式、Auto Size、间距与 Margins</div><div>富文本标签全览，材质预设做描边、投影、发光</div><div>Sprite Asset 图文混排、可点击链接、打字机、数字跳动</div></div>
+
+<h3 class="sec">5.1 两套文字组件</h3>
+<p>在 Hierarchy 右键 <span class="menu">UI</span> 菜单里，你会看到两种文字：<span class="menu">UI › Legacy › Text</span>（旧版 Text，<code>UnityEngine.UI.Text</code>）和 <span class="menu">UI › Text - TextMeshPro</span>（<code>TMPro.TextMeshProUGUI</code>）。旧版 Text 是 UGUI 最早自带的，TextMeshPro（简称 TMP）原本是第三方插件，2017 年被 Unity 收购后免费内置，现在是官方推荐的文字方案，Unity 已经把旧版 Text 放进了 Legacy 子菜单。</p>
+<p>两者最直观的区别，用一张图就能说明。图 5-1 中左右两段文字字号都是 24，然后把 RectTransform 的 Scale 设成 5：</p>
+<figure class="shot"><img src="img/ch05-legacy.jpg"><figcaption><b>图 5-1</b> 字号 24、放大 5 倍：旧版 Text 发糊，TMP 依然锐利（实拍）</figcaption></figure>
+<p>旧版 Text 使用 Unity 的动态字体系统：按“字号 × 画布缩放”把字栅格化成位图，存进一张共享的字体纹理，再像贴图一样贴到四边形上。位图的分辨率在栅格化那一刻就定死了，之后再放大（Scale、相机拉近、World Space 画布）只能插值，必然发糊。TMP 存的不是“字长什么样”的位图，而是“每个像素离字的边缘有多远”的<b>距离场</b>，真正的边缘在片元着色器里每个像素重新计算，所以在相当大的缩放范围内都是锐利的。</p>
+<table>
+<tr><th></th><th>旧版 Text</th><th>TextMeshPro</th></tr>
+<tr><td>渲染方式</td><td>按字号栅格化的位图</td><td>有符号距离场（SDF），Shader 重建边缘</td></tr>
+<tr><td>放大 / 3D 场景</td><td>发糊，需要按显示尺寸设字号</td><td>保持锐利</td></tr>
+<tr><td>描边 / 阴影</td><td>Outline/Shadow 组件复制网格（4~5 倍顶点）</td><td>材质参数，一个 Shader 完成，几乎不增加顶点</td></tr>
+<tr><td>字体资源</td><td>直接用 TTF</td><td>需要生成 Font Asset（图集 + 字形表）</td></tr>
+<tr><td>富文本</td><td>b / i / size / color 少数几个</td><td>几十种标签，含图文混排、链接、渐变</td></tr>
+<tr><td>排版能力</td><td>基础对齐、换行</td><td>字距、行距、段距、Margins、多种溢出模式、分页、链接文本框</td></tr>
+<tr><td>文字信息</td><td>很少</td><td>textInfo 提供每个字符的位置、所在行、顶点索引</td></tr>
+</table>
+<p>本书除了对比演示外，所有文字都用 TMP。旧版 Text 唯一的“优势”是可以直接用 TTF、不需要生成字体资源，但这点便利远抵不上它在画质和效果上的短板。</p>
+
+<h3 class="sec">5.2 SDF 原理：放大不糊、描边便宜</h3>
+<p><b>有符号距离场（Signed Distance Field）</b>的思路是：对字形周围的每个像素，记录它到字形边缘的最短距离，在字里面为正、外面为负（TMP 把它映射到 0~1：0.5 正好在边缘上，大于 0.5 在字里，小于 0.5 在字外）。图 5-2 是本章生成的一个字体图集，以及其中“胜”字的放大图——注意每个字周围那一圈灰色的渐变，那就是距离场。</p>
+<figure class="shot"><img src="img/ch05-atlas.jpg"><figcaption><b>图 5-2</b> 左：TitleBold SDF 的图集（只用到左侧一部分）；右：“胜”字的距离场，以及按 0.5 和 0.5±0.12 取阈值的结果（实拍：读取图集真实像素计算）</figcaption></figure>
+<p>渲染时，Shader 从图集采样得到距离值 d，以 0.5 为界决定这个像素是“字”还是“背景”；边缘附近按屏幕上一个像素对应多少距离做一点平滑过渡，就得到抗锯齿的边缘。因为插值的是“距离”而不是“颜色”，放大时边缘依然是一条清晰的曲线——双线性插值对距离这种平滑变化的量非常友好。图 5-3 用一维的剖面把这个过程画出来：</p>
+<figure><svg viewBox="0 0 600 240" width="600" font-family="PingFang SC" font-size="13">
+<line x1="40" y1="190" x2="570" y2="190" stroke="#7a8299"/>
+<line x1="40" y1="30" x2="40" y2="190" stroke="#7a8299"/>
+<text x="30" y="34" text-anchor="end" font-size="12" fill="#7a8299">1</text><text x="30" y="194" text-anchor="end" font-size="12" fill="#7a8299">0</text>
+<line x1="40" y1="110" x2="570" y2="110" stroke="#e5484d" stroke-dasharray="5 4"/><text x="566" y="104" text-anchor="end" font-size="12" fill="#e5484d">0.5 = 字形边缘</text>
+<rect x="210" y="80" width="190" height="60" fill="#5b4bd6" opacity="0.10"/>
+<line x1="40" y1="80" x2="570" y2="80" stroke="#ff8a3d" stroke-dasharray="3 3"/><line x1="40" y1="140" x2="570" y2="140" stroke="#ff8a3d" stroke-dasharray="3 3"/>
+<text x="46" y="76" font-size="12" fill="#ff8a3d">0.5 + 描边/2</text><text x="46" y="154" font-size="12" fill="#ff8a3d">0.5 − 描边/2</text>
+<path d="M40,190 L150,190 L240,30 L370,30 L460,190 L570,190" fill="none" stroke="#1f2436" stroke-width="2.5"/>
+<text x="305" y="24" text-anchor="middle" font-size="12" fill="#1f2436">字的内部：距离值饱和为 1</text>
+<text x="95" y="182" text-anchor="middle" font-size="12" fill="#1f2436">远离字：0</text>
+<line x1="195" y1="110" x2="195" y2="200" stroke="#e5484d"/><line x1="415" y1="110" x2="415" y2="200" stroke="#e5484d"/>
+<text x="305" y="214" text-anchor="middle" fill="#1f2436">d ≥ 0.5 的区间 = 字面（Face）；0.5±描边/2 之间 = 描边（Outline）</text>
+<text x="305" y="232" text-anchor="middle" font-size="12" fill="#7a8299">斜坡的宽度由 Padding 决定：Padding 越大，能做的描边/阴影越宽</text>
+</svg><figcaption><b>图 5-3</b> 沿一条线穿过一个笔画时的距离值剖面</figcaption></figure>
+<p>理解了这个剖面，TMP 的各种效果就都“透明”了：</p>
+<ul>
+<li><b>粗细（Dilate）</b>：把阈值从 0.5 往下移，字就变粗；往上移就变细。粗体就是这么来的（用同一张图集）。</li>
+<li><b>描边（Outline）</b>：阈值附近一条带状区间染成描边色。不需要额外的网格，只是 Shader 里多一次比较。</li>
+<li><b>阴影（Underlay）</b>：用偏移后的 UV 再采样一次距离场，按更宽松的阈值画在字的后面。</li>
+<li><b>发光（Glow）</b>：根据距离值做一个渐变的颜色叠加。</li>
+</ul>
+<p>TMP 的 Shader 里，字面和描边的混合就是一个函数：</p>
+<pre class="code" data-lang="hlsl">// 摘自 TextMesh Pro 3.0.7 Shaders/TMPro.cginc
+fixed4 GetColor(half d, fixed4 faceColor, fixed4 outlineColor, half outline, half softness)
+{
+    half faceAlpha = 1-saturate((d - outline * 0.5 + softness * 0.5) / (1.0 + softness));
+    half outlineAlpha = saturate((d + outline * 0.5)) * sqrt(min(1.0, outline));
+
+    faceColor.rgb *= faceColor.a;
+    outlineColor.rgb *= outlineColor.a;
+
+    faceColor = lerp(faceColor, outlineColor, outlineAlpha);
+    faceColor *= faceAlpha;
+    return faceColor;
+}</pre>
+<p>这里的 <code>d</code> 已经被换算成“屏幕像素为单位、以边缘为 0”的有符号距离（在 <code>TMP_SDF.shader</code> 的片元函数里：<code>sd = (bias - c) * scale</code>，c 是采样得到的距离值，scale 与当前缩放有关）。所以无论字被放大还是缩小，抗锯齿过渡始终是一个屏幕像素宽——这就是 SDF 文字在任何尺寸下都锐利的数学原因。</p>
+<div class="note deep"><b>深入</b>SDF 也有极限。距离场是按某个“采样字号”生成的，太小的采样会丢掉笔画细节（拐角被抹圆，见图 5-5 左），而且距离场只能向外延伸 Padding 个像素，描边、阴影、发光都不能超过这个范围。这两个参数在生成字体资源时决定，下一节详细讲。</div>
+
+<h3 class="sec">5.3 字体资源与 Font Asset Creator</h3>
+<p>TMP 不能直接用 TTF，需要先生成 <b>Font Asset（字体资源）</b>：一个 .asset 文件，里面包含字形表（每个字在图集里的位置和排版度量）、一张或多张图集纹理、一个默认材质。生成工具是 <span class="menu">Window › TextMeshPro › Font Asset Creator</span>。第一次用 TMP 时，Unity 会弹窗让你导入 <b>TMP Essential Resources</b>（默认 Shader、默认字体 LiberationSans 和设置文件），点 Import 即可——配套工程已经导入好了。</p>
+<figure><svg viewBox="0 0 600 330" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="10" width="330" height="310" rx="6" fill="#f7f7fb" stroke="#e0deef"/>
+<rect x="20" y="10" width="330" height="28" rx="6" fill="#e0deef"/><text x="34" y="29" font-weight="bold" fill="#1f2436">Font Asset Creator</text>
+<g fill="#1f2436" font-size="12">
+<text x="32" y="60">Source Font File</text><rect x="170" y="47" width="166" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="60">NotoSansSC-Bold</text>
+<text x="32" y="86">Sampling Point Size</text><rect x="170" y="73" width="80" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="86">Custom Size</text><rect x="256" y="73" width="80" height="18" rx="3" fill="#fff" stroke="#ff8a3d" stroke-width="2"/><text x="262" y="86">64</text>
+<text x="32" y="112">Padding</text><rect x="170" y="99" width="166" height="18" rx="3" fill="#fff" stroke="#ff8a3d" stroke-width="2"/><text x="176" y="112">6</text>
+<text x="32" y="138">Packing Method</text><rect x="170" y="125" width="166" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="138">Optimum</text>
+<text x="32" y="164">Atlas Resolution</text><rect x="170" y="151" width="80" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="164">2048</text><rect x="256" y="151" width="80" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="262" y="164">2048</text>
+<text x="32" y="190">Character Set</text><rect x="170" y="177" width="166" height="18" rx="3" fill="#fff" stroke="#5b4bd6" stroke-width="2"/><text x="176" y="190">Characters from File</text>
+<text x="32" y="216">Character File</text><rect x="170" y="203" width="166" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="216">charset (TextAsset)</text>
+<text x="32" y="242">Render Mode</text><rect x="170" y="229" width="166" height="18" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="176" y="242">SDFAA</text>
+<text x="32" y="268">Get Kerning Pairs</text><rect x="170" y="256" width="14" height="14" rx="2" fill="#fff" stroke="#c9cbd6"/>
+</g>
+<rect x="40" y="284" width="290" height="24" rx="4" fill="#5b4bd6"/><text x="185" y="301" text-anchor="middle" fill="#fff" font-size="12">Generate Font Atlas　　　Save</text>
+<g font-size="12" fill="#1f2436">
+<text x="364" y="60">TTF / OTF 字体文件</text>
+<text x="364" y="86">每个字按多大字号生成距离场</text>
+<text x="364" y="112">距离场向外延伸的像素数</text>
+<text x="364" y="138">打包算法：Fast 快、Optimum 紧凑</text>
+<text x="364" y="164">图集尺寸，放不下的字会被丢弃</text>
+<text x="364" y="190">要包含哪些字</text>
+<text x="364" y="216">自定义字表（如常用 3500 字）</text>
+<text x="364" y="242">SDF 系列 / 位图（像素字体）</text>
+<text x="364" y="268">字偶距（中文基本用不到）</text>
+<text x="364" y="300">生成后保存为 .asset</text>
+</g>
+</svg><figcaption><b>图 5-4</b> Font Asset Creator 窗口（示意，字段名与 TMP 3.0.7 一致）</figcaption></figure>
+<div class="kv">
+<span>Sampling Point Size</span><span>每个字形按多大的字号光栅化后再计算距离场。越大细节越完整、每个字在图集里占的面积也越大。Auto Sizing 会自动选一个“刚好能把所有字放进图集”的最大值。中文常用 40~64：太小笔画密集的字会糊成一团，太大则同样的图集放不下几个字。</span>
+<span>Padding</span><span>每个字形四周留给距离场的像素数，也决定了描边、阴影、发光能有多宽。经验值约为采样字号的 1/10（64 号配 6~8）。</span>
+<span>Packing Method</span><span>Fast 打包快但不够紧凑，调参时用；Optimum 慢但省空间，正式生成时用。</span>
+<span>Atlas Resolution</span><span>图集宽高。中文静态字库常用 2048 或 4096；放不下时 Creator 会在结果里列出缺失的字。</span>
+<span>Character Set</span><span>ASCII、Extended ASCII、Unicode 区间、Custom Characters（直接粘贴字符）、Characters from File（读一个文本资源）等。中文项目最常用 Characters from File，配一张常用字表。</span>
+<span>Render Mode</span><span>SDFAA 是常规选择（带抗锯齿的距离场，生成快）；SDF8/SDF16/SDF32 先按 8/16/32 倍分辨率光栅化再求距离场，更精确但生成慢；RASTER/SMOOTH 系列生成位图，用于像素风字体。</span>
+</div>
+<p>右下角的 Generate Font Atlas 会生成预览，Save 存成资源。保存后选中字体资源，在 Inspector 的 <b>Generation Settings</b> 里还能看到并修改 <b>Atlas Population Mode</b>（Static / Dynamic）、<b>Multi Atlas Textures</b>、<b>Clear Dynamic Data on Build</b> 等设置，它们决定了中文字体方案，5.4 节详谈。</p>
+<h4>两个参数的实拍对比</h4>
+<p>Sampling Point Size 和 Padding 是最容易“随手一填”、又最影响效果的两个参数。图 5-5 用同一个 TTF 生成了四个只含“永Ag”几个字的小字体资源，全部按 180 号显示：</p>
+<figure class="shot"><img src="img/ch05-params.jpg"><figcaption><b>图 5-5</b> 左：采样字号 16 与 90；右：Padding 2 与 10，套用同样的描边参数（实拍）</figcaption></figure>
+<p>左边采样 16 时，“永”字的捺和“A”的顶角都被抹圆了，笔画边缘出现了波浪——距离场的分辨率太低，细节在生成时就丢了，Shader 再怎么算也补不回来。右边两个字体的采样字号都是 64，材质参数完全相同（描边 0.3），Padding 2 的描边只有细细一圈，Padding 10 的则很粗：TMP 会根据 Padding 自动限制效果的最大范围（材质里的 <code>_ScaleRatioA</code> 等系数，由 <code>ShaderUtilities.UpdateShaderRatios</code> 计算），保证描边不会超出距离场的有效区域而出现方块状的破面。所以“描边调不粗”时，先检查字体资源的 Padding。</p>
+<h4>用代码生成字体资源</h4>
+<p>配套工程的中文字体就是用代码生成的（菜单 <span class="menu">UGUIBook › Setup Project</span>），核心只有一行 <code>TMP_FontAsset.CreateFontAsset</code>，其余是把图集和材质作为子资源存进同一个 .asset：</p>
+<pre class="code" data-file="_Core/Editor/BookSetup.cs" data-lines="60-77"></pre>
+<p>这个函数的签名是 <code>CreateFontAsset(Font font, int samplingPointSize, int atlasPadding, GlyphRenderMode renderMode, int atlasWidth, int atlasHeight, AtlasPopulationMode atlasPopulationMode = Dynamic, bool enableMultiAtlasSupport = true)</code>，参数与 Font Asset Creator 一一对应。生成静态字库也能用代码完成：先按动态模式创建，用 <code>TryAddCharacters</code> 把需要的字加进去，再切换成静态，见案例 5.1。</p>
+
+<h3 class="sec">5.4 中文字体方案</h3>
+<p>英文字体只有几百个字符，一张 512 的图集绰绰有余；中文常用字 3500 个，GB2312 有 6763 个汉字，全部做成 64 号的距离场，需要好几张 4096 的图集，几十 MB。这就是中文项目必须认真设计字体方案的原因。TMP 提供了三种工具：</p>
+<h4>动态字体（Dynamic）</h4>
+<p>Atlas Population Mode = Dynamic 的字体资源一开始图集是空的，运行时遇到没见过的字，才从 TTF 里实时光栅化、计算距离场、塞进图集。优点是什么字都能显示（只要 TTF 里有），包体里只要 TTF；缺点是首次显示新字有开销（一次几十个字通常无感，一屏几百个新字可能掉帧），而且 <b>TTF 必须随包发布</b>，完整的中文 TTF 动辄 10~20 MB。配套工程用的 Noto Sans SC 是按 GB2312 + 常用符号裁剪过的子集，约 2.3 MB。</p>
+<p>动态字体在编辑器里使用时，新加入的字会被写进字体资源文件（图集纹理也会变大），提交版本库时会产生很大的二进制差异。勾选 <b>Clear Dynamic Data on Build</b> 让构建时清空动态数据，或者像配套工程那样提供一个菜单手动清空（<code>ClearFontAssetData</code>）。</p>
+<h4>静态字体（Static）</h4>
+<p>Atlas Population Mode = Static 的字体资源，图集在编辑器里预先生成好，运行时不再修改，也不需要 TTF（切换到 Static 时 TMP 会清掉对源字体文件的引用，TTF 就不会被打进包里）。优点是运行时零开销、包体可控；缺点是图集之外的字一律显示不出来。适合：标题、按钮、数字这类<b>字符集固定</b>的文字，以及“常用 3500 字”这种覆盖绝大多数情况的主字库。</p>
+<h4>Fallback 链</h4>
+<p>每个字体资源都有一个 <b>Fallback Font Assets</b> 列表。当前字体找不到某个字时，TMP 会按顺序去 Fallback 里找，找到就用那个字体的图集和材质画这个字。完整的查找顺序在 <code>TMP_Text.GetTextElement</code> 里：</p>
+<pre class="code" data-lang="csharp">// 摘自 TextMesh Pro 3.0.7 Scripts/Runtime/TMP_Text.cs（有删节）
+internal TMP_TextElement GetTextElement(uint unicode, TMP_FontAsset fontAsset, ...)
+{
+    // ① 当前字体资源
+    TMP_Character character = TMP_FontAssetUtilities.GetCharacterFromFontAsset(unicode, fontAsset, false, ...);
+    if (character != null) return character;
+    // ② 当前字体的 Fallback 列表（会递归查 Fallback 的 Fallback）
+    if (fontAsset.m_FallbackFontAssetTable != null &amp;&amp; fontAsset.m_FallbackFontAssetTable.Count &gt; 0)
+        character = TMP_FontAssetUtilities.GetCharacterFromFontAssets(unicode, fontAsset,
+                        fontAsset.m_FallbackFontAssetTable, true, ...);
+    if (character != null) return character;
+    // ③ 文本组件的主字体及其 Fallback（富文本 &lt;font&gt; 切换过字体时）
+    // ④ 文本组件自己的 Sprite Asset
+    // ⑤ TMP Settings 里的全局 Fallback 列表
+    if (TMP_Settings.fallbackFontAssets != null &amp;&amp; TMP_Settings.fallbackFontAssets.Count &gt; 0)
+        character = TMP_FontAssetUtilities.GetCharacterFromFontAssets(unicode, fontAsset,
+                        TMP_Settings.fallbackFontAssets, true, ...);
+    if (character != null) return character;
+    // ⑥ TMP Settings 的默认字体资源
+    if (TMP_Settings.defaultFontAsset != null)
+        character = TMP_FontAssetUtilities.GetCharacterFromFontAsset(unicode,
+                        TMP_Settings.defaultFontAsset, true, ...);
+    if (character != null) return character;
+    // ⑦ TMP Settings 的默认 Sprite Asset；都没有就返回 null（显示缺字符号 □）
+    ...
+}</pre>
+<figure><svg viewBox="0 0 600 150" width="600" font-family="PingFang SC" font-size="12">
+<g fill="#fff" stroke="#5b4bd6" stroke-width="1.5">
+<rect x="10" y="40" width="80" height="44" rx="6"/><rect x="110" y="40" width="80" height="44" rx="6"/><rect x="210" y="40" width="80" height="44" rx="6"/>
+<rect x="310" y="40" width="80" height="44" rx="6"/><rect x="410" y="40" width="80" height="44" rx="6"/></g>
+<rect x="510" y="40" width="80" height="44" rx="6" fill="#fdecec" stroke="#e5484d" stroke-width="1.5"/>
+<g fill="#1f2436" text-anchor="middle"><text x="50" y="60">当前字体</text><text x="50" y="76" fill="#7a8299">静态标题字</text>
+<text x="150" y="60">它的 Fallback</text><text x="150" y="76" fill="#7a8299">动态粗体</text>
+<text x="250" y="60">Sprite Asset</text><text x="250" y="76" fill="#7a8299">文本自己的</text>
+<text x="350" y="60">全局 Fallback</text><text x="350" y="76" fill="#7a8299">TMP Settings</text>
+<text x="450" y="60">默认字体</text><text x="450" y="76" fill="#7a8299">TMP Settings</text>
+<text x="550" y="60" fill="#e5484d">缺字 □</text><text x="550" y="76" fill="#7a8299">都找不到</text></g>
+<g stroke="#1f2436" stroke-width="1.5"><line x1="90" y1="62" x2="108" y2="62"/><line x1="190" y1="62" x2="208" y2="62"/><line x1="290" y1="62" x2="308" y2="62"/><line x1="390" y1="62" x2="408" y2="62"/><line x1="490" y1="62" x2="508" y2="62"/></g>
+<text x="300" y="22" text-anchor="middle" font-size="13" fill="#1f2436">找到就停；每一步都可能换成另一个字体的图集和材质（多一个子网格）</text>
+<text x="300" y="116" text-anchor="middle" fill="#7a8299">Fallback 用到的字体会生成 TMP_SubMeshUI 子物体，各自一个 Draw Call</text>
+<text x="300" y="136" text-anchor="middle" fill="#7a8299">所以 Fallback 是“兜底”，常用字应该尽量落在第一个字体里</text>
+</svg><figcaption><b>图 5-6</b> TMP 查找一个字符的顺序（简化）</figcaption></figure>
+<p>图 5-7 是一个真实的例子：TitleBold SDF 是只含 70 多个标题用字的静态粗体，文本里的“今晚”不在其中。左边 Fallback 列表为空，TMP 一路找到第 ⑥ 步，用 TMP Settings 的默认字体（本工程是 Regular 字重）画出了“今晚”，笔画明显比两边细；右边把动态粗体加进 Fallback，第 ② 步就找到了同字重的字，看不出任何差别。</p>
+<figure class="shot"><img src="img/ch05-fallback.jpg"><figcaption><b>图 5-7</b> 同一个静态字体，有无 Fallback 的区别（实拍）</figcaption></figure>
+<p>这个例子说明两件事：一是 TMP 的“兜底”很宽容，很多时候缺字不会直接显示方块，而是悄悄换成了另一种字体，测试时不仔细看很难发现；二是 Fallback 字体应该和主字体<b>风格、字重一致</b>，否则混排时会很突兀。</p>
+<h4>多图集（Multi Atlas Textures）</h4>
+<p>动态字体的一张图集装满后，如果勾选了 Multi Atlas Textures，TMP 会自动新开一张图集继续装，而不是报错丢字。每张图集是一张独立的纹理，用到不同图集里的字时同样会产生子网格。图集尺寸选得太小会频繁开新页，太大又浪费内存，中文动态字体 1024~2048 是常见选择。</p>
+<h4>推荐的组合</h4>
+<table>
+<tr><th>文字类型</th><th>推荐方案</th><th>理由</th></tr>
+<tr><td>标题、按钮、数字</td><td>静态字体，只含用到的字，可单独选更好看的字体</td><td>字符集固定，运行时零开销；可以给大字号用更大的采样</td></tr>
+<tr><td>正文、对话、系统文本</td><td>静态常用字库（3500 字）为主 + 动态完整字体作 Fallback</td><td>绝大多数字命中静态图集，生僻字由动态补齐，不会缺字</td></tr>
+<tr><td>玩家输入（昵称、聊天）</td><td>动态字体（或上一行组合）</td><td>输入什么字都无法预知</td></tr>
+<tr><td>多语言</td><td>每种语言一套字体，切换语言时换主字体或调整 Fallback</td><td>见第 19 章</td></tr>
+</table>
+<div class="note warn"><b>注意</b>TTF 只有被“动态”字体资源引用时才会进包。如果你的所有字体都是静态的，而某个 TTF 仍然出现在包里，检查是不是还有一个动态字体（比如 Fallback 里的那个）引用着它。反过来，用了动态 Fallback 就要接受 TTF 的体积，可以用字体裁剪工具把 TTF 精简到项目需要的字符范围。</div>
+
+<h3 class="sec">5.5 排版：对齐、换行、溢出与自动字号</h3>
+<p>TMP 的 Inspector 分成 Main Settings 和 Extra Settings 两部分，排版相关的大多在 Main Settings 里。</p>
+<h4>对齐与换行</h4>
+<p><b>Alignment</b> 有两行按钮：上面一行是水平对齐（左、中、右、两端对齐 Justified、分散对齐 Flush、几何居中 Geometry Center），下面一行是垂直对齐（上、中、下、基线 Baseline、中线 Midline、大写字母高度 Capline）。<b>Wrapping</b> 控制是否自动换行。图 5-8 是同一段中英混排文字在四种设置下的效果：</p>
+<figure class="shot"><img src="img/ch05-wrap.jpg"><figcaption><b>图 5-8</b> 左对齐、居中、两端对齐、关闭自动换行（实拍）</figcaption></figure>
+<p>中文排版有两个细节 TMP 已经帮你处理了：一是<b>中文可以在任意两个字之间换行</b>，英文单词则作为整体换行（图中 “TextMeshPro” 没有被拆开）；二是<b>避头尾</b>，句号、逗号等标点不会出现在行首（TMP Settings 的 Line Breaking for Asian Languages 一栏引用了两个文本资源 Leading Characters / Following Characters，分别列出不能出现在行尾 / 行首的字符，默认内容已覆盖常用中文标点）。两端对齐（Justified）在中英混排时会把空格拉得很宽（第三个框里 “在 Inspector 的 Main” 之间的大空隙），中文为主的正文一般左对齐即可。</p>
+<h4>溢出模式（Overflow）</h4>
+<p>文字比文本框多时怎么办，由 <b>Overflow</b> 决定。图 5-9 是六种模式：</p>
+<figure class="shot"><img src="img/ch05-overflow.jpg"><figcaption><b>图 5-9</b> 同样的文字、同样大小的文本框，六种溢出模式（实拍）</figcaption></figure>
+<div class="kv">
+<span>Overflow</span><span>默认值。超出部分照样显示，可能压到别的元素上。</span>
+<span>Ellipsis</span><span>放不下的部分截掉，末尾加省略号“…”。列表里的标题、昵称最常用。</span>
+<span>Truncate</span><span>直接截掉放不下的行，不加省略号。</span>
+<span>Masking</span><span>按文本框裁剪。在 TMP 3.0.7 的 UGUI 版本里，这个模式的排版行为和 Overflow 完全一样（源码中三处 <code>case TextOverflowModes.Masking</code> 都和 Overflow 走同一分支），用于裁剪的 <code>EnableMasking()</code> 在 TextMeshProUGUI 里没有被调用，所以它自己不会裁剪任何东西。图中第四个框的裁剪效果来自父节点上的 RectMask2D（带 24 像素羽化）。需要裁剪文字时，直接用 RectMask2D。</span>
+<span>Page</span><span>把文字分成若干页，用 <code>pageToDisplay</code> 指定显示第几页（从 1 开始）。做翻页式的说明书、对话很方便。</span>
+<span>Linked</span><span>多出来的字流到 <code>linkedTextComponent</code> 指定的另一个文本框，像报纸分栏一样。目标文本框也有自己的溢出模式（图中设为 Ellipsis）。</span>
+<span>ScrollRect</span><span>为配合滚动视图保留的模式，行为同 Overflow。</span>
+</div>
+<h4>Auto Size</h4>
+<p>勾选 <b>Auto Size</b> 后，TMP 会在 Min 和 Max 之间找一个最大的字号，让文字刚好放进文本框。图 5-10 是同一种按钮在不同宽度下的结果，数字是排版完成后从 <code>fontSize</code> 读出的实际字号：</p>
+<figure class="shot"><img src="img/ch05-autosize.jpg"><figcaption><b>图 5-10</b> Auto Size（Min 18 / Max 48，不换行）在不同宽度下选出的字号（实拍）</figcaption></figure>
+<p>它很方便，但要清楚代价：Auto Size 的实现是<b>反复排版、逐步逼近</b>——先用最大字号排一次，放不下就按比例缩小再排，直到放得下或到达下限。一次文字更新可能排版好几次。静态的按钮文字无所谓；每帧变化的文字（计时器、伤害数字）、成百上千行的列表开着 Auto Size，排版开销就会成倍增加。另外，同一行按钮各自 Auto Size 后字号参差不齐，看起来不统一（图中 48、48、34.5、28.5），很多项目宁可统一字号、文字放不下时改用 Ellipsis。Extra Settings 里的 <b>Width / Line Spacing Adjustment</b> 还允许 Auto Size 先压缩字宽和行距再缩小字号。</p>
+<h4>间距与 Margins</h4>
+<p><b>Spacing Options</b> 有四个值：Character（字距）、Word（词距，只影响空格）、Line（行距）、Paragraph（段距，遇到换行符时额外增加）。它们的单位是<b>em 的 1/100</b>，也就是相对于字号的百分比，字号变了间距按比例跟着变。<b>Margins</b> 在 Extra Settings 里，是文本在 RectTransform 内部再缩进的距离（单位是像素），场景视图里会显示成一个黄色的内框，适合做“有内边距的文本框”而不用再套一层空物体。</p>
+<figure class="shot"><img src="img/ch05-spacing.jpg"><figcaption><b>图 5-11</b> 默认、字距 18、行距 60、Margins 40（浅紫色是 Margins 内的排版区域，实拍）</figcaption></figure>
+<p>中文正文的可读性和行距关系很大，字号的 1.5 倍左右的行高读起来最舒服；TMP 的行高默认由字体度量决定（Noto Sans SC 本身行高偏大），一般 Line Spacing 保持 0 或微调即可。字距对中文的影响比英文明显得多，标题加一点字距（10~20）更有呼吸感，正文不建议调。</p>
+
+<h3 class="sec">5.6 富文本</h3>
+<p>勾选 <b>Rich Text</b>（默认开启）后，文本里可以写类似 HTML 的标签来局部改变样式。图 5-12 左列是在 Text 框里写的源文本，右列是显示效果：</p>
+<figure class="shot"><img src="img/ch05-richtext.jpg"><figcaption><b>图 5-12</b> 常用富文本标签（实拍；左列用 &lt;noparse&gt; 原样显示了源文本）</figcaption></figure>
+<table>
+<tr><th>标签</th><th>作用</th><th>说明</th></tr>
+<tr><td><code>&lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;s&gt;</code></td><td>粗体、斜体、下划线、删除线</td><td>粗体和斜体由 Shader 模拟（加粗距离阈值、顶点倾斜），不需要单独的粗体字体；字体资源可以在 Font Weights 里指定真正的粗体字体</td></tr>
+<tr><td><code>&lt;color=#RRGGBB&gt;</code></td><td>颜色</td><td>也支持 <code>&lt;color=red&gt;</code> 这样的颜色名、<code>#RRGGBBAA</code> 带透明度</td></tr>
+<tr><td><code>&lt;alpha=#AA&gt;</code></td><td>透明度</td><td><b>没有闭合标签</b>，从这里一直生效到下一个 alpha 标签，恢复用 <code>&lt;alpha=#FF&gt;</code></td></tr>
+<tr><td><code>&lt;size=150%&gt;</code></td><td>字号</td><td>可以写像素值、百分比或 em</td></tr>
+<tr><td><code>&lt;mark=#RRGGBBAA&gt;</code></td><td>背景高亮</td><td>颜色一定要带透明度，否则会把字盖住</td></tr>
+<tr><td><code>&lt;cspace=0.3em&gt;</code> <code>&lt;line-height=&gt;</code></td><td>局部字距、行高</td><td></td></tr>
+<tr><td><code>&lt;sub&gt; &lt;sup&gt; &lt;voffset=&gt;</code></td><td>下标、上标、垂直偏移</td><td></td></tr>
+<tr><td><code>&lt;gradient="名字"&gt;</code></td><td>渐变色</td><td>需要一个 Color Gradient 预设资源，放在 TMP Settings 指定的 Resources 子目录（默认 <code>Color Gradient Presets/</code>）</td></tr>
+<tr><td><code>&lt;sprite name="x"&gt;</code></td><td>插入图片</td><td>需要 Sprite Asset，案例 5.3</td></tr>
+<tr><td><code>&lt;link="id"&gt;</code></td><td>链接</td><td>本身不改变样式也不响应点击，需要脚本配合，案例 5.4</td></tr>
+<tr><td><code>&lt;nobr&gt;</code></td><td>不换行</td><td>包住的内容不会被拆到两行，适合“HP +100”这类整体</td></tr>
+<tr><td><code>&lt;font="名字"&gt;</code> <code>&lt;material="名字"&gt;</code></td><td>切换字体 / 材质</td><td>从 TMP Settings 指定的 Resources 路径加载</td></tr>
+<tr><td><code>&lt;noparse&gt;</code></td><td>原样显示</td><td>其中的标签不解析，显示玩家输入的内容时有用</td></tr>
+</table>
+<div class="note warn"><b>安全提示</b>显示玩家输入的文字（昵称、聊天）时，要么关闭这个文本的 Rich Text，要么把内容包进 <code>&lt;noparse&gt;</code>，否则玩家可以输入 <code>&lt;size=500&gt;</code> 把聊天框撑爆，或者用 <code>&lt;color&gt;</code> 冒充系统消息。注意玩家也可能输入 <code>&lt;/noparse&gt;</code> 来提前结束它，稳妥的做法是先把输入里的 <code>&lt;</code> 替换掉，或直接关闭 Rich Text。</div>
+
+<h3 class="sec">5.7 材质预设：同一个字体，多种样式</h3>
+<p>描边、阴影、发光都是<b>材质</b>的参数。选中一个 TMP 文本，Inspector 最下方展开的就是它当前使用的材质，可以直接调 Face、Outline、Underlay、Glow 等分组。但要小心：<b>直接在这里改，改的是字体资源的默认材质</b>，所有用这个字体的文字都会一起变。</p>
+<p>正确做法是创建<b>材质预设（Material Preset）</b>：复制一份字体材质，改成需要的样式，文本组件的 <b>Material Preset</b> 下拉框里选它。TMP 是怎么知道哪些材质属于这个字体的？看编辑器代码：</p>
+<pre class="code" data-lang="csharp">// 摘自 TextMesh Pro 3.0.7 Scripts/Editor/TMP_EditorUtility.cs（有删节）
+public static Material[] FindMaterialReferences(TMP_FontAsset fontAsset)
+{
+    List&lt;Material&gt; refs = new List&lt;Material&gt;();
+    Material mat = fontAsset.material;
+    refs.Add(mat);
+    // 按字体名的第一个单词搜索材质
+    string searchPattern = "t:Material" + " " + fontAsset.name.Split(new char[] { ' ' })[0];
+    string[] materialAssetGUIDs = AssetDatabase.FindAssets(searchPattern);
+    for (int i = 0; i &lt; materialAssetGUIDs.Length; i++)
+    {
+        ...
+        // 并且材质的 _MainTex 必须就是这个字体的图集纹理
+        var tex = targetMaterial.GetTexture(ShaderUtilities.ID_MainTex);   // 原代码写在一个长条件里，这里拆开
+        if (tex != null &amp;&amp; tex.GetInstanceID() == mat.GetTexture(ShaderUtilities.ID_MainTex).GetInstanceID())
+            refs.Add(targetMaterial);
+    }
+    ...
+}</pre>
+<p>两个条件：<b>材质名包含字体名的第一个单词</b>，并且<b>_MainTex 是同一张图集</b>。所以材质预设习惯命名为“字体名 - 样式名”。最省事的创建方式是：选中字体资源下的默认材质，<kbd>Ctrl</kbd>+<kbd>D</kbd> 复制一份，改名，再调参数。本章用代码批量创建了五个预设（Ch05/Materials），完整版 Distance Field Shader 支持 Glow，而字体默认材质用的是 Mobile 版（更便宜，但没有 Glow、Bevel 等）：</p>
+<pre class="code" data-file="Ch05/Editor/TextPresets.cs" data-region="preset"></pre>
+<p>只拷贝和图集绑定的几项（图集纹理、图集尺寸、Gradient Scale、粗体权重）而不是 <code>CopyPropertiesFromMaterial</code> 整体复制，是作者踩过坑之后的选择：把 Mobile 版材质的属性整体拷到完整版 Shader 的材质上，两边属性表不一致，在批处理里重复执行时出现过“字面变透明”的异常结果。另外 Underlay 和 Glow 需要打开 Shader 关键字（<code>UNDERLAY_ON</code>、<code>GLOW_ON</code>），只改数值不开关键字是不会生效的；在 Inspector 里勾选对应分组时，TMP 的材质编辑器会替你打开。</p>
+<figure class="shot"><img src="img/ch05-presets.jpg"><figcaption><b>图 5-13</b> 同一个字体资源 + 五个材质预设（实拍）</figcaption></figure>
+<div class="kv">
+<span>Face</span><span>字面颜色（和顶点色相乘）、Softness（边缘柔化）、Dilate（加粗/变细）、可选贴图纹理。</span>
+<span>Outline</span><span>描边颜色和 Thickness（0~1，相对于距离场可用范围），也可以给描边贴纹理。描边是从边缘向内外各占一半的，描边太粗会“吃掉”细笔画。</span>
+<span>Underlay</span><span>阴影：颜色、Offset X/Y（偏移）、Dilate（扩张）、Softness（模糊）。Offset 大一点、Softness 为 0 是“硬投影”，Offset 小、Softness 大就是柔和的阴影。Underlay Type 选 Inner 是内阴影。</span>
+<span>Glow</span><span>发光：颜色、Offset、Inner / Outer（向内 / 向外的范围）、Power（衰减）。发光是加在字面颜色上的，浅色背景上不明显，深色背景效果最好。</span>
+<span>Lighting / Bevel</span><span>伪 3D 倒角和光照，适合做游戏 Logo 一类的大字。</span>
+</div>
+<p>材质预设有两个很重要的性能和正确性特点：</p>
+<ul>
+<li><b>同一个预设的文字可以合批</b>：材质相同、图集相同。而如果在 Inspector 里直接改单个文本的 Outline（或代码里写 <code>text.outlineWidth = 0.2f</code>），TMP 会为这个文本创建一个<b>材质实例</b>，它就和别人无法合批了，界面上几十个这样的文本就是几十个 Draw Call。统一用预设，样式就是可复用、可合批的。</li>
+<li><b>预设绑定的是图集</b>：给 Regular 字体的文本套上 Bold 字体的预设，Shader 会用 Bold 的图集去画 Regular 的字形坐标，结果是一堆乱码。作者在搭图 5-14 的场景时就犯过这个错误——一行信息文字用了 Regular 字体却套了 Bold 的阴影预设。字体和预设必须配套。</li>
+</ul>
+
+<h3 class="case"><span class="no">案例 5.1</span>创建中文字体<span class="lv">进阶</span></h3>
+<p><b>目标</b>：为项目创建一套“静态常用字库 + 动态 Fallback”的中文字体，并且整个过程可以用一个菜单重复执行。</p>
+<h4>方法一：Font Asset Creator（编辑器操作）</h4>
+<ol class="steps">
+<li>把 TTF 放进工程（例如 <code>Assets/Fonts/</code>），在它的导入设置里确认 <b>Include Font Data</b> 已勾选（动态字体运行时要读字体数据）。</li>
+<li>准备字表：新建一个 UTF-8 编码的文本文件 charset.txt，粘贴常用 3500 字、全角标点、数字字母，以及项目里所有固定文案用到的字（可以写脚本扫描配置表和预制体，把出现过的字去重后追加进去）。</li>
+<li>打开 <span class="menu">Window › TextMeshPro › Font Asset Creator</span>：Source Font File 选 TTF；Sampling Point Size 选 Custom Size，填 48；Padding 5；Packing Method 先用 Fast 试，最后用 Optimum；Atlas Resolution 2048×2048。</li>
+<li>Character Set 选 <b>Characters from File</b>，Character File 拖入 charset.txt；Render Mode 选 SDFAA。</li>
+<li>点 <b>Generate Font Atlas</b>，等待完成，看下方报告里的 Missing Characters（TTF 里没有的字）和 Excluded Characters（图集放不下的字）。放不下就加大图集或减小采样字号，或者开启多图集（生成后在资源 Inspector 里设置）。</li>
+<li>点 <b>Save</b> 保存为 “XXX Static SDF”。选中它，在 Inspector 中确认 <b>Atlas Population Mode = Static</b>。</li>
+<li>再用同一个 TTF 右键 <span class="menu">Create › TextMeshPro › Font Asset</span>（快捷方式创建一个默认参数的动态字体），把它拖进静态字体 Inspector 的 <b>Fallback Font Assets</b> 列表。</li>
+<li>打开 <span class="menu">Edit › Project Settings › TextMesh Pro › Settings</span>，把静态字体设为 <b>Default Font Asset</b>，这样新建的文本默认就用它。</li>
+</ol>
+<h4>方法二：代码生成（可重复执行）</h4>
+<p>手工点 Creator 的问题是参数容易忘、换字表时要重新点一遍。下面这个工具函数把流程固化下来：</p>
+<pre class="code" data-file="Ch05/Editor/FontAssetTool.cs" data-region="create"></pre>
+<p>关键点：</p>
+<ul>
+<li><b>只有动态模式才能往里加字</b>（<code>TryAddCharacters</code> 遇到 Static 会直接返回并打警告），所以先按 Dynamic 创建、加完字再切成 Static。切换时 TMP 在编辑器下会顺手清空对 TTF 的引用（源码里 <code>atlasPopulationMode</code> 的 setter：<code>if (m_AtlasPopulationMode == AtlasPopulationMode.Static) m_SourceFontFile = null;</code>）。</li>
+<li><b>图集和材质是子资源</b>，<code>CreateFontAsset</code> 只在内存里创建了它们，必须 <code>AddObjectToAsset</code> 存进同一个文件，否则重启编辑器后字体就“丢图”了。多图集开出来的新页也一样。</li>
+<li><b>一个 TMP 3.0.7 的小坑</b>：作者第一次运行时，字多到需要第二张图集，<code>TryAddCharacters</code> 抛出了空引用。读源码发现新图集命名时用到了 <code>m_AtlasTexture.name</code>，而这个字段要等第一次读取 <code>atlasTexture</code> 属性时才赋值。代码里那行看似无用的 <code>_ = fa.atlasTexture;</code> 就是为它准备的。</li>
+</ul>
+<p>配合一个菜单项，选中 TTF 右键就能用同目录下的 charset.txt 生成静态字体：</p>
+<pre class="code" data-file="Ch05/Editor/FontAssetTool.cs" data-region="menu"></pre>
+<p>本章的 TitleBold SDF（78 个字、采样 72、Padding 8、1024 图集）和图 5-5 的四个测试字体都是这个函数生成的，图 5-2 左边就是 TitleBold 的真实图集。</p>
+<p><b>调参建议</b>：正文字号在 24~36 之间的项目，采样 40~48、Padding 4~5 通常够用；只用于大标题的静态字体可以用更大的采样（64~90）换取更锐利的拐角。字表要纳入版本管理，并在每次更新文案后重新扫描生成，否则新加的字会悄悄落到 Fallback 上。</p>
+
+<h3 class="case"><span class="no">案例 5.2</span>描边投影的胜利标题<span class="lv">入门</span></h3>
+<p><b>目标</b>：游戏结算界面的金色大标题：上浅下深的渐变、深棕描边、柔和投影，副标题带发光，信息行带软阴影。</p>
+<p><b>思路</b>：渐变用文本组件的 <b>Color Gradient</b>（顶点渐变，不需要贴图），描边和投影写在一个材质预设里，副标题用发光预设。</p>
+<ol class="steps">
+<li>新建 TMP 文本“胜 利”，字体选粗体，字号 230，Character Spacing 10。</li>
+<li>勾选 <b>Color Gradient</b>，Color Mode 选 Vertical Gradient 或 Four Corners，上面两个角填浅金 #FFF6C2，下面两个角填橙 #FF9F1C。</li>
+<li>Material Preset 选 “NotoSansSC-Bold SDF - Title”（描边 0.22 深棕 + Underlay 偏移向下、带一点扩张和模糊）。</li>
+<li>副标题用同一个字体，Material Preset 选 “... - Glow”；信息行选 “... - SoftShadow”。<b>三个文本都必须是粗体字体</b>，因为这些预设都是基于粗体图集的。</li>
+<li>标题背后放一张 circle_soft 精灵做的暖色光晕，三颗星用白色星形图标染金色。</li>
+</ol>
+<figure class="shot"><img src="img/ch05-title.jpg"><figcaption><b>图 5-14</b> 胜利结算标题：顶点渐变 + 描边 + 投影 + 发光（实拍）</figcaption></figure>
+<div class="scene">Ch05/Scenes/Ch05_Title.unity</div>
+<p>整个界面的五段文字只用了一个字体资源和三个材质预设。用 Frame Debugger 看，相同预设的文字会合在一起绘制。如果你在 Inspector 里给“胜 利”单独调了 Outline，它就会变成一个材质实例，失去这种复用。</p>
+<p><b>扩展方向</b>：Face 和 Outline 都可以指定贴图（如金属纹理、流光条纹），并设置 UV 滚动速度做出流光字；第 13 章还会用顶点动画让标题一个字一个字地弹出来。</p>
+
+<h3 class="case"><span class="no">案例 5.3</span>图文混排：聊天表情<span class="lv">进阶</span></h3>
+<p><b>目标</b>：聊天气泡里文字和表情、物品图标混排，<code>&lt;sprite name="laugh"&gt;</code> 这样写就能插入图片，图片和文字基线对齐，气泡宽度随内容自适应。</p>
+<p><b>思路</b>：TMP 用 <b>Sprite Asset</b> 描述“一张图集纹理 + 每个精灵的矩形和度量”，富文本的 sprite 标签按名字或序号引用。官方的创建方式是：把图集纹理导入为 Sprite / Multiple 并切好，选中它执行 <span class="menu">Assets › Create › TextMeshPro › Sprite Asset</span>。本例用代码完成全部步骤：先把 8 个代码绘制的表情和 8 个物品图标拼成一张 512×512 的图集，再生成 Sprite Asset。</p>
+<pre class="code" data-file="Ch05/Editor/EmojiSpriteAssetBuilder.cs" data-region="build"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>Sprite Asset 的核心是两张表</b>：<code>spriteGlyphTable</code>（字形：图集里的矩形 <code>glyphRect</code> + 排版度量 <code>metrics</code>）和 <code>spriteCharacterTable</code>（字符：名字、Unicode、缩放，指向一个字形）。这和字体资源的结构完全一样，表情在 TMP 眼里就是一种“字”。菜单命令 <code>TMP_SpriteAssetMenu.CreateSpriteAsset</code> 做的也是这件事，只不过它从纹理的子精灵读取矩形；TMP 只需要矩形，所以本例的纹理不必切成 Unity Sprite。</li>
+<li><b>度量决定对齐</b>：<code>GlyphMetrics(width, height, bearingX, bearingY, advance)</code> 中，<code>bearingY</code> 是精灵顶边到基线的距离。设成高度的 84%，精灵就有 16% 落在基线下面，和汉字的视觉中心对齐。菜单生成的默认值是“高度减去轴心 y”，轴心在中心时只有一半在基线上方，表情会显得偏低。</li>
+<li><b>精灵的显示大小</b>：Sprite Asset 的 faceInfo.pointSize 为 0 时（本例），TMP 把精灵高度缩放到当前字体的 Ascent Line（上升线）高度，再乘以字符的 scale。本例 scale 取 1.2，表情比字略大，在聊天里更醒目。</li>
+<li><b>版本号字段</b>：<code>m_Version</code> 的 setter 是 internal，外部代码只能用 SerializedObject 写入。不写的话，TMP 在 <code>UpdateLookupTables</code> 里会把它当成旧格式资源尝试升级，把我们填好的表清掉。</li>
+<li><b>材质</b>：Sprite Asset 用 <code>TextMeshPro/Sprite</code> Shader，作为子资源和 Sprite Asset 存在一起。表情和文字是两种材质，所以带表情的文本会多一个子网格（多一个 Draw Call）。</li>
+</ul>
+<p>使用时，把 Sprite Asset 拖到文本组件 Extra Settings 的 <b>Sprite Asset</b> 字段（或设为 TMP Settings 的 Default Sprite Asset），然后在文字里写 <code>&lt;sprite name="coin"&gt;</code> 或 <code>&lt;sprite=8&gt;</code>（按序号）。<code>&lt;sprite name="heart" tint=1&gt;</code> 会让精灵乘上当前文字颜色。气泡的尺寸用 <code>GetPreferredValues(text, maxWidth, maxHeight)</code> 算出文字需要的宽高再加上内边距；第 10 章会改用 ContentSizeFitter + LayoutGroup 做成全自动的聊天气泡。</p>
+<figure class="shot"><img src="img/ch05-emoji.jpg"><figcaption><b>图 5-15</b> 聊天气泡中的图文混排，下方是 Sprite Asset 中的全部 16 个精灵（实拍）</figcaption></figure>
+<div class="scene">Ch05/Scenes/Ch05_Emoji.unity</div>
+<p><b>常见坑</b>：精灵名写错时 TMP 不会报错，只是不显示；Sprite Asset 没有指定时，TMP 会去 TMP Settings 的默认 Sprite Asset 里找（导入 Essential Resources 时自带一个 EmojiOne 示例），容易出现“为什么显示的不是我的图”的困惑。表情图集请留出间距（本例每格的图标缩到 88%），否则双线性过滤会让相邻表情的边缘互相渗色。</p>
+
+<h3 class="case"><span class="no">案例 5.4</span>可点击的链接<span class="lv">进阶</span></h3>
+<p><b>目标</b>：聊天/系统消息中的玩家名、物品名可以点击：鼠标悬停时变色，点击物品弹出说明卡片，点击网址打开网页。</p>
+<p><b>思路</b>：文本里用 <code>&lt;link="item:sword"&gt;[破晓之剑]&lt;/link&gt;</code> 标出可点击区域。TMP 排版时会把每个 link 的字符范围记录在 <code>textInfo.linkInfo</code> 里。点击时用 <code>TMP_TextUtilities.FindIntersectingLink</code> 判断点中了哪个链接，悬停时改这几个字的顶点色。</p>
+<pre class="code" data-file="Ch05/LinkHandler.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch05/LinkHandler.cs" data-region="events"></pre>
+<p><code>FindIntersectingLink</code> 的实现是：把屏幕坐标换算到文本的世界空间，遍历每个链接的每个字符，用字符的左下角、基线以下的 descender 和 ascender 拼出矩形，逐行检查点是否在里面。第三个参数是相机：Overlay 画布传 null，Camera 画布传渲染它的相机。<code>PointerEventData</code> 已经替我们准备好了——按下时用 <code>pressEventCamera</code>，悬停时用 <code>enterEventCamera</code>。</p>
+<pre class="code" data-file="Ch05/LinkHandler.cs" data-region="hover"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>改顶点色而不是改文字</b>：如果悬停时把 <code>&lt;color&gt;</code> 标签换掉，TMP 要重新解析和排版整段文字；直接修改 <code>textInfo.meshInfo[].colors32</code> 再调用 <code>UpdateVertexData(Colors32)</code>，只上传颜色数据。每个字符的四个顶点从 <code>vertexIndex</code> 开始，<code>materialReferenceIndex</code> 指出它在哪个子网格（用到 Fallback 字体的字在另一个网格里）。</li>
+<li><b>网格重建后要补色</b>：文本只要重新生成网格（改字、改尺寸、Canvas 缩放变化），顶点色就会被重置。订阅 <code>TMPro_EventManager.TEXT_CHANGED_EVENT</code>，在网格更新后把悬停色重新刷上去。作者在拍图 5-16 时第一次没有处理这一点，悬停色被截图前的刷新冲掉了。</li>
+<li><b>Raycast Target 必须勾上</b>：文本默认（本书 UIKit 创建的文本更是如此）不接收射线，不勾就收不到任何指针事件，这是“链接点了没反应”的头号原因。</li>
+</ul>
+<p>链接 id 约定成“类型:参数”的格式，由业务代码分发：</p>
+<pre class="code" data-file="Ch05/LinkDemo.cs" data-region="onlink"></pre>
+<figure class="shot"><img src="img/ch05-link.jpg"><figcaption><b>图 5-16</b> 悬停在“[破晓之剑]”上（变为黄色）并点击，弹出物品说明（实拍）</figcaption></figure>
+<div class="scene">Ch05/Scenes/Ch05_Link.unity</div>
+<p><b>扩展方向</b>：<code>FindIntersectingCharacter</code> 和 <code>FindIntersectingWord</code> 可以拿到点中的字符和单词，做“点击生词查词典”；链接的 <code>GetLinkText()</code> 返回链接内的文字，配合 id 可以实现“长按复制物品名”。说明卡片会遮挡屏幕边缘的问题，第 3 章的 Tooltip 防出屏方法可以直接套用。</p>
+
+<h3 class="case"><span class="no">案例 5.5</span>打字机效果<span class="lv">入门</span></h3>
+<p><b>目标</b>：对话文字一个字一个字地出现，遇到逗号、句号稍作停顿；点击对话框时，正在打字就立即显示全部，打完了就进入下一句；富文本颜色正常显示，换行位置从头到尾不跳动。</p>
+<p><b>思路</b>：常见的错误写法是每帧 <code>text = full.Substring(0, n)</code>。它有三个问题：每帧生成新字符串（GC）、每帧重新排版；截断位置落在 <code>&lt;color=#FF8A3D&gt;</code> 中间时，半截标签会被原样显示出来；随着字数增加，一个词可能先排在行尾、下一帧又被挤到下一行，文字“跳来跳去”。TMP 的 <code>maxVisibleCharacters</code> 一次性解决了这三个问题：文字和排版都是完整的，只是第 n 个字符之后的字不显示。</p>
+<pre class="code" data-file="Ch05/Typewriter.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch05/Typewriter.cs" data-region="play"></pre>
+<pre class="code" data-file="Ch05/Typewriter.cs" data-region="tick"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>ForceMeshUpdate 拿真实字数</b>：<code>textInfo.characterCount</code> 是解析富文本标签之后的可见字符数（标签不计入），必须排版之后才准确。设置 text 后立刻 <code>ForceMeshUpdate()</code>，不用等到这一帧末尾。</li>
+<li><b>while 而不是 if</b>：帧率低（或字速很快）时，一帧可能该出好几个字，用 while 把欠的字补上，保证打字速度与帧率无关。</li>
+<li><b>标点停顿</b>：把计时器减去一个额外的停顿时间，下一字就会晚出现，读起来更有节奏。</li>
+<li><b>默认用 Unscaled Time</b>：剧情对话经常在暂停游戏（timeScale = 0）时进行。</li>
+<li><code>maxVisibleCharacters</code> 的改变只更新顶点的可见性，不重新排版，开销很小。</li>
+</ul>
+<p>对话框的点击逻辑：</p>
+<pre class="code" data-file="Ch05/DialogBox.cs"></pre>
+<figure class="shot"><img src="img/ch05-typewriter.jpg"><figcaption><b>图 5-17</b> 打字进度 25%、60%、100%：彩色的“黑森林”在打出之前和之后排版位置完全一致（实拍）</figcaption></figure>
+<div class="scene">Ch05/Scenes/Ch05_Typewriter.unity</div>
+<p><b>扩展方向</b>：TMP 还有 <code>maxVisibleWords</code>、<code>maxVisibleLines</code>，以及 <code>firstVisibleCharacter</code>；想让每个字“淡入”或“弹出”而不是生硬地出现，需要逐字修改顶点的颜色和位置，第 13 章会实现。每出一个字播放一声“哒”的音效，在 while 循环里出字的地方调用即可（注意限制频率，否则字速快时会很吵）。</p>
+
+<h3 class="case"><span class="no">案例 5.6</span>数字跳动<span class="lv">入门</span></h3>
+<p><b>目标</b>：领取金币、战力提升时，数字从旧值“滚”到新值，先快后慢，带千分位，滚动时文字轻微放大；连续点击时从当前显示的值继续滚，不会跳变；整个过程每帧零内存分配。</p>
+<pre class="code" data-file="Ch05/NumberRoller.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch05/NumberRoller.cs" data-region="api"></pre>
+<pre class="code" data-file="Ch05/NumberRoller.cs" data-region="format"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>RollTo 从当前显示值开始</b>：连续点击“领取”时，第二次滚动从正在显示的数字出发，而不是从上一次的起点或终点，视觉上始终连续。</li>
+<li><b>EaseOutCubic</b>：<code>1 - (1 - t)³</code> 前段快、后段慢，最后几位数字缓缓停下，比匀速滚动更有“到账”的感觉。缓动函数的更多选择见第 15 章。</li>
+<li><b>零 GC 的文本更新</b>：<code>value.ToString("N0")</code> 每次都会分配一个新字符串，滚动中每帧调用就是每帧一份垃圾。TMP 提供了两类免分配的接口：<code>SetText(string format, float arg0, ...)</code>（格式里用 <code>{0}</code>、<code>{0:2}</code> 表示参数和小数位，第 4 章冷却倒计时用过）和 <code>SetCharArray(char[], start, length)</code>。前者不支持千分位，所以这里自己把数字逐位写进一个复用的 char 数组，再交给 <code>SetCharArray</code>。</li>
+<li><b>弹跳</b>：缩放用 <code>1 + punch × sin(πt)</code>，开始和结束时正好为 1，中途最大。缩放的是文本自身的 Transform，不影响布局（第 10 章会解释为什么改 localScale 不会触发布局重建）。</li>
+</ul>
+<pre class="code" data-file="Ch05/NumberRollerDemo.cs"></pre>
+<figure class="shot"><img src="img/ch05-number.jpg"><figcaption><b>图 5-18</b> 从 12,800 滚动到 17,240 的三个时刻（实拍，调用 Evaluate(t) 得到）</figcaption></figure>
+<div class="scene">Ch05/Scenes/Ch05_Number.unity</div>
+<p><b>调参建议</b>：数值变化很大时（从 100 涨到 1,000,000）固定时长的滚动会快得看不清，可以按变化量的对数调整时长；数字字体最好使用等宽数字（Tabular Figures），否则滚动时整串数字的宽度会随数字变化而左右抖动——Noto Sans SC 的数字不是严格等宽的，追求极致可以给数字单独做一个等宽的静态字体，或者用 TMP 的 <code>&lt;mspace=0.6em&gt;</code> 标签强制等宽。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>旧版 Text 按字号栅格化位图，放大发糊、描边靠复制网格；TMP 用有符号距离场，Shader 每像素重建边缘，放大锐利，描边、阴影、发光只是材质参数。</li>
+<li>Sampling Point Size 决定距离场精度（太小拐角被抹圆），Padding 决定距离场的延伸范围（描边、阴影的上限），中文常用采样 40~64、Padding 约为采样的 1/10。</li>
+<li>动态字体运行时按需生成字形、需要 TTF 进包；静态字体预先生成、不需要 TTF、图集外的字显示不出来；Fallback 链按“当前字体 → Fallback → Sprite Asset → 全局 Fallback → 默认字体”的顺序找字，推荐“静态常用字库 + 动态 Fallback”。</li>
+<li>Overflow 模式中 Ellipsis、Page、Linked 最实用；TMP 3.0.7 UGUI 版的 Masking 自己不裁剪，用 RectMask2D；Auto Size 会反复排版，频繁变化的文字慎用。</li>
+<li>富文本几十种标签，alpha 没有闭合标签；显示玩家输入时关闭 Rich Text 或做转义。</li>
+<li>描边、投影、发光用材质预设实现，命名“字体名 - 样式”且共用同一图集；预设可复用、可合批，单独改材质参数会生成实例；预设必须和字体配套。</li>
+<li>Sprite Asset 是“精灵版的字体资源”；链接靠 linkInfo + FindIntersectingLink，悬停改顶点色并在网格重建后补色；打字机用 maxVisibleCharacters；频繁更新的数字用 SetText / SetCharArray 避免 GC。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>用 FontAssetTool 给项目生成一个只包含数字、冒号和小数点的静态字体，采样 90、Padding 9，用它做一个 <code>mm:ss.ff</code> 格式的计时器，用 <code>SetText("{0:00}:{1:00}", ...)</code> 更新。思考：TMP 的 SetText 格式里 <code>{0:00}</code> 和 <code>{0:2}</code> 的含义有何不同、写 <code>{0:#,0}</code> 能不能得到千分位？（读 TMP_Text.SetText 中解析格式字符串的那段源码验证。）</li>
+<li>给案例 5.2 的标题做一个“受击”版本：红色描边、白色字面，并在两套预设之间每 0.1 秒切换一次做闪烁。比较“切换 fontSharedMaterial”和“修改 outlineColor”两种写法对合批的影响。</li>
+<li>扩展 Sprite Asset：给表情加上 Unicode（例如把 smile 的 unicode 设为 0x1F600），让文本里直接输入 😀 也能显示（提示：TMP 的 GetTextElement 第 ④ 步）。注意本书字体不含 emoji 字形。</li>
+<li>改造 LinkHandler：悬停时除了变色，再给链接文字加一条下划线（提示：可以在悬停时把 <code>&lt;link&gt;</code> 包进 <code>&lt;u&gt;</code> 重新设置文本，和顶点色方案比较各自的代价）。</li>
+<li>给打字机加上“逐字淡入”：每个字在出现后的 0.15 秒内 alpha 从 0 到 1（提示：不用 maxVisibleCharacters，而是每帧修改 colors32 的 alpha，并处理好网格重建后的补色）。</li>
+</ol></div>
+</section>

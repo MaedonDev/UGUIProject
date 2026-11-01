@@ -1,0 +1,41 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,ChatPanel
+1|Header|Image
+2|Title|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Toggle_模拟群聊|Toggle
+3|Background|Image
+4|Checkmark|Image
+3|Label|TextMeshProUGUI
+4|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|ChatList|Image,ScrollRect,LoopListView
+2|Viewport|RectMask2D
+3|Content|
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|!OtherTemplate|ChatBubbleView
+3|Avatar|Image
+3|Name|TextMeshProUGUI
+3|Bubble|Image
+4|Text|TextMeshProUGUI
+2|!MeTemplate|ChatBubbleView
+3|Avatar|Image
+3|Name|TextMeshProUGUI
+3|Bubble|Image
+4|Text|TextMeshProUGUI
+2|!TimeTemplate|
+3|Pill|Image
+4|Text|TextMeshProUGUI
+1|InputBar|Image
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|Send|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+1|NewTip|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_arrow_down|Image
+0|EventSystem|EventSystem,StandaloneInputModule

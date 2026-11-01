@@ -1,0 +1,35 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|LoginPanel|LoginForm
+2|Shadow|Image
+2|Bg|Image
+2|Logo|Image
+3|Icon_user|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Input_User|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+5|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Text|TextMeshProUGUI
+2|UserError|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Input_Password|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+5|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Text|TextMeshProUGUI
+2|PasswordError|TextMeshProUGUI
+2|Toggle_显示密码|Toggle
+3|Background|Image
+4|Checkmark|Image
+3|Label|TextMeshProUGUI
+2|Button_登 录|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Status|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

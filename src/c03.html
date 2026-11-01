@@ -1,0 +1,344 @@
+<section class="chapter" id="c03" data-title="RectTransform 与锚点" data-sub="锚点、轴心、偏移的换算，代码设置尺寸与坐标转换">
+<div class="chap-head"><div class="num">CHAPTER 03<b>第 3 章</b></div><h2>RectTransform 与锚点</h2><p class="lead">UI 能不能在各种屏幕上摆得对，九成取决于 RectTransform 用得对不对。这一章把锚点、轴心、anchoredPosition、sizeDelta、offsetMin/offsetMax 之间的关系用图和公式彻底讲清楚，再用六个案例练手：代码版锚点预设、App 布局、不出屏幕的 Tooltip、刘海屏安全区、九宫格角标和坐标转换。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>锚点、轴心、anchoredPosition、sizeDelta、offset 与 rect 的换算</div><div>锚点预设面板的 16 种预设与 Shift / Alt 的作用</div><div>锚点重合（固定尺寸）与锚点分开（拉伸）</div><div>Raw Edit 与 Blueprint 模式</div><div>用代码设置尺寸、贴边与强制刷新</div><div>屏幕坐标与 UI 本地坐标的相互转换</div><div>App 布局、跟随鼠标的 Tooltip、SafeArea 组件、角标组件</div><div>常见坑：sizeDelta 不是尺寸、读到旧的 rect、传错相机</div></div>
+
+<h3 class="sec">3.1 RectTransform：一个矩形是怎么被描述的</h3>
+<p>普通的 Transform 只描述一个“点”：位置、旋转、缩放。UI 元素需要的是一个“矩形”：它在哪、多宽多高，而且父矩形变大变小时它应该怎么跟着变。<b>RectTransform</b> 继承自 Transform，在此基础上增加了矩形和锚点的概念。它的属性看起来很多，但其实只有五组是“真正存储”的数据，其余都是从它们算出来的：</p>
+<div class="kv">
+<span>anchorMin / anchorMax</span><span><b>锚点（Anchor）</b>。两个 0～1 的二维比例值，表示在父矩形中的相对位置：(0, 0) 是父矩形左下角，(1, 1) 是右上角，(0.5, 0.5) 是正中。两个锚点围成一个“锚点矩形”，可以缩成一个点，也可以在某个方向上拉开。</span>
+<span>pivot</span><span><b>轴心（Pivot）</b>。也是 0～1 的比例值，但相对的是<b>自身</b>矩形：(0.5, 0.5) 是自己的中心，(0, 1) 是自己的左上角。旋转和缩放绕它进行，anchoredPosition 描述的也是它的位置。</span>
+<span>anchoredPosition</span><span>轴心相对于“锚点参考点”的偏移，单位是父节点的本地单位（UI 单位）。锚点重合时，参考点就是锚点本身。</span>
+<span>sizeDelta</span><span>自身尺寸比锚点矩形<b>大多少</b>。锚点重合时锚点矩形大小为 0，所以 sizeDelta 就等于宽高；锚点分开时它是“差值”，常常是负数。</span>
+<span>localRotation / localScale</span><span>从 Transform 继承来的旋转和缩放，绕轴心进行，不影响布局计算出的矩形本身。</span>
+</div>
+<p>由它们推导出来的属性有：</p>
+<div class="kv">
+<span>offsetMin / offsetMax</span><span>自身矩形左下角相对锚点矩形左下角的偏移、右上角相对锚点矩形右上角的偏移。设置它们等于同时改 anchoredPosition 和 sizeDelta。</span>
+<span>rect</span><span>只读。以<b>轴心为原点</b>的本地矩形：<code>x</code>、<code>y</code> 是左下角坐标，<code>width</code>、<code>height</code> 是真实尺寸。想知道一个元素实际多大，读 <code>rect.size</code>，不要读 sizeDelta。</span>
+</div>
+<figure><svg viewBox="0 0 600 330" width="600" font-family="PingFang SC" font-size="13">
+<defs><marker id="c3a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ff8a3d"/></marker>
+<marker id="c3b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2fb36a"/></marker></defs>
+<rect x="40" y="20" width="520" height="290" fill="#eef0f6" stroke="#7a8299" stroke-width="1.5"/>
+<text x="48" y="38" font-size="12" fill="#7a8299">父矩形 Parent（宽 Pw，高 Ph）</text>
+<rect x="118" y="78" width="338" height="174" fill="none" stroke="#1e88e5" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="124" y="96" font-size="12" fill="#1e88e5">锚点矩形（由 anchorMin、anchorMax 围成）</text>
+<rect x="157" y="123" width="249" height="102" fill="#5b4bd6" opacity="0.85"/>
+<text x="200" y="146" fill="#fff" font-weight="bold">自身矩形</text>
+<text x="200" y="214" fill="#fff" font-size="12">rect.width × rect.height</text>
+<g fill="#1e88e5"><path d="M118,252 l-9,9 l9,0 z"/><path d="M456,78 l9,-9 l-9,0 z"/></g>
+<text x="62" y="278" font-size="12" fill="#1e88e5">anchorMin (0.15, 0.2)</text>
+<text x="420" y="64" font-size="12" fill="#1e88e5">anchorMax (0.8, 0.8)</text>
+<path d="M118,252 L153,227" stroke="#ff8a3d" stroke-width="2" marker-end="url(#c3a)"/>
+<text x="160" y="248" font-size="12" fill="#ff8a3d" font-weight="bold">offsetMin</text>
+<path d="M456,78 L410,121" stroke="#ff8a3d" stroke-width="2" marker-end="url(#c3a)"/>
+<text x="462" y="112" font-size="12" fill="#ff8a3d" font-weight="bold">offsetMax</text>
+<circle cx="287" cy="165" r="4" fill="#2fb36a"/>
+<circle cx="281.5" cy="174" r="6" fill="none" stroke="#fff" stroke-width="2"/>
+<path d="M287,165 L282.5,172" stroke="#2fb36a" stroke-width="2"/>
+<text x="296" y="160" font-size="11" fill="#fff">绿点 = 参考点</text><text x="296" y="190" font-size="11" fill="#fff">白圈 = 轴心</text><text x="296" y="176" font-size="11" fill="#fff">绿线 = anchoredPosition</text>
+<text x="290" y="282" font-size="12" fill="#1f2436">参考点 = 锚点矩形里按 pivot 比例取的点</text><text x="290" y="300" font-size="12" fill="#1f2436">sizeDelta = offsetMax − offsetMin</text>
+</svg><figcaption><b>图 3-1</b>RectTransform 的几何关系（示意）。蓝色虚线是锚点矩形，紫色是元素实际的矩形，白圈是轴心</figcaption></figure>
+<h4>换算公式</h4>
+<p>以下公式按 x、y 两个轴分别成立（以 x 轴为例），<i>P</i> 是父矩形，<i>a</i><sub>min</sub>、<i>a</i><sub>max</sub> 是锚点，<i>p</i> 是轴心。先求锚点矩形在父矩形里的位置：</p>
+<div class="formula"><math display="block"><msub><mi>A</mi><mi>min</mi></msub><mo>=</mo><msub><mi>P</mi><mi>xMin</mi></msub><mo>+</mo><msub><mi>a</mi><mi>min</mi></msub><mo>·</mo><msub><mi>P</mi><mi>width</mi></msub><mspace width="2em"/><msub><mi>A</mi><mi>max</mi></msub><mo>=</mo><msub><mi>P</mi><mi>xMin</mi></msub><mo>+</mo><msub><mi>a</mi><mi>max</mi></msub><mo>·</mo><msub><mi>P</mi><mi>width</mi></msub></math></div>
+<p>元素的真实宽度，等于锚点矩形的宽度加上 sizeDelta：</p>
+<div class="formula"><math display="block"><mi>width</mi><mo>=</mo><mo>(</mo><msub><mi>a</mi><mi>max</mi></msub><mo>−</mo><msub><mi>a</mi><mi>min</mi></msub><mo>)</mo><mo>·</mo><msub><mi>P</mi><mi>width</mi></msub><mo>+</mo><mi>sizeDelta</mi><mo>.</mo><mi>x</mi></math></div>
+<p>offset 与 anchoredPosition、sizeDelta 之间是这样一组关系（它们和 Unity 的 <code>offsetMin</code>/<code>offsetMax</code> 属性的 getter、setter 完全对应）：</p>
+<div class="formula"><math display="block"><mi>offsetMin</mi><mo>=</mo><mi>anchoredPosition</mi><mo>−</mo><mi>sizeDelta</mi><mo>·</mo><mi>p</mi></math><math display="block"><mi>offsetMax</mi><mo>=</mo><mi>anchoredPosition</mi><mo>+</mo><mi>sizeDelta</mi><mo>·</mo><mo>(</mo><mn>1</mn><mo>−</mo><mi>p</mi><mo>)</mo></math></div>
+<div class="formula"><math display="block"><mi>sizeDelta</mi><mo>=</mo><mi>offsetMax</mi><mo>−</mo><mi>offsetMin</mi><mspace width="2em"/><mi>rect</mi><mo>.</mo><mi>x</mi><mo>=</mo><mo>−</mo><mi>p</mi><mo>·</mo><mi>width</mi></math></div>
+<p>看起来公式不少，归结起来就是一句话：<b>锚点决定“参照物”在哪，offset 决定四条边离参照物多远，轴心决定 anchoredPosition 和旋转缩放以哪一点为准</b>。</p>
+<p>用实拍验证一下。图 3-2 左边锚点重合在父矩形中心，右边锚点分开成一个矩形，右侧深色面板是配套的 <code>RectProbe</code> 组件实时读出的数值：</p>
+<figure class="shot"><img src="img/ch03-anatomy.jpg"><figcaption><b>图 3-2</b>左：锚点重合（一个点）；右：锚点分开（一个矩形）。蓝色三角是锚点，蓝色圆圈是轴心，右侧是实时读出的属性值</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_RectProbe.unity</div>
+<p>左图：锚点和轴心都是 (0.5, 0.5)，anchoredPosition = (70, 60)，sizeDelta = (300, 180)。锚点矩形大小为 0，所以宽高就是 300×180。代入公式：offsetMin = (70, 60) − (300, 180) × 0.5 = (−80, −30)，offsetMax = (70, 60) + (150, 90) = (220, 150)，rect.x = −0.5 × 300 = −150。和面板上的读数一致。</p>
+<p>右图：父矩形 640×560，锚点从 (0.15, 0.2) 到 (0.8, 0.8)，锚点矩形宽 0.65 × 640 = 416、高 0.6 × 560 = 336。我们设的是 offsetMin = (60, 50)、offsetMax = (−50, −45)，也就是左边往里缩 60、下边往里缩 50、右边往里缩 50、上边往里缩 45。于是 sizeDelta = (−50 − 60, −45 − 50) = (−110, −95)，真实尺寸 = (416 − 110, 336 − 95) = (306, 241)，anchoredPosition = offsetMin + sizeDelta × pivot = (60 − 55, 50 − 47.5) = (5, 2.5)。注意这里的 <b>sizeDelta 是负数，它根本不是尺寸</b>——这是新手最常掉进的坑：对一个拉伸的元素写 <code>rt.sizeDelta = new Vector2(300, 100)</code>，结果它变得比父节点还大。</p>
+<div class="note tip"><b>提示</b>配套场景 Ch03_RectProbe 不用运行：<code>RectProbe</code> 加了 <code>[ExecuteAlways]</code>，在编辑器里用 Rect Tool 拖动 Target、拖动锚点三角、在 Inspector 里改数值，右边的数字会实时变化。花十分钟随手拖一拖，比读十遍公式更有用。</div>
+<pre class="code" data-file="Ch03/RectProbe.cs"></pre>
+<h4>RectTransform 和 Transform 的关系</h4>
+<p>RectTransform 是 Transform 的子类，Transform 的属性它全都有：<code>position</code>、<code>localPosition</code>、<code>rotation</code>、<code>localScale</code>、<code>SetParent</code>……于是同一个元素的位置有两种说法：<code>localPosition</code> 是轴心相对<b>父节点轴心</b>的位置，<code>anchoredPosition</code> 是轴心相对<b>锚点参考点</b>的位置。只有当锚点参考点恰好在父节点轴心处（比如锚点和父轴心都在中心）时，两者的 x、y 才相等。</p>
+<p>做布局时请始终用 anchoredPosition：它和锚点配合，父节点尺寸变化时语义不变（“离右上角 20”永远是离右上角 20）。localPosition 适合做与布局无关的事，比如把一个点换算出来的本地坐标直接赋给它（案例 3.6），或者做抖动、飘动这种临时偏移。还有两个细节：一是 <code>localPosition.z</code> 和 <code>anchoredPosition3D.z</code> 一般应保持为 0，Overlay 画布里 z 值不同不会改变绘制顺序，但在 Camera/World 画布里可能导致元素和 3D 物体的遮挡关系变得奇怪；二是用代码改父子关系时要用 <code>SetParent(parent, false)</code>，第二个参数 false 表示保留本地数值（锚点、偏移不变），传 true 会为了保持世界位置而改写这些值，UI 元素常常因此尺寸大变。</p>
+<h4>轴心：旋转、缩放与定位的基准</h4>
+<p>轴心有两个作用。第一，<b>旋转和缩放绕它进行</b>：图 3-3 里三个矩形的锚点、anchoredPosition（0, 0）、尺寸、旋转角度（30°）都一样，只有轴心不同，结果完全不同。做“按钮按下时缩小”的动效，轴心在中心才是向中间缩；做“血条从左往右减少”的缩放，轴心要放在左边。</p>
+<figure class="shot"><img src="img/ch03-pivot.jpg"><figcaption><b>图 3-3</b>轴心分别为 (0, 0)、(0.5, 0.5)、(1, 1)，其他参数相同、都旋转 30°。浅色线框是未旋转时的位置，十字线交点是锚点</figcaption></figure>
+<p>第二，<b>anchoredPosition 描述的是轴心的位置</b>。轴心为 (0, 0) 时，anchoredPosition = (0, 0) 意味着元素的左下角落在锚点上；轴心为 (1, 1) 时，意味着右上角落在锚点上。这就是为什么“靠右上角对齐”的元素通常把锚点和轴心都设成 (1, 1)：此时 anchoredPosition = (−20, −20) 就表示“离右上角各 20 个单位”，数值直观、和元素尺寸无关。</p>
+<div class="note warn"><b>注意</b>在 Inspector 里直接改 Pivot 时，Unity 默认会同时修改位置，让元素在屏幕上保持不动（只是轴心换了地方）；但在代码里写 <code>rt.pivot = ...</code> 只改轴心本身，anchoredPosition 不变，于是元素会“跳”到别的位置。想在代码里换轴心又不让元素移动，要先算好新的 anchoredPosition，或者像案例 3.1 那样先记下四条边、再用 offset 钉回去。</div>
+<h4>Inspector 里显示的是什么</h4>
+<p>RectTransform 的 Inspector 会根据锚点的情况换着显示字段，这常常让人困惑：</p>
+<figure><svg viewBox="0 0 600 190" width="600" font-family="PingFang SC" font-size="12">
+<g transform="translate(10,10)">
+<rect width="285" height="170" rx="5" fill="#f7f6fd" stroke="#e0deef"/>
+<text x="12" y="22" font-weight="bold" font-size="13" fill="#1f2436">锚点重合（如 middle-center）</text>
+<g fill="#1f2436"><text x="12" y="52">Pos X</text><text x="104" y="52">Pos Y</text><text x="196" y="52">Pos Z</text>
+<text x="12" y="98">Width</text><text x="104" y="98">Height</text></g>
+<g fill="#fff" stroke="#c9cde0"><rect x="12" y="58" width="80" height="20"/><rect x="104" y="58" width="80" height="20"/><rect x="196" y="58" width="80" height="20"/><rect x="12" y="104" width="80" height="20"/><rect x="104" y="104" width="80" height="20"/></g>
+<g fill="#1f2436"><text x="18" y="73">70</text><text x="110" y="73">60</text><text x="202" y="73">0</text><text x="18" y="119">300</text><text x="110" y="119">180</text></g>
+<text x="12" y="150" fill="#7a8299">Pos = anchoredPosition；Width/Height = sizeDelta</text>
+</g>
+<g transform="translate(305,10)">
+<rect width="285" height="170" rx="5" fill="#f7f6fd" stroke="#e0deef"/>
+<text x="12" y="22" font-weight="bold" font-size="13" fill="#1f2436">锚点分开（如 stretch-stretch）</text>
+<g fill="#1f2436"><text x="12" y="52">Left</text><text x="104" y="52">Top</text><text x="196" y="52">Pos Z</text>
+<text x="12" y="98">Right</text><text x="104" y="98">Bottom</text></g>
+<g fill="#fff" stroke="#c9cde0"><rect x="12" y="58" width="80" height="20"/><rect x="104" y="58" width="80" height="20"/><rect x="196" y="58" width="80" height="20"/><rect x="12" y="104" width="80" height="20"/><rect x="104" y="104" width="80" height="20"/></g>
+<g fill="#1f2436"><text x="18" y="73">60</text><text x="110" y="73">45</text><text x="202" y="73">0</text><text x="18" y="119">50</text><text x="110" y="119">50</text></g>
+<text x="12" y="150" fill="#7a8299">Left = offsetMin.x，Bottom = offsetMin.y</text>
+<text x="12" y="166" fill="#7a8299">Right = −offsetMax.x，Top = −offsetMax.y</text>
+</g>
+</svg><figcaption><b>图 3-4</b>RectTransform Inspector 的两种显示方式（示意）。只在一个方向拉伸时，该方向显示 Left/Right 或 Top/Bottom，另一个方向仍显示 Pos 与尺寸</figcaption></figure>
+<p>Right 和 Top 在 Inspector 里显示为<b>正数表示向内缩进</b>，而代码里的 offsetMax 是坐标差，向内缩进是负数——图 3-2 右边的 offsetMax = (−50, −45)，Inspector 里显示的是 Right 50、Top 45。从 Inspector 抄数字到代码时，Right 和 Top 记得取反。</p>
+
+<h3 class="sec">3.2 锚点预设面板：16 种预设与 Shift / Alt</h3>
+<p>RectTransform Inspector 左上角那个方块图标就是<b>锚点预设（Anchor Presets）</b>面板。点开后是一个 4×4 的网格：横向是 left / center / right / stretch，纵向是 top / middle / bottom / stretch，一共 16 种组合。前 3×3 = 9 种是“点锚点”（锚点重合在某个角、某条边的中点或中心），最右一列和最下一行是“拉伸锚点”，右下角是四向拉伸。</p>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="12">
+<rect x="20" y="10" width="300" height="230" rx="6" fill="#f7f6fd" stroke="#e0deef"/>
+<text x="30" y="30" fill="#1f2436" font-weight="bold" font-size="13">Anchor Presets</text>
+<text x="30" y="48" fill="#7a8299" font-size="11">Shift: Also set pivot     Alt: Also set position</text>
+<g font-size="11" fill="#7a8299" text-anchor="middle"><text x="105" y="70">left</text><text x="160" y="70">center</text><text x="215" y="70">right</text><text x="270" y="70">stretch</text></g>
+<g font-size="11" fill="#7a8299" text-anchor="end"><text x="72" y="98">top</text><text x="72" y="148">middle</text><text x="72" y="198">bottom</text><text x="72" y="236">stretch</text></g>
+<g stroke="#7a8299" fill="#fff">
+<rect x="85" y="78" width="40" height="34"/><rect x="140" y="78" width="40" height="34"/><rect x="195" y="78" width="40" height="34"/><rect x="250" y="78" width="40" height="34"/>
+<rect x="85" y="128" width="40" height="34"/><rect x="140" y="128" width="40" height="34"/><rect x="195" y="128" width="40" height="34"/><rect x="250" y="128" width="40" height="34"/>
+<rect x="85" y="178" width="40" height="34"/><rect x="140" y="178" width="40" height="34"/><rect x="195" y="178" width="40" height="34"/><rect x="250" y="178" width="40" height="34"/>
+</g>
+<g fill="#e5484d"><rect x="87" y="80" width="10" height="8"/><rect x="155" y="80" width="10" height="8"/><rect x="223" y="80" width="10" height="8"/><rect x="254" y="80" width="32" height="8"/>
+<rect x="87" y="141" width="10" height="8"/><rect x="155" y="141" width="10" height="8"/><rect x="223" y="141" width="10" height="8"/><rect x="254" y="141" width="32" height="8"/>
+<rect x="87" y="202" width="10" height="8"/><rect x="155" y="202" width="10" height="8"/><rect x="223" y="202" width="10" height="8"/><rect x="254" y="202" width="32" height="8"/></g>
+<text x="190" y="236" text-anchor="middle" font-size="11" fill="#7a8299">（最后一行：竖向拉伸，略）</text>
+<g font-size="12" fill="#1f2436">
+<text x="345" y="40" font-weight="bold">直接点：只改锚点</text>
+<text x="345" y="60" fill="#7a8299">元素在屏幕上不动，Unity 重算 offset</text>
+<text x="345" y="96" font-weight="bold">按住 Shift 点：同时改轴心</text>
+<text x="345" y="116" fill="#7a8299">轴心移到预设对应的位置</text>
+<text x="345" y="152" font-weight="bold">按住 Alt 点：同时改位置</text>
+<text x="345" y="172" fill="#7a8299">元素贴到对应的角/边，拉伸方向铺满</text>
+<text x="345" y="208" font-weight="bold" fill="#5b4bd6">Shift + Alt：最常用的组合</text>
+<text x="345" y="228" fill="#7a8299">一步到位“贴到右上角”“铺满全屏”</text>
+</g>
+</svg><figcaption><b>图 3-5</b>锚点预设面板（示意）与 Shift、Alt 的作用</figcaption></figure>
+<p>图 3-6 把 16 种预设各用一次（同时按 Shift 和 Alt 的效果）：每个浅色框是父节点，紫色块是子元素，蓝色三角是锚点的位置。</p>
+<figure class="shot"><img src="img/ch03-presets.jpg"><figcaption><b>图 3-6</b>16 种锚点预设的效果（Shift + Alt）。点锚点的四个三角重合在一点，拉伸方向上三角分开到父节点两侧</figcaption></figure>
+<p>使用预设时有几点要理解：</p>
+<ul>
+<li><b>预设只是快捷方式</b>，它做的事情就是给 anchorMin/anchorMax（以及按 Shift 时的 pivot）填上 0、0.5 或 1。你完全可以手动在 Anchors 的 Min/Max 里填 0.25 这样的值，做出“占父节点宽度一半、从 1/4 处开始”的效果，案例 3.2 的底部页签就是这样四等分的。</li>
+<li><b>不按 Alt 时元素不会动</b>。新手常以为点了“右上”元素就会跑到右上角，结果它纹丝不动，于是以为预设没生效。其实锚点已经换到右上了，只是 Unity 帮你重算了 offset 让它留在原地。之后再改变父节点尺寸，它就会跟着右上角走。</li>
+<li><b>选预设的原则：元素“跟着谁走”就锚在谁身上</b>。返回按钮跟着左上角走，锚左上；底部按钮栏跟着底边走、宽度随屏幕变，锚底部拉伸；全屏背景锚四向拉伸；居中弹窗锚中心。</li>
+</ul>
+<h4>Raw Edit 与 Blueprint 模式</h4>
+<p>RectTransform Inspector 右上角还有两个小按钮。一个是 <b>R</b>（Raw Edit Mode，原始编辑模式）：默认情况下，你在 Inspector 里修改 Anchors 或 Pivot 时，Unity 会自动调整位置让元素在屏幕上保持不动；打开 Raw Edit 后不再自动调整，你改的就是原始数值，元素会随之跳动。想精确地“只改这一个数”时用它。另一个是 <b>Blueprint Mode</b>（蓝图模式，虚线框图标）：打开后，Scene 视图里的 Rect Tool 会忽略元素的旋转和缩放，按未旋转、未缩放的矩形来显示和拖动。编辑旋转过的元素尺寸时，打开它会方便很多。</p>
+
+<h3 class="sec">3.3 锚点重合与锚点分开：固定尺寸 vs 拉伸</h3>
+<p>锚点在某个方向上是否重合，决定了元素在这个方向上的尺寸行为：</p>
+<ul>
+<li><b>锚点重合（anchorMin == anchorMax）</b>：锚点矩形在该方向上大小为 0，元素尺寸 = sizeDelta，<b>不随父节点变化</b>。父节点变宽时，元素只是跟着锚点平移。</li>
+<li><b>锚点分开（anchorMin &lt; anchorMax）</b>：元素尺寸 = 锚点矩形尺寸 + sizeDelta，<b>随父节点按比例变化</b>。锚点是 0 到 1 时，元素两边与父节点两边保持固定距离，中间被拉伸。</li>
+</ul>
+<figure class="shot"><img src="img/ch03-fixed-stretch.jpg"><figcaption><b>图 3-7</b>父节点宽 640（左）和 1100（右）时：标题栏和底栏锚点横向拉开，宽度跟着变、左右边距不变；中间按钮锚点重合在中心，尺寸始终是 300×100；关闭图标锚在标题栏右侧，跟着右边走</figcaption></figure>
+<p>两个方向是独立的：标题栏横向拉伸、纵向锚在顶部（高度固定 80），这是最常见的“上边拉伸”。在实际界面中，几乎所有元素都可以归入这几类：全屏背景（双向拉伸）、顶栏/底栏（单向拉伸）、按钮/图标（固定尺寸，锚在某个角或边）、内容区（双向拉伸，四边留出顶栏和底栏的空间）。</p>
+<h4>锚点不只是 0、0.5、1</h4>
+<p>锚点可以是 0～1 之间的任意值，这让“按比例布局”变得非常简单。比如左右分栏界面，左栏锚点 x 从 0 到 0.3、右栏从 0.3 到 1，offset 都为 0，无论屏幕多宽，左栏永远占 30%；再给两栏相邻的那条边各留 10 个单位的 offset，就有了一条 20 宽的缝。再比如一个血条的填充部分，锚点 min 为 (0, 0)、max 为 (hp, 1)，只改 anchorMax.x 就能表示血量百分比，比改宽度更省心，因为不用知道血条总宽是多少（第 2 章 HUD 里的血条就是这样做的）。需要注意的是，锚点比例布局下元素的宽度会随屏幕变化，里面的内容（文字、图标）要能适应不同宽度，否则在窄屏上会挤在一起。</p>
+<div class="note"><b>注意</b>“拉伸”指的是 RectTransform 的矩形变大了，<b>不是</b>内容被拉伸变形。一张 Simple 类型的 Image 铺在拉伸的矩形里确实会被拉变形；但如果用九宫格（Sliced）图片，圆角和边框会保持原样，只拉伸中间部分（第 4 章）。文字也是如此：文本框变宽了，文字只是有更多空间可排，字号不变。</div>
+
+<h3 class="case"><span class="no">案例 3.1</span>用代码实现锚点预设（含 Shift / Alt）<span class="lv">进阶</span></h3>
+<p><b>目标</b>：写一个扩展方法 <code>rt.SetAnchorPreset(h, v, setPivot, setPosition)</code>，效果和编辑器里点预设一样：默认保持元素不动，<code>setPivot</code> 相当于按 Shift，<code>setPosition</code> 相当于按 Alt。用代码动态生成 UI 时它非常有用，也是检验你是否真正理解了 3.1 节公式的最好练习。</p>
+<figure class="shot"><img src="img/ch03-anchorcode.jpg"><figcaption><b>图 3-8</b>配套场景：左边 16 个按钮对应 16 种预设（按钮里的小图就是用同一个函数画的），右边是父节点和 Target。截图中点了 stretch-top，Shift 和 Alt 都开着</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_AnchorPresets.unity</div>
+<p><b>思路</b>：“保持元素不动”的意思是元素四条边在父节点坐标系里的位置不变。所以分三步：先根据当前的锚点和 offset 算出四条边在父节点里的位置；然后换上新的锚点（和轴心）；最后用“边的位置 − 新锚点的位置”反推出新的 offset。需要贴边（Alt）时，在第三步之前把边的位置改成贴边的位置即可。</p>
+<pre class="code" data-file="Ch03/AnchorPresets.cs" data-region="preset"></pre>
+<p>逐段看：</p>
+<ul>
+<li>第 1 步用的正是 3.1 节的公式：锚点在父节点中的位置是 <code>pr.min + anchor × pr.size</code>，再加上 offset 就是边的位置。注意这里用的是父节点的 <code>rect</code>，它以父节点轴心为原点，而子元素的 offset 也是在父节点本地坐标里算的，两者在同一个坐标系，可以直接加减。</li>
+<li>第 2 步计算新锚点。点锚点时 min 和 max 相同；拉伸方向 min = 0、max = 1。轴心的规则：固定方向取锚点的值（右上角预设对应轴心 (1, 1)），拉伸方向取 0.5。</li>
+<li>贴边（Alt）的计算：元素尺寸不变，锚点值为 <i>a</i> 时，元素左边 = 父节点左边 + <i>a</i> × 父宽 − <i>a</i> × 自身宽。<i>a</i> = 0 时左边贴左边，<i>a</i> = 1 时右边贴右边，<i>a</i> = 0.5 时居中，一个式子覆盖三种情况。</li>
+<li>第 3 步先设锚点、再设 offset。顺序很重要：offset 是相对锚点定义的，先设 offset 再换锚点，元素就会跑掉。轴心要在设 offset 之前设好，因为 <code>offsetMin</code> 的 setter 内部会按当前轴心把偏移分配到 anchoredPosition 和 sizeDelta 上。</li>
+</ul>
+<p>场景里的控制脚本把 16 个按钮按“行 = 纵向、列 = 横向”的顺序连到这个函数上，再加一个滑块调父节点宽度，方便观察拉伸效果：</p>
+<pre class="code" data-file="Ch03/AnchorPresetPanel.cs"></pre>
+<p>试着这样玩：关掉 Shift 和 Alt，点任意预设，Target 不动，但右下角面板里的数字变了；这时拖动“父节点宽度”滑块，Target 会按新的锚点规则移动或拉伸。再打开 Alt 点 stretch-stretch，Target 铺满父节点。</p>
+<div class="note deep"><b>深入</b>这个函数忽略了元素自身的旋转和缩放，计算的是“布局矩形”，这和编辑器预设面板的行为一致。另外它依赖父节点的 <code>rect</code> 已经是正确的：如果父节点的尺寸由 Layout Group 或 Content Size Fitter 控制、而本帧布局还没算，读到的就是旧值（3.4 节）。</div>
+
+<h3 class="sec">3.4 用代码设置位置和尺寸</h3>
+<p>写界面逻辑时经常要在代码里改元素的大小和位置。直接写 anchoredPosition、sizeDelta、offsetMin/offsetMax 当然可以，但要时刻记着锚点是什么情况。RectTransform 提供了两个更“语义化”的方法，以及一个强制刷新的方法。</p>
+<h4>SetSizeWithCurrentAnchors：按实际尺寸设置</h4>
+<p><code>rt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 300)</code> 的意思是“不管锚点是什么，让这个元素的<b>实际宽度</b>变成 300”。它保持锚点不变，按公式 <code>sizeDelta = 目标尺寸 − 锚点矩形尺寸</code> 反推 sizeDelta。对锚点重合的元素，它等价于直接设 sizeDelta；对拉伸的元素，它会算出那个负数的 sizeDelta。元素以轴心为中心变大变小（anchoredPosition 不变）。<b>当你想设置“尺寸”而又不确定锚点情况时，用它而不是 sizeDelta。</b></p>
+<h4>SetInsetAndSizeFromParentEdge：贴着父节点的某条边</h4>
+<p><code>rt.SetInsetAndSizeFromParentEdge(RectTransform.Edge.Left, 30, 260)</code> 的意思是“贴着父节点的左边，离左边 30，宽 260”。它会<b>改写锚点</b>：贴左边时把该方向的 anchorMin、anchorMax 都设为 0，贴右边则都设为 1；然后设置 sizeDelta 和 anchoredPosition。它只影响一个方向，另一个方向保持原样。</p>
+<figure class="shot"><img src="img/ch03-rectops.jpg"><figcaption><b>图 3-9</b>左：对居中的 Target 调用 Dock(Left)，横向锚点变成 0，距左边 30、宽 260，纵向不变；右：再调用 Dock(Top)，纵向锚点也变成 1，于是 Target 贴在左上角</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_RectOps.unity</div>
+<pre class="code" data-file="Ch03/RectOpsDemo.cs" data-region="ops"></pre>
+<p>看右侧读数：Dock(Left) 后 anchorMin.x = anchorMax.x = 0，anchoredPosition.x = 160。为什么是 160 而不是 30？因为轴心在中心（0.5），anchoredPosition 描述的是轴心的位置：30（边距）+ 260 × 0.5（半个宽度）= 160。Dock(Top) 后 anchoredPosition.y = −110 = −(30 + 160 × 0.5)，负号是因为从上边往下算。轴心保持不变，这是这两个方法共同的特点。</p>
+<p>这两个方法的实现在引擎的 C# 绑定层（UnityEngine.CoreModule），不在 ugui 包里，行为以上面的实测为准。</p>
+<h4>ForceUpdateRectTransforms 与“读到旧值”</h4>
+<p>改了 RectTransform 之后立刻读 <code>rect</code>，大多数时候能拿到新值。但有两类情况会读到旧值：</p>
+<ul>
+<li><b>尺寸由布局系统控制</b>：元素在 Layout Group 下，或者挂着 Content Size Fitter。布局系统不是立即计算的，而是标记为“脏”后，在本帧画布渲染前统一计算（第 10、12 章）。在 Awake、Start 或刚改完文字的那一行读 rect，拿到的是上一次布局的结果。解决方法是先调用 <code>LayoutRebuilder.ForceRebuildLayoutImmediate(rt)</code> 或 <code>Canvas.ForceUpdateCanvases()</code>，或者等一帧再读。</li>
+<li><b>RectTransform 内部数据尚未刷新</b>：例如同一帧里改了父节点后马上依赖子节点的世界坐标。<code>rt.ForceUpdateRectTransforms()</code> 用来强制 RectTransform 立即重新计算内部数据。它只管 RectTransform 本身，不会触发布局组件的计算。实际中遇到“数据不对”时，更常见的原因是第一种，先排查布局系统。</li>
+</ul>
+<h4>常见操作速查</h4>
+<table>
+<tr><th>想做的事</th><th>写法</th><th>说明</th></tr>
+<tr><td class="k">设置宽度（任何锚点）</td><td><code>rt.SetSizeWithCurrentAnchors(Axis.Horizontal, w)</code></td><td>以轴心为中心变化</td></tr>
+<tr><td class="k">读真实尺寸</td><td><code>rt.rect.size</code></td><td>受布局控制时注意时机</td></tr>
+<tr><td class="k">铺满父节点、四边留白</td><td><code>anchorMin = (0,0); anchorMax = (1,1); offsetMin = (l, b); offsetMax = (−r, −t)</code></td><td>Right、Top 取负</td></tr>
+<tr><td class="k">放在右上角、边距 20</td><td><code>anchorMin = anchorMax = pivot = (1,1); anchoredPosition = (−20, −20)</code></td><td>锚点与轴心相同，位置直观</td></tr>
+<tr><td class="k">贴左边、宽 260</td><td><code>rt.SetInsetAndSizeFromParentEdge(Edge.Left, 0, 260)</code></td><td>会改写横向锚点</td></tr>
+<tr><td class="k">挂到新父节点</td><td><code>rt.SetParent(parent, false)</code></td><td>保留锚点和偏移</td></tr>
+<tr><td class="k">四个角的世界坐标</td><td><code>rt.GetWorldCorners(corners)</code></td><td>顺序：左下、左上、右上、右下</td></tr>
+</table>
+<p>配套工程的 <code>UIKit.Place()</code> 和 <code>UIKit.Stretch()</code> 就是把表里第三、第四行封装成了一个调用，读完这一章再去看 <code>_Core/Runtime/UIKit.cs</code> 里的这两个方法，应该一眼就能看懂。</p>
+<div class="cmp"><div class="good"><h5>✓ 推荐</h5>设尺寸用 <code>SetSizeWithCurrentAnchors</code>；贴边用 <code>SetInsetAndSizeFromParentEdge</code>；读尺寸用 <code>rect.size</code>；依赖布局结果的计算放到布局完成之后。</div><div class="bad"><h5>✗ 避免</h5>对拉伸元素写 <code>sizeDelta = (w, h)</code>；用 <code>sizeDelta</code> 当尺寸读；在 Awake 里读受 Layout Group 控制的元素的 rect；用 <code>localScale</code> 改按钮大小。</div></div>
+
+<h3 class="case"><span class="no">案例 3.2</span>App 布局：顶栏 + 底栏 + 自适应内容区<span class="lv">入门</span></h3>
+<p><b>目标</b>：做一个竖屏 App 风格的界面：顶栏固定 180 高、底部页签栏固定 170 高、中间内容区自动填满剩下的空间；右下角一个悬浮按钮始终贴着内容区的右下角。在 9:16、9:19.5 和 3:4 三种屏幕上都要正确。</p>
+<figure class="shot"><div style="display:flex;gap:8px;align-items:flex-end;justify-content:center"><img src="img/ch03-app-916.jpg" style="width:28%"><img src="img/ch03-app-1995.jpg" style="width:28%"><img src="img/ch03-app-34.jpg" style="width:37.3%"></div><figcaption><b>图 3-10</b>同一布局在 9:16（左）、9:19.5（中）、3:4 平板（右）上。①顶栏 ②内容区 ③页签栏；内容区高度随屏幕变化，能显示的任务条数不同</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_AppLayout.unity</div>
+<p><b>思路</b>：竖屏应用用 1080×1920 作参考分辨率、Match = 0（按宽），这样宽度永远是 1080 个单位，屏幕越长内容区越高（第 2 章 2.4 节）。三大块分别用三种锚点：</p>
+<table>
+<tr><th>元素</th><th>锚点（Min → Max）</th><th>轴心</th><th>其他</th></tr>
+<tr><td class="k">TopBar</td><td>(0, 1) → (1, 1)：上边横向拉伸</td><td>(0.5, 1)</td><td>Left/Right = 0，Pos Y = 0，Height = 180</td></tr>
+<tr><td class="k">TabBar</td><td>(0, 0) → (1, 0)：下边横向拉伸</td><td>(0.5, 0)</td><td>Left/Right = 0，Pos Y = 0，Height = 170</td></tr>
+<tr><td class="k">Content</td><td>(0, 0) → (1, 1)：四向拉伸</td><td>(0.5, 0.5)</td><td>Left/Right = 0，Top = 180，Bottom = 170</td></tr>
+<tr><td class="k">任务卡片</td><td>(0, 1) → (1, 1)：上边横向拉伸</td><td>(0.5, 1)</td><td>Left/Right = 40，Pos Y = −40 − 230 × i，Height = 200</td></tr>
+<tr><td class="k">悬浮按钮</td><td>(1, 0)：内容区右下角</td><td>(1, 0)</td><td>Pos = (−50, 50)，150 × 150</td></tr>
+</table>
+<ol class="steps">
+<li>Canvas Scaler 设为 Scale With Screen Size、1080 × 1920、Match = 0。Game 视图添加 1080×1920、1080×2340、1536×2048 三个分辨率备用。</li>
+<li>在 Canvas 下建空物体 SafeArea，锚点四向拉伸、四边为 0（案例 3.4 会给它挂组件）。之后所有内容都放在它下面。</li>
+<li>建 TopBar（Image，主色）：锚点预设按 Shift + Alt 点 <b>stretch-top</b>，Height 填 180。在里面放头像（锚左中）、标题（四向拉伸，左右各留 200）、铃铛图标（锚右中）。</li>
+<li>建 TabBar（Image，白色）：Shift + Alt 点 <b>stretch-bottom</b>，Height 填 170。</li>
+<li>在 TabBar 下建四个空物体作为页签。<b>不用 Layout Group，只用锚点</b>：第 i 个页签的 Anchors Min = (i/4, 0)、Max = ((i+1)/4, 1)，Left/Right/Top/Bottom 全为 0。四个页签就把底栏均分成了四份，屏幕再宽也一样。</li>
+<li>建 Content（空物体）：Shift + Alt 点 <b>stretch-stretch</b>，然后 Top 填 180、Bottom 填 170，正好让出顶栏和底栏。给它加 <span class="menu">Add Component › UI › Rect Mask 2D</span>，超出内容区的卡片会被裁掉。</li>
+<li>在 Content 下建任务卡片，锚点 stretch-top，Left/Right 40、Height 200，依次往下排。悬浮按钮锚在 Content 的右下角（不是 Canvas 的右下角），这样它永远在底栏上方。</li>
+</ol>
+<div class="tree" data-tree="ch03-app-916" data-root="SafeArea" data-depth="2" data-hide="Task_2,Task_3,Task_4,Task_5,Task_6"></div>
+<p>三张截图里，顶栏、底栏的高度完全相同，内容区高度从 9:16 的 1570、到 9:19.5 的约 1990，再到 3:4 平板的约 1090，能完整显示的任务从平板上的 4 条、9:16 的 6 条到 9:19.5 的全部 7 条不等。平板和 9:16 上内容放不下，最后一张卡片被 RectMask2D 裁掉——实际项目里内容区应该是一个 ScrollRect（第 9 章），这里先只关心尺寸。</p>
+<p><b>常见坑</b>：一是把内容区的 Top/Bottom 写死成顶栏、底栏的高度后，又去改了顶栏高度，两边对不上，中间露出一条缝或者互相覆盖——数值多处重复时，最好在代码或预制体里集中定义；二是卡片用了点锚点（固定宽 1000），在 1080 宽的手机上正好，到平板上两侧空出一大块，正确的做法是横向拉伸、左右留边距；三是悬浮按钮锚在 Canvas 而不是 Content 上，有了底部安全区之后它会盖到页签栏上。</p>
+<p><b>扩展</b>：铃铛上的红点用的是案例 3.5 的 <code>CornerBadge</code>；SafeArea 节点在刘海屏手机上会自动收缩（案例 3.4）。顶栏通常还应该延伸到状态栏后面（背景色铺到最顶上、内容在安全区内），做法是把顶栏背景放在 SafeArea 外面、顶栏内容放在里面。</p>
+
+<h3 class="sec">3.5 坐标系与坐标转换</h3>
+<p>UI 开发中会遇到好几套坐标，弄混了是坐标类 Bug 的主要来源：</p>
+<div class="kv">
+<span>屏幕坐标</span><span>单位是像素，原点在屏幕<b>左下角</b>，x 向右、y 向上。<code>Input.mousePosition</code>、<code>PointerEventData.position</code>、触摸位置都是屏幕坐标。</span>
+<span>世界坐标</span><span><code>transform.position</code>。对 Overlay 画布上的元素，世界坐标在数值上就等于屏幕像素坐标（Overlay 画布被摆在一个“1 单位 = 1 像素”的空间里）；对 Camera 和 World Space 画布则是真正的 3D 坐标。</span>
+<span>本地坐标</span><span>相对于某个 RectTransform 的<b>轴心</b>的坐标，单位是 UI 单位。<code>localPosition</code>、<code>rect</code> 都在这个坐标系里。</span>
+<span>锚点坐标</span><span><code>anchoredPosition</code>：相对于锚点参考点的偏移。只有锚点在父节点轴心处时，它才和 localPosition 的 x、y 相同。</span>
+</div>
+<figure><svg viewBox="0 0 600 240" width="600" font-family="PingFang SC" font-size="12">
+<defs><marker id="c3c" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1f2436"/></marker></defs>
+<rect x="20" y="20" width="360" height="200" fill="#f7f6fd" stroke="#7a8299"/>
+<text x="28" y="38" fill="#7a8299">屏幕（像素）</text>
+<circle cx="20" cy="220" r="4" fill="#1f2436"/><text x="26" y="214" fill="#1f2436">(0, 0)</text>
+<path d="M20,220 L80,220" stroke="#1f2436" marker-end="url(#c3c)"/><path d="M20,220 L20,170" stroke="#1f2436" marker-end="url(#c3c)"/>
+<rect x="140" y="60" width="200" height="130" fill="#e9e6fb" stroke="#5b4bd6" stroke-width="2"/>
+<text x="148" y="78" fill="#5b4bd6">某个 RectTransform</text>
+<circle cx="140" cy="190" r="6" fill="none" stroke="#1e88e5" stroke-width="2"/><text x="150" y="184" fill="#1e88e5">轴心 = 本地原点</text>
+<circle cx="280" cy="110" r="5" fill="#ff8a3d"/>
+<text x="290" y="106" fill="#ff8a3d">鼠标</text>
+<path d="M140,190 L276,113" stroke="#ff8a3d" stroke-dasharray="4 3"/>
+<text x="196" y="160" fill="#ff8a3d">本地坐标 (x, y)</text>
+<g fill="#1f2436">
+<text x="386" y="44" font-weight="bold">屏幕 → 本地</text>
+<text x="386" y="64">ScreenPointToLocalPointInRectangle(</text>
+<text x="412" y="82">rect, screenPos, cam, out local)</text>
+<text x="386" y="118" font-weight="bold">本地/世界 → 屏幕</text>
+<text x="386" y="138">WorldToScreenPoint(cam, rt.position)</text>
+<text x="386" y="174" font-weight="bold">cam 传什么</text>
+<text x="386" y="194">Overlay：null</text>
+<text x="386" y="212">Camera：画布的 Render Camera</text>
+<text x="386" y="230">World Space：画布的 Event Camera</text>
+</g>
+</svg><figcaption><b>图 3-11</b>屏幕坐标与 UI 本地坐标，以及 RectTransformUtility 的两个常用方法</figcaption></figure>
+<p>为什么 Overlay 画布上元素的世界坐标等于屏幕像素坐标？Overlay 画布不经过相机，Unity 把画布的 RectTransform 摆在世界空间里：左下角在原点、大小等于屏幕像素、缩放等于 scaleFactor。于是画布里任何一点经过一层层父节点变换后得到的世界坐标，数值上就是它在屏幕上的像素位置。这也解释了第 1 章里 Overlay 画布在 Scene 视图中为什么大得离谱。利用这个性质，Overlay 下 <code>rt.position = Input.mousePosition</code> 就能让元素跟随鼠标；但这个写法一换成 Camera 模式就失效，所以更推荐用下面的转换方法，它在三种模式下都成立。</p>
+<p>屏幕与 UI 之间的换算都交给 <code>RectTransformUtility</code>，最常用的是两个方法：</p>
+<ul>
+<li><code>ScreenPointToLocalPointInRectangle(rect, screenPoint, cam, out localPoint)</code>：把屏幕点换算成 <code>rect</code> 这个 RectTransform 的本地坐标（以它的轴心为原点）。内部是从相机发一条穿过该屏幕点的射线，与 rect 所在的平面求交，所以对 Camera 和 World Space 画布（包括旋转过的）也成立。返回值为 false 表示射线和平面不相交。</li>
+<li><code>WorldToScreenPoint(cam, worldPoint)</code>：把世界坐标换算成屏幕坐标。常用来求某个 UI 元素在屏幕上的位置。</li>
+</ul>
+<p>另外 <code>RectangleContainsScreenPoint(rect, screenPoint, cam)</code> 判断屏幕点是否落在矩形内（Graphic Raycaster 就用它），<code>ScreenPointToWorldPointInRectangle</code> 把屏幕点换算到矩形所在平面上的世界坐标。</p>
+<p>这几个方法都要传一个相机，<b>传错相机是坐标转换最常见的 Bug</b>：Overlay 画布必须传 <code>null</code>（传 Camera.main 反而会算错）；Camera 模式传画布的 Render Camera；World Space 传能看到它的那台相机。在事件回调里，最省心的是直接用 <code>eventData.pressEventCamera</code> 或 <code>eventData.enterEventCamera</code>，EventSystem 已经帮你找好了正确的相机（Overlay 时就是 null）。</p>
+
+<h3 class="case"><span class="no">案例 3.3</span>跟随鼠标、永远不出屏幕的 Tooltip<span class="lv">进阶</span></h3>
+<p><b>目标</b>：鼠标移到背包格子上时，在鼠标右下方显示物品说明；靠近屏幕右边或下边时，提示框自动翻到鼠标的左边或上边，无论如何都不超出屏幕。</p>
+<figure class="shot"><img src="img/ch03-tooltip.jpg"><figcaption><b>图 3-12</b>左：正常情况下提示框在鼠标右下方；右：鼠标在屏幕右下角的格子上，提示框同时向左、向上翻转，并被夹在屏幕范围内</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_Tooltip.unity</div>
+<p><b>思路</b>：每帧把鼠标的屏幕坐标转成画布的本地坐标；默认把提示框的左上角（轴心 (0, 1)）放在鼠标右下方一点；如果右边放不下，把轴心改成右上角 (1, 1)、放到鼠标左边；下边放不下同理改成左下角；最后再把位置夹（Clamp）在画布范围内兜底。改轴心而不是手算偏移，是因为轴心天然表达了“框的哪个角挨着鼠标”，代码会简单很多。</p>
+<pre class="code" data-file="Ch03/Tooltip.cs" data-region="move"></pre>
+<p>几个关键点：</p>
+<ul>
+<li><b>换算到画布本地坐标</b>：传入的 rect 是画布本身，得到的 local 以画布中心（画布轴心）为原点。提示框的锚点被设在画布中心，所以它的 anchoredPosition 和 local 处在同一坐标系，可以直接赋值。这是 3.5 节说的“只有锚点在父节点轴心处时，anchoredPosition 才和本地坐标一致”的一个应用。</li>
+<li><b>画布边界</b>用画布自己的 <code>rect</code>：它同样以画布中心为原点，<code>xMax</code> 就是右边缘。这里的单位都是 UI 单位，和屏幕分辨率、scaleFactor 都无关，所以不需要任何缩放换算。</li>
+<li><b>Clamp 的上下限</b>要考虑轴心：轴心在左（pivot.x = 0）时，位置的下限是 xMin，上限是 xMax − 宽度；轴心在右时则是 xMin + 宽度到 xMax。统一写成 <code>xMin + size.x × pivot.x</code> 到 <code>xMax − size.x × (1 − pivot.x)</code>。</li>
+<li><b>提示框必须关掉 Raycast Target</b>（底图和文字都要关）。否则提示框出现在鼠标下方时，会挡住格子，格子收到 PointerExit 把提示框隐藏，隐藏后格子又收到 PointerEnter 把它显示出来……提示框会疯狂闪烁。</li>
+<li><b>提示框要放在画布的最后</b>，保证画在所有格子之上。</li>
+</ul>
+<p>还有一个容易忽略的点：<code>MoveTo</code> 在 <code>Update</code> 里每帧调用，而提示框的尺寸只在 <code>Show</code> 时计算一次，所以跟随鼠标的过程中不会有任何布局重算，只是改了 pivot 和 anchoredPosition。改这两个属性会让画布重新合批，但不会触发文字重新生成网格，开销很小。如果你把提示框放在一个单独的子画布里，它的移动就完全不会影响背包里其他元素的合批（第 2 章的“动静分离”）。</p>
+<p>显示和隐藏由挂在每个格子上的触发器负责：</p>
+<pre class="code" data-file="Ch03/TooltipTrigger.cs"></pre>
+<p>注意 <code>OnDisable</code> 里也收起了提示框：如果鼠标停在格子上时格子被关闭（比如切换背包页签），它不会再收到 PointerExit，提示框就会一直挂在屏幕上。提示框高度在 <code>Show</code> 里用 <code>TMP_Text.GetPreferredValues</code> 按固定宽度算出，这样不需要依赖 Content Size Fitter，也避免了“本帧布局还没算、尺寸是旧值”的问题（3.4 节）。</p>
+<p><b>扩展</b>：触屏设备没有“悬停”，通常改为长按显示、松手隐藏，第 6 章的长按按钮可以直接拿来用。提示框出现时加一点延迟（比如 0.3 秒）和淡入，体验会好很多（第 15 章）。</p>
+
+<h3 class="case"><span class="no">案例 3.4</span>刘海屏安全区适配组件<span class="lv">进阶</span></h3>
+<p><b>目标</b>：写一个 SafeArea 组件，挂在画布下一个铺满全屏的节点上，自动让它收缩到屏幕的安全区域内，所有重要 UI 放在这个节点下就能避开刘海、挖孔、圆角和底部横条。</p>
+<figure class="shot"><img src="img/ch03-safearea.jpg"><figcaption><b>图 3-13</b>模拟一台横屏刘海手机。左：不处理，头像和摇杆钻进了刘海和圆角区域；右：SafeArea 组件把内容收进安全区，红色是不安全区域。背景图在 SafeArea 外面，依然铺满全屏</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_SafeArea.unity</div>
+<p><b>思路</b>：Unity 用 <code>Screen.safeArea</code> 告诉我们安全区的位置，它是一个以像素为单位、原点在屏幕左下角的 Rect。把它除以屏幕宽高，就得到 0～1 的比例——这正好是锚点需要的形式。把节点的 anchorMin、anchorMax 设成这两个比例，offset 设为 0，节点就恰好覆盖安全区。整个组件的核心就是“安全区比例 = 锚点”这一个想法。</p>
+<pre class="code" data-file="Ch03/SafeArea.cs" data-region="safearea"></pre>
+<ul>
+<li><b>为什么用锚点而不是直接算尺寸</b>：锚点是比例，与 Canvas Scaler 的缩放无关，不用关心 scaleFactor；屏幕旋转后画布尺寸变了，锚点比例换算出的位置自动正确。</li>
+<li><b>为什么每帧检查</b>：手机旋转、折叠屏展开、分屏模式切换时安全区会变化，而 Unity 没有专门的“安全区变化”事件。每帧只做比较，不变就直接返回，开销可以忽略。</li>
+<li><b>simulate 选项</b>：在没有刘海的电脑上调界面时，打开它就用 Inspector 里填的比例模拟安全区。默认值是一台横屏刘海手机的大致比例（左右各约 5.6%，底部约 5.4%）。正式打包前记得关掉。</li>
+<li><b>挂在哪里</b>：挂在 Canvas 下一个专门的全屏子节点上，不能挂在 Canvas 本身（Canvas 的 RectTransform 由 Canvas 接管，改不了）。全屏背景、遮罩这类“应该铺满整个屏幕”的东西放在 SafeArea 节点外面；按钮、文字等“不能被挡住”的东西放在里面。</li>
+</ul>
+<ol class="steps">
+<li>打开 Ch03_SafeArea 场景，运行。</li>
+<li>点 Game 视图左上角的 <b>Game</b> 下拉，切换到 <b>Simulator</b>。在 Simulator 视图顶部的设备列表里选一台带刘海或挖孔的手机，点旋转按钮切到横屏。</li>
+<li>观察头像、设置按钮、摇杆和攻击按钮都避开了刘海和圆角；切换不同机型、旋转屏幕，界面会自动调整。</li>
+<li>选中 SafeArea 节点，Inspector 里能看到锚点已经被改成了安全区对应的比例。</li>
+</ol>
+<div class="note warn"><b>注意</b>不是所有元素都应该放进安全区。顶栏、底栏的<b>背景色</b>通常要铺满到屏幕边缘（否则刘海两侧会露出一块别的颜色），只有它们的<b>内容</b>需要避开不安全区域。常见做法是背景放在 SafeArea 外、内容放在里面；或者给顶栏单独写一个只处理上边距的变体。另外，<code>Screen.safeArea</code> 在某些安卓设备上要等第一帧之后才准确，这也是组件在 Update 里持续检查的原因之一。</div>
+
+<h3 class="case"><span class="no">案例 3.5</span>九宫格位置的角标与红点<span class="lv">入门</span></h3>
+<p><b>目标</b>：做一个通用的角标组件，把红点、数字、“NEW”标签钉在父节点的九个位置之一（四个角、四条边的中点、中心），可以调节往里收还是往外探出；父节点尺寸变化时自动跟随。</p>
+<figure class="shot"><img src="img/ch03-badges.jpg"><figcaption><b>图 3-14</b>左：九个位置的角标（inset 为 0，角标中心正好压在角或边的中点上），拖动滑块改变方框大小，角标始终跟随；右：常见用法——邮件红点、背包数量、头像上的 NEW、任务按钮行尾红点</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_Badges.unity</div>
+<p><b>思路</b>：九个位置正好对应九种点锚点。锚点设在目标位置、轴心设在角标中心，那么 anchoredPosition = (0, 0) 时角标的中心就压在这个位置上。再沿“指向父节点中心”的方向偏移 inset，就能让角标往里收（正数）或往外探出（负数）。</p>
+<pre class="code" data-file="Ch03/CornerBadge.cs" data-region="badge"></pre>
+<p>为什么轴心固定在角标中心，而不像其他元素那样“锚点和轴心相同”？因为角标的设计意图通常就是“压在角上”：红点的圆心落在按钮右上角附近，一半在里一半在外，这正是轴心在中心、anchoredPosition 接近 0 时的效果。如果轴心也设成 (1, 1)，inset 为 0 时角标会完全缩在按钮里面，想探出去还得根据角标自身尺寸算偏移。不同的设计稿要求不同，理解了轴心的含义，按需要调整即可。</p>
+<p>“指向中心的方向”用 <code>(0.5 − a) × 2</code> 求得：右上角 a = (1, 1)，方向是 (−1, −1)；左边中点 a = (0, 0.5)，方向是 (1, 0)；中心 a = (0.5, 0.5)，方向为 0，inset 不起作用。一个式子处理了九种情况，没有 switch 分支。</p>
+<p>组件用了 <code>[ExecuteAlways]</code> 和 <code>OnValidate</code>，在 Inspector 里改 corner 或 inset 时立刻生效，不用运行。由于定位完全靠锚点，父节点尺寸改变时不需要任何代码，角标自然跟着角走——这就是图 3-14 左边拖动滑块时发生的事。</p>
+<p><b>常见坑</b>：一是角标作为按钮的子物体时会画在按钮之上（正确），但如果按钮外面套了 Mask 或 RectMask2D，探出去的部分会被裁掉；二是角标开着 Raycast Target 会挡住按钮的一角，导致点角标所在位置时点不到按钮——角标通常只是装饰，关掉它的 Raycast Target；三是数字角标的宽度应随数字位数变化（“9”和“99+”），可以配合第 10 章的 Content Size Fitter 实现。</p>
+
+<h3 class="case"><span class="no">案例 3.6</span>坐标转换：在点击处放置标记<span class="lv">入门</span></h3>
+<p><b>目标</b>：点击区域内任意位置，在点击处放一个标记，标记旁边显示它的本地坐标；右侧面板显示屏幕坐标、本地坐标，以及从标记反算回去的屏幕坐标。</p>
+<figure class="shot"><img src="img/ch03-coords.jpg"><figcaption><b>图 3-15</b>点击区域的轴心故意设在左下角（蓝色圆圈），所以本地坐标从左下角算起、都是正数；画面中间的蓝色四角星是它的锚点（画布中心），与本地坐标无关</figcaption></figure>
+<div class="scene">Ch03/Scenes/Ch03_Coords.unity</div>
+<pre class="code" data-file="Ch03/ClickMarker.cs" data-region="mark"></pre>
+<p>这段代码演示了一对互逆的转换：</p>
+<ul>
+<li><b>屏幕 → 本地</b>：<code>ScreenPointToLocalPointInRectangle(area, screenPos, cam, out local)</code>。得到的 local 以 area 的<b>轴心</b>为原点。本例轴心在左下角，所以点在区域内时坐标都是正数；如果轴心在中心，左下角就是 (−600, −390)。</li>
+<li><b>放置</b>：标记是 area 的子物体，用 <code>m.localPosition = local</code> 放置。localPosition 同样以父节点轴心为原点，和 local 完全对应。如果改用 anchoredPosition，就要先确认标记的锚点在哪：标记模板的锚点是默认的 (0.5, 0.5)，即 area 的中心，与 area 的轴心（左下角）不重合，直接赋值会偏移半个区域。</li>
+<li><b>本地/世界 → 屏幕</b>：<code>WorldToScreenPoint(cam, m.position)</code>，反算出的屏幕坐标与点击位置一致（图中两行数字相同），说明转换是可逆的。</li>
+</ul>
+<p>相机参数来自 <code>eventData.pressEventCamera</code>。配套场景用的是 Overlay 画布，它的值是 null，你可以把画布改成 Camera 模式、指定相机，代码不用改就能正常工作；如果把相机参数写死成 <code>Camera.main</code>，在 Overlay 下就会算错。</p>
+<h4>World Space 画布上的转换</h4>
+<p>同样的代码也适用于 World Space 画布，只是有两点要注意。第一，<code>ScreenPointToLocalPointInRectangle</code> 求的是射线与画布平面的交点，画布被斜着看时，点击位置会被正确地“投影”到画布上；但如果画布几乎侧对相机，射线与平面接近平行，交点会飞得很远，甚至返回 false，所以代码里一定要检查返回值。第二，World Space 下屏幕上的一个像素对应画布上多少个单位，取决于画布离相机多远、倾斜多少，不再是固定的 scaleFactor，因此拖拽等操作要每帧重新换算位置，而不能用“屏幕位移 ÷ scaleFactor”累加。</p>
+<div class="note tip"><b>提示</b>这个模式在实际项目中到处都是：点击地图放置标记、拖拽时让物体跟随手指（每帧把手指位置转成父节点的本地坐标，赋给 localPosition）、在点击处播放涟漪特效、虚拟摇杆的中心跟随按下位置……第 11 章的拖拽窗口和虚拟摇杆都基于这一转换。</div>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>RectTransform 真正存储的是 anchorMin/anchorMax、pivot、anchoredPosition、sizeDelta（加上旋转缩放）；offsetMin/offsetMax 与 rect 都是推导出来的。</li>
+<li>真实尺寸 = 锚点矩形尺寸 + sizeDelta；锚点重合时 sizeDelta 就是尺寸，锚点分开时它是差值，常为负数。读尺寸用 rect.size，设尺寸用 SetSizeWithCurrentAnchors。</li>
+<li>offsetMin = anchoredPosition − sizeDelta × pivot，offsetMax = anchoredPosition + sizeDelta × (1 − pivot)；Inspector 里 Right/Top 是 −offsetMax。</li>
+<li>轴心是旋转缩放的中心，也是 anchoredPosition 和本地坐标的原点；代码里改 pivot 会让元素移动。</li>
+<li>锚点预设只是给锚点填 0/0.5/1；直接点保持元素不动，Shift 同时设轴心，Alt 同时设位置。元素跟着谁走，就锚在谁身上。</li>
+<li>SetInsetAndSizeFromParentEdge 会改写该方向的锚点；受布局系统控制的元素要等布局完成后再读 rect。</li>
+<li>屏幕 ↔ UI 用 RectTransformUtility；相机参数 Overlay 传 null，事件回调里用 eventData.pressEventCamera。</li>
+<li>Tooltip 靠“换轴心翻转 + Clamp”不出屏；SafeArea 靠“安全区比例 = 锚点”适配刘海；角标靠九种点锚点跟随父节点。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>一个元素的父节点宽 800，锚点 x 从 0.25 到 0.75，pivot.x = 0，offsetMin.x = 20，offsetMax.x = −30。求它的宽度、sizeDelta.x、anchoredPosition.x 和 rect.x。然后在 Ch03_RectProbe 场景里设置这些值验证。</li>
+<li>给 <code>AnchorPresets</code> 加一个只改轴心、但保持元素在屏幕上不动的方法 <code>SetPivotKeepPosition(Vector2 pivot)</code>。</li>
+<li>修改案例 3.2 的布局，让它在横屏（1920×1080）下变成“左侧竖向导航栏 + 右侧内容区”。只改锚点和 offset，不写代码。</li>
+<li>案例 3.3 的 Tooltip 在 Camera 模式画布下还能正常工作吗？把 Ch03_Tooltip 场景的画布改成 Camera 模式试一试，并解释为什么。</li>
+<li>给 SafeArea 组件增加四个开关（applyLeft/Right/Top/Bottom），让它可以只处理某几条边，用来实现“顶栏背景铺满、内容避开刘海”。</li>
+</ol></div>
+</section>

@@ -1,0 +1,15 @@
+0|Main Camera|Camera,AudioListener,PhysicsRaycaster
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Feed|Image,ClickFeed
+2|Text|TextMeshProUGUI
+1|Button_UI 按钮|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|Directional Light|Light
+0|Ground|MeshFilter,MeshCollider,MeshRenderer
+0|Cube|MeshFilter,BoxCollider,MeshRenderer,Clickable3D
+0|Sphere|MeshFilter,SphereCollider,MeshRenderer,Clickable3D
+0|Cylinder|MeshFilter,CapsuleCollider,MeshRenderer,Clickable3D
+0|Capsule|MeshFilter,CapsuleCollider,MeshRenderer,Clickable3D
+0|Marker|MeshFilter,MeshRenderer
+0|GroundClicker|GroundClicker

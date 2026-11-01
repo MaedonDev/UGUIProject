@@ -1,0 +1,12 @@
+0|Main Camera|Camera,AudioListener
+0|UIRoot|Canvas,CanvasScaler,GraphicRaycaster,UIManager
+1|Background|Canvas,GraphicRaycaster
+1|Normal|Canvas,GraphicRaycaster
+1|Popup|Canvas,GraphicRaycaster
+1|Toast|Canvas,GraphicRaycaster
+1|Guide|Canvas,GraphicRaycaster
+1|Top|Canvas,GraphicRaycaster
+2|StackLabel|Image,HorizontalLayoutGroup,ContentSizeFitter
+3|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|Bootstrap|Ch16Bootstrap

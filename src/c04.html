@@ -1,0 +1,585 @@
+<section class="chapter" id="c04" data-title="Image、RawImage 与精灵" data-sub="纹理导入、九宫格、四种 Image Type、像素级点击与 UV 滚动">
+<div class="chap-head"><div class="num">CHAPTER 04<b>第 4 章</b></div><h2>Image、RawImage 与精灵</h2><p class="lead">界面上看得见的东西，十有八九是一张图。这一章从“一张 PNG 怎么变成能用的精灵”讲起，把 Image 的四种类型逐一拍出来对比，拆开九宫格和扇形填充的网格生成源码，再做六个游戏里天天见的案例：九宫格对话框、技能冷却、延迟白条血条、不规则按钮、无限滚动背景和头像框。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>纹理导入为 Sprite (2D and UI) 时每个选项的含义，以及用代码批量设置</div><div>Pixels Per Unit 与 Set Native Size 的换算关系</div><div>用 Sprite Editor 设置九宫格边框，以及 Sliced 网格是怎么生成的</div><div>Simple / Sliced / Tiled / Filled 四种类型的实拍对比和适用场景</div><div>Filled 的五种 Fill Method、Origin、Clockwise，扇形网格的切割原理</div><div>Raycast Target、Raycast Padding 与 alphaHitTestMinimumThreshold</div><div>RawImage 与 UV Rect，Image 和 RawImage 怎么选；Sprite Atlas 初识</div><div>六个完整案例，每个都有可运行的配套场景</div></div>
+
+<h3 class="sec">4.1 从一张图片到一个精灵</h3>
+<p>把一张 PNG 拖进 Project 窗口，Unity 会把它导入成<b>纹理（Texture2D）</b>。纹理只是一块像素数据，UGUI 的 Image 组件不能直接用它，Image 要的是<b>精灵（Sprite）</b>。精灵可以理解成“纹理上的一个矩形区域 + 一些附加信息”：这块区域在纹理里的位置、轴心（Pivot）、九宫格边框（Border）、每单位多少像素（Pixels Per Unit）。一张纹理可以切出很多个精灵，这就是图集的基础。</p>
+<p>所以第一步永远是：把纹理的导入类型改成 Sprite。</p>
+<ol class="steps">
+<li>在 Project 窗口选中图片，Inspector 里显示的是它的 <b>Import Settings（导入设置）</b>。</li>
+<li>把 <b>Texture Type</b> 从 Default 改成 <b>Sprite (2D and UI)</b>。</li>
+<li><b>Sprite Mode</b> 保持 <b>Single</b>（一张图就是一个精灵）；如果一张图里排了很多小图标，选 <b>Multiple</b>，再到 Sprite Editor 里切分。</li>
+<li>按需要调整下面几个参数（见下表），点右下角的 <b>Apply</b>。没点 Apply 之前，修改不会生效——这是新手最常忘的一步。</li>
+</ol>
+<figure><svg viewBox="0 0 600 330" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="10" width="360" height="310" rx="6" fill="#f7f7fb" stroke="#e0deef"/>
+<rect x="20" y="10" width="360" height="30" rx="6" fill="#e0deef"/>
+<text x="34" y="30" font-weight="bold" fill="#1f2436">dialog_frame Import Settings</text>
+<g fill="#1f2436">
+<text x="34" y="64">Texture Type</text><rect x="190" y="50" width="174" height="20" rx="3" fill="#fff" stroke="#5b4bd6" stroke-width="2"/><text x="198" y="65" fill="#5b4bd6">Sprite (2D and UI)</text>
+<text x="34" y="92">Sprite Mode</text><rect x="190" y="78" width="174" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="198" y="93">Single</text>
+<text x="34" y="120">Pixels Per Unit</text><rect x="190" y="106" width="174" height="20" rx="3" fill="#fff" stroke="#ff8a3d" stroke-width="2"/><text x="198" y="121">100</text>
+<text x="34" y="148">Mesh Type</text><rect x="190" y="134" width="174" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="198" y="149">Full Rect</text>
+<text x="34" y="176">Pivot</text><rect x="190" y="162" width="174" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="198" y="177">Center</text>
+<rect x="34" y="188" width="140" height="22" rx="3" fill="#e9e7f7"/><text x="44" y="204" fill="#5b4bd6">Sprite Editor</text>
+<text x="34" y="234">Read/Write</text><rect x="190" y="222" width="14" height="14" rx="2" fill="#fff" stroke="#c9cbd6"/>
+<text x="34" y="258">Generate Mip Maps</text><rect x="190" y="246" width="14" height="14" rx="2" fill="#fff" stroke="#c9cbd6"/>
+<text x="34" y="282">Wrap Mode</text><rect x="190" y="270" width="174" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="198" y="285">Clamp</text>
+</g>
+<rect x="300" y="296" width="64" height="18" rx="3" fill="#5b4bd6"/><text x="332" y="309" text-anchor="middle" fill="#fff" font-size="12">Apply</text>
+<g font-size="12" fill="#1f2436">
+<line x1="364" y1="60" x2="400" y2="60" stroke="#5b4bd6"/><text x="404" y="64">UGUI 能用的前提</text>
+<line x1="364" y1="116" x2="400" y2="116" stroke="#ff8a3d"/><text x="404" y="120">决定 Set Native Size 的结果</text>
+<line x1="174" y1="199" x2="400" y2="190" stroke="#7a8299" stroke-dasharray="3 3"/><text x="404" y="194">九宫格边框在这里设</text>
+<line x1="204" y1="229" x2="400" y2="229" stroke="#7a8299" stroke-dasharray="3 3"/><text x="404" y="233">像素级点击才需要打开</text>
+<line x1="204" y1="253" x2="400" y2="258" stroke="#7a8299" stroke-dasharray="3 3"/><text x="404" y="262">UI 一般关闭</text>
+<line x1="364" y1="280" x2="400" y2="285" stroke="#7a8299" stroke-dasharray="3 3"/><text x="404" y="289">平铺/UV 滚动要 Repeat</text>
+<line x1="364" y1="305" x2="400" y2="312" stroke="#5b4bd6"/><text x="404" y="316">改完必须点 Apply</text>
+</g>
+</svg><figcaption><b>图 4-1</b> 纹理导入设置（示意，字段名与 2022.3 一致，省略了压缩等平台设置）</figcaption></figure>
+<div class="kv">
+<span>Texture Type</span><span>Sprite (2D and UI)。只有这个类型导入后才会生成 Sprite 子资源，Image 的 Source Image 才能选到它。</span>
+<span>Sprite Mode</span><span>Single：整张图一个精灵；Multiple：一张图切多个精灵（图标表）；Polygon：多边形精灵（2D 游戏用，UI 很少用）。</span>
+<span>Pixels Per Unit</span><span>纹理上多少个像素算“1 个单位”。它和 Canvas 的 Reference Pixels Per Unit 一起决定 Set Native Size 的结果和九宫格边框的显示大小，4.2 节详细算。</span>
+<span>Mesh Type</span><span>Full Rect：精灵网格就是一个矩形；Tight：按 alpha 轮廓生成紧凑网格（只有 Image 勾选 Use Sprite Mesh 时才用得上）。UI 推荐 Full Rect，Tiled 平铺和自定义 Shader 都更省心。</span>
+<span>Read/Write</span><span>允许脚本读取像素（GetPixel）。会让纹理在内存里多存一份 CPU 副本，平时关掉；只有做像素级点击检测（4.8 节）时才需要打开。</span>
+<span>Generate Mip Maps</span><span>生成多级缩小图。3D 物体远小近大才需要它，UI 基本按 1:1 显示，开着只会多占三分之一内存、还可能让图变糊，建议关闭。</span>
+<span>Wrap Mode</span><span>UV 超出 0~1 时怎么取像素。Clamp 取边缘像素，Repeat 重复。Tiled 平铺和 RawImage 的 UV 滚动需要 Repeat（4.9 节）。</span>
+<span>Filter Mode</span><span>Bilinear 适合大多数 UI；像素风游戏用 Point（不插值，保持锐利的方块感）。</span>
+<span>Compression</span><span>压缩格式在各平台的覆盖设置里调。压缩会带来色块和边缘噪点，大面积渐变和小图标尤其明显；第 20 章讲怎么在体积和画质之间取舍。</span>
+</div>
+<p>图片一多，一张张点 Inspector 很容易漏设。实际项目里通常写一个编辑器脚本统一设置，下面是本章生成纹理时用的函数，和你在 Inspector 里做的事一一对应：</p>
+<pre class="code" data-file="Ch04/Editor/Ch04Textures.cs" data-region="import"></pre>
+<p>注意 <code>spriteBorder</code> 的分量顺序是 <b>x = 左、y = 下、z = 右、w = 上</b>，和 Sprite Editor 面板里 L/T/R/B 的排列顺序不一样，写代码时很容易填错。<code>SaveAndReimport()</code> 相当于点 Apply。更进一步，可以把这套规则写进 <code>AssetPostprocessor.OnPreprocessTexture</code>，让某个目录下的图片一导入就自动套用——配套工程的 <code>_Core/Editor/BookSpriteImporter.cs</code> 就是这么做的，第 21 章会专门讲 UI 资源规范检查。</p>
+
+<h3 class="sec">4.2 Pixels Per Unit 与 Set Native Size</h3>
+<p>Image 组件上有个 <b>Set Native Size</b> 按钮，点一下就把 RectTransform 的尺寸设成“图片原始大小”。可这个“原始大小”到底是多少画布单位？看源码：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Image.cs
+public float pixelsPerUnit
+{
+    get
+    {
+        float spritePixelsPerUnit = 100;
+        if (activeSprite)
+            spritePixelsPerUnit = activeSprite.pixelsPerUnit;
+        if (canvas)
+            m_CachedReferencePixelsPerUnit = canvas.referencePixelsPerUnit;
+        return spritePixelsPerUnit / m_CachedReferencePixelsPerUnit;
+    }
+}
+
+public override void SetNativeSize()
+{
+    if (activeSprite != null)
+    {
+        float w = activeSprite.rect.width / pixelsPerUnit;
+        float h = activeSprite.rect.height / pixelsPerUnit;
+        rectTransform.anchorMax = rectTransform.anchorMin;
+        rectTransform.sizeDelta = new Vector2(w, h);
+        SetAllDirty();
+    }
+}</pre>
+<p>也就是：</p>
+<div class="formula"><math display="block"><mtext>原生尺寸</mtext><mo>=</mo><mtext>精灵像素尺寸</mtext><mo>×</mo><mfrac><mtext>Canvas 的 Reference Pixels Per Unit</mtext><mtext>精灵的 Pixels Per Unit</mtext></mfrac></math></div>
+<p>两个值默认都是 100，比值为 1，所以平时“原生尺寸 = 像素尺寸”。图 4-2 是同一张 128×128 的头像，只改精灵的 Pixels Per Unit，点 Set Native Size 的结果：PPU 越大，图越小。</p>
+<figure class="shot"><img src="img/ch04-native.jpg"><figcaption><b>图 4-2</b> 精灵 PPU 分别为 50 / 100 / 200 时 Set Native Size 的结果（实拍）</figcaption></figure>
+<p>这有什么用？最常见的是<b>多倍图</b>：美术按 2 倍分辨率出图（例如按钮画成 400×200，实际想显示 200×100），把这批图的 PPU 设成 200，Set Native Size 就直接得到正确的逻辑尺寸，九宫格边框也会按一半显示，在高分屏上更清晰。另外注意源码里的一行：<code>rectTransform.anchorMax = rectTransform.anchorMin</code>——Set Native Size 会把锚点“合拢”，如果这个 Image 原本是拉伸锚点，点完就不再拉伸了。</p>
+<div class="note"><b>提示</b>精灵 PPU 不只影响 Set Native Size，还影响 Sliced / Tiled 的边框显示大小（4.5 节）。同一个界面里请让同一批切图使用相同的 PPU，否则同样 20 像素的圆角会显示得一大一小。</div>
+
+<h3 class="sec">4.3 Sprite Editor 与九宫格边框</h3>
+<p>对话框、按钮、输入框这类元素尺寸经常变，如果整张图直接拉伸，圆角和描边会被拉变形。解决办法是<b>九宫格（9-slice）</b>：用四条线把图切成 3×3 九块，四个角保持原样，四条边只沿一个方向拉伸，中间一块双向拉伸。这四条线的位置就是精灵的 <b>Border（边框）</b>，在 Sprite Editor 里设置。</p>
+<ol class="steps">
+<li>选中图片，确认 Texture Type 已经是 Sprite (2D and UI)。</li>
+<li>点 Inspector 中的 <b>Sprite Editor</b> 按钮打开编辑窗口（首次使用若提示缺少包，按提示安装 2D Sprite 包即可）。</li>
+<li>点一下图片，四周出现绿色的边框线。拖动四条绿线，或在右下角面板的 <b>Border</b> 一栏直接输入 L / T / R / B 四个像素值。</li>
+<li>边框要把圆角、描边、角落花饰<b>完整包进四个角</b>；边上的图案必须沿拉伸方向是“均匀的”，否则拉伸后会变形。</li>
+<li>点窗口右上角 <b>Apply</b> 保存。</li>
+</ol>
+<figure><svg viewBox="0 0 600 260" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="10" width="580" height="240" rx="6" fill="#2b2f45"/>
+<rect x="10" y="10" width="580" height="26" rx="6" fill="#3a3f5c"/>
+<text x="22" y="28" fill="#e0deef" font-size="12">Sprite Editor</text><text x="520" y="28" fill="#e0deef" font-size="12">Revert  Apply</text>
+<rect x="60" y="56" width="180" height="180" rx="22" fill="#e0a94a" stroke="#5a3d22" stroke-width="6"/>
+<rect x="74" y="70" width="152" height="152" rx="14" fill="#fbf3dd"/>
+<g stroke="#2fb36a" stroke-width="2" stroke-dasharray="6 4">
+<line x1="120" y1="46" x2="120" y2="246"/><line x1="180" y1="46" x2="180" y2="246"/>
+<line x1="50" y1="116" x2="250" y2="116"/><line x1="50" y1="176" x2="250" y2="176"/>
+</g>
+<g fill="#2fb36a"><rect x="116" y="42" width="8" height="8"/><rect x="176" y="42" width="8" height="8"/><rect x="46" y="112" width="8" height="8"/><rect x="46" y="172" width="8" height="8"/></g>
+<rect x="330" y="120" width="250" height="120" rx="4" fill="#3a3f5c"/>
+<text x="342" y="140" fill="#e0deef" font-weight="bold">Sprite</text>
+<g fill="#e0deef" font-size="12">
+<text x="342" y="162">Name</text><text x="420" y="162">dialog_frame</text>
+<text x="342" y="184">Position</text><text x="420" y="184">X 0  Y 0  W 160  H 160</text>
+<text x="342" y="206">Border</text>
+<text x="420" y="206">L</text><rect x="432" y="194" width="30" height="16" fill="#23263a"/><text x="438" y="206">54</text>
+<text x="470" y="206">T</text><rect x="482" y="194" width="30" height="16" fill="#23263a"/><text x="488" y="206">54</text>
+<text x="420" y="228">R</text><rect x="432" y="216" width="30" height="16" fill="#23263a"/><text x="438" y="228">54</text>
+<text x="470" y="228">B</text><rect x="482" y="216" width="30" height="16" fill="#23263a"/><text x="488" y="228">54</text>
+</g>
+<text x="330" y="70" fill="#ffb547" font-size="12">绿色虚线 = 四条切分线，可直接拖动</text>
+<text x="330" y="92" fill="#ffb547" font-size="12">右下角面板可精确输入像素值</text>
+</svg><figcaption><b>图 4-3</b> Sprite Editor 中设置九宫格边框（示意）</figcaption></figure>
+<p>设好边框后，Image 的 <b>Image Type</b> 选 <b>Sliced</b> 就会按九宫格绘制。图 4-4 是原理：左边是 160×160 的原图和四条切分线，右边是把它画到一个更宽的矩形上时，九块各自被拉成什么样。</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="13">
+<g transform="translate(20,30)">
+<rect x="0" y="0" width="150" height="150" fill="#fbf3dd" stroke="#5a3d22" stroke-width="2"/>
+<g fill="#5b4bd6" opacity="0.18"><rect x="0" y="0" width="50" height="50"/><rect x="100" y="0" width="50" height="50"/><rect x="0" y="100" width="50" height="50"/><rect x="100" y="100" width="50" height="50"/></g>
+<g fill="#ff8a3d" opacity="0.18"><rect x="50" y="0" width="50" height="50"/><rect x="50" y="100" width="50" height="50"/><rect x="0" y="50" width="50" height="50"/><rect x="100" y="50" width="50" height="50"/></g>
+<g stroke="#e5484d" stroke-width="1.5"><line x1="50" y1="-8" x2="50" y2="158"/><line x1="100" y1="-8" x2="100" y2="158"/><line x1="-8" y1="50" x2="158" y2="50"/><line x1="-8" y1="100" x2="158" y2="100"/></g>
+<g font-size="12" fill="#1f2436" text-anchor="middle"><text x="25" y="30">1</text><text x="75" y="30">2</text><text x="125" y="30">3</text><text x="25" y="80">4</text><text x="75" y="80">5</text><text x="125" y="80">6</text><text x="25" y="130">7</text><text x="75" y="130">8</text><text x="125" y="130">9</text></g>
+<text x="75" y="178" text-anchor="middle" fill="#1f2436">原图（UV：outer / inner）</text>
+</g>
+<path d="M190,105 L230,105" stroke="#1f2436" stroke-width="2"/><path d="M230,99 L242,105 L230,111 Z" fill="#1f2436"/>
+<g transform="translate(260,30)">
+<rect x="0" y="0" width="320" height="150" fill="#fbf3dd" stroke="#5a3d22" stroke-width="2"/>
+<g fill="#5b4bd6" opacity="0.18"><rect x="0" y="0" width="50" height="50"/><rect x="270" y="0" width="50" height="50"/><rect x="0" y="100" width="50" height="50"/><rect x="270" y="100" width="50" height="50"/></g>
+<g fill="#ff8a3d" opacity="0.18"><rect x="50" y="0" width="220" height="50"/><rect x="50" y="100" width="220" height="50"/><rect x="0" y="50" width="50" height="50"/><rect x="270" y="50" width="50" height="50"/></g>
+<g stroke="#e5484d" stroke-width="1.5"><line x1="50" y1="-8" x2="50" y2="158"/><line x1="270" y1="-8" x2="270" y2="158"/><line x1="-8" y1="50" x2="328" y2="50"/><line x1="-8" y1="100" x2="328" y2="100"/></g>
+<g font-size="12" fill="#1f2436" text-anchor="middle"><text x="25" y="30">1</text><text x="160" y="30">2 横向拉伸</text><text x="295" y="30">3</text><text x="25" y="80">4</text><text x="160" y="80">5 双向拉伸</text><text x="295" y="80">6</text><text x="25" y="130">7</text><text x="160" y="130">8 横向拉伸</text><text x="295" y="130">9</text></g>
+<text x="160" y="178" text-anchor="middle" fill="#1f2436">Sliced 网格：4×4 个顶点位置，9 个四边形</text>
+</g>
+<text x="300" y="222" text-anchor="middle" font-size="12" fill="#7a8299">紫色 = 四角（不缩放） 橙色 = 四边（单方向拉伸） 中间 = 双向拉伸，Fill Center 关闭时不画</text>
+</svg><figcaption><b>图 4-4</b> 九宫格切分原理：顶点位置按目标矩形算，UV 始终取原图的同一块</figcaption></figure>
+<p>源码里这个过程非常直白：先算出 4 个 x 坐标和 4 个 y 坐标（<code>s_VertScratch</code>），再算出对应的 4 个 u 和 4 个 v（<code>s_UVScratch</code>，来自精灵的外 UV 和内 UV），然后双重循环拼出 9 个四边形：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Image.cs，GenerateSlicedSprite（有删节）
+Rect rect = GetPixelAdjustedRect();
+Vector4 adjustedBorders = GetAdjustedBorders(border / multipliedPixelsPerUnit, rect);
+
+s_VertScratch[0] = new Vector2(padding.x, padding.y);
+s_VertScratch[3] = new Vector2(rect.width - padding.z, rect.height - padding.w);
+s_VertScratch[1].x = adjustedBorders.x;                 // 左边框位置
+s_VertScratch[1].y = adjustedBorders.y;                 // 下边框位置
+s_VertScratch[2].x = rect.width - adjustedBorders.z;    // 右边框位置
+s_VertScratch[2].y = rect.height - adjustedBorders.w;   // 上边框位置
+
+s_UVScratch[0] = new Vector2(outer.x, outer.y);
+s_UVScratch[1] = new Vector2(inner.x, inner.y);
+s_UVScratch[2] = new Vector2(inner.z, inner.w);
+s_UVScratch[3] = new Vector2(outer.z, outer.w);
+
+for (int x = 0; x &lt; 3; ++x)
+    for (int y = 0; y &lt; 3; ++y)
+    {
+        if (!m_FillCenter &amp;&amp; x == 1 &amp;&amp; y == 1)
+            continue;                                   // Fill Center 关闭：跳过中间那块
+        AddQuad(toFill, /* 位置 */ ..., /* UV */ ...);
+    }</pre>
+<p>几个细节值得记住：</p>
+<ul>
+<li><b>边框显示大小 = 像素边框 ÷ multipliedPixelsPerUnit</b>。也就是说边框在屏幕上占多少，取决于精灵 PPU、Canvas 的 Reference PPU 和 Image 的 Pixels Per Unit Multiplier，跟 RectTransform 多大无关——这正是“四角不变”的含义。</li>
+<li><b>矩形比两边边框之和还小</b>时，<code>GetAdjustedBorders</code> 会把两侧边框按比例压缩，保证不重叠（图 4-6 左下角那个 80×80 的小框就是这种情况）。所以九宫格图的边框不要切得太大，否则小尺寸时四角会被压扁。</li>
+<li>最多 9 个四边形、36 个顶点。Fill Center 关闭时只有 8 个，常用来做“只有边框”的描边框，中间透明区域不产生任何像素填充，比画一张中间全透明的图省填充率。</li>
+</ul>
+
+<h3 class="sec">4.4 Image 组件的每一个字段</h3>
+<p>在 Hierarchy 里右键 <span class="menu">UI › Image</span> 就能建一个 Image。它的 Inspector 字段会随 Image Type 变化，图 4-5 是 Sliced 类型时的样子。</p>
+<figure><svg viewBox="0 0 600 300" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="10" width="340" height="280" rx="6" fill="#f7f7fb" stroke="#e0deef"/>
+<rect x="20" y="10" width="340" height="28" rx="6" fill="#e0deef"/><text x="34" y="29" font-weight="bold" fill="#1f2436">Image</text>
+<g fill="#1f2436">
+<text x="34" y="62">Source Image</text><rect x="170" y="49" width="176" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="178" y="64">dialog_frame</text>
+<text x="34" y="90">Color</text><rect x="170" y="77" width="176" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/>
+<text x="34" y="118">Material</text><rect x="170" y="105" width="176" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="178" y="120" fill="#7a8299">None (Material)</text>
+<text x="34" y="146">Raycast Target</text><rect x="170" y="134" width="14" height="14" rx="2" fill="#5b4bd6"/>
+<text x="34" y="172">Raycast Padding</text><text x="170" y="172" fill="#7a8299">▸ (Left, Bottom, Right, Top)</text>
+<text x="34" y="198">Maskable</text><rect x="170" y="186" width="14" height="14" rx="2" fill="#5b4bd6"/>
+<text x="34" y="226">Image Type</text><rect x="170" y="213" width="176" height="20" rx="3" fill="#fff" stroke="#5b4bd6" stroke-width="2"/><text x="178" y="228">Sliced</text>
+<text x="48" y="252">Fill Center</text><rect x="170" y="240" width="14" height="14" rx="2" fill="#5b4bd6"/>
+<text x="48" y="278">Pixels Per Unit Multiplier</text><rect x="230" y="265" width="116" height="20" rx="3" fill="#fff" stroke="#c9cbd6"/><text x="238" y="280">1</text>
+</g>
+<g font-size="12" fill="#1f2436">
+<text x="376" y="64">显示哪个精灵（为空时画纯色矩形）</text>
+<text x="376" y="92">顶点色，会和精灵颜色相乘</text>
+<text x="376" y="120">自定义 Shader 材质（第 14 章）</text>
+<text x="376" y="148">是否参与射线检测（能否被点到）</text>
+<text x="376" y="174">扩大/缩小可点击区域</text>
+<text x="376" y="200">是否受 Mask / RectMask2D 裁剪</text>
+<text x="376" y="228">Simple / Sliced / Tiled / Filled</text>
+<text x="376" y="254">九宫格中间那块画不画</text>
+<text x="376" y="280">边框缩放倍率（越大边框越小）</text>
+</g>
+</svg><figcaption><b>图 4-5</b> Image 的 Inspector（示意，Image Type = Sliced）</figcaption></figure>
+<div class="kv">
+<span>Source Image</span><span>精灵。为空时 Image 会画一个纯色矩形——这其实很常用：半透明遮罩、分割线、纯色背景都可以不放图，省一张贴图。</span>
+<span>Color</span><span>顶点色。Shader 里把精灵颜色乘以它，所以白色图标配不同 Color 就能染成任意颜色（本书的图标全是白色就是这个原因）。也只能“乘”，不能把黑色变白。</span>
+<span>Material</span><span>默认用内置的 UI/Default。换成自定义材质可做灰度、流光等效果，但不同材质会打断合批（第 12、14 章）。</span>
+<span>Raycast Target</span><span>参与 GraphicRaycaster 的射线检测。不需要点击的装饰图、文字请关掉：既省射线检测的开销，又避免透明区域挡住下面的按钮。</span>
+<span>Raycast Padding</span><span>四个方向的可点击区域内缩量（负数 = 向外扩）。小图标想扩大点击范围，填负值即可，不必把图做大。</span>
+<span>Maskable</span><span>是否响应父级 Mask / RectMask2D。关掉后这个元素会“穿透”遮罩显示出来。</span>
+<span>Image Type</span><span>四种绘制方式，下一节逐个讲。</span>
+<span>Preserve Aspect</span><span>（Simple / Filled 类型有）保持精灵宽高比，按比例缩进 RectTransform 里。</span>
+<span>Use Sprite Mesh</span><span>（Simple 类型有）用精灵导入时生成的紧凑网格代替矩形，前提是 Mesh Type = Tight。能减少透明像素的填充，但顶点变多。</span>
+<span>Set Native Size</span><span>按钮，按 4.2 节的公式把尺寸设成精灵原生尺寸。</span>
+</div>
+
+<h3 class="sec">4.5 四种 Image Type</h3>
+<p>同一张图换不同的 Image Type，画出来的样子差别很大。图 4-6 把四种类型放在一起：</p>
+<figure class="shot"><img src="img/ch04-types.jpg"><figcaption><b>图 4-6</b> 同一个 820×330 的区域，四种 Image Type 的效果（实拍；Tiled 用的是 64×64 的平铺花纹）</figcaption></figure>
+<h4>Simple：整张图拉伸</h4>
+<p>把整张精灵映射到矩形上，宽高比不对就变形。图 4-6 左上角，四个角的菱形花饰被横向拉成了扁菱形，圆角也变成了椭圆。Simple 适合图标、头像、插画这类<b>尺寸固定</b>或<b>能接受等比缩放</b>的图，通常配合 Preserve Aspect 使用。网格只有 4 个顶点，是最便宜的一种。</p>
+<h4>Sliced：九宫格</h4>
+<p>按上一节的九宫格规则绘制。前提是精灵设置了 Border，没有边框时 Sliced 会退化成 Simple（源码第一行就是 <code>if (!hasBorder) { GenerateSimpleSprite(...); return; }</code>）。图 4-7 是同一张对话框边框画成不同尺寸的样子，四角的花饰始终保持原样。</p>
+<figure class="shot"><img src="img/ch04-sliced.jpg"><figcaption><b>图 4-7</b> 同一个九宫格精灵画成不同尺寸，以及关闭 Fill Center 的效果（实拍）</figcaption></figure>
+<p>Sliced 类型多出一个 <b>Pixels Per Unit Multiplier</b>：它乘在 PPU 上，数值越大，边框在屏幕上显示得越小。图 4-8 用同一张 round_32（72×72 的圆角矩形）演示——想要更大的圆角又不想重新切图，把它调小就行。</p>
+<figure class="shot"><img src="img/ch04-ppumul.jpg"><figcaption><b>图 4-8</b> Pixels Per Unit Multiplier 对圆角大小的影响（实拍）</figcaption></figure>
+<p>这个参数的实用价值很高：项目里只要准备一张“圆角素材”，不同控件通过 Multiplier 得到不同的圆角半径。图 4-8 左一 Multiplier 0.5 时边框按 2 倍显示，两侧边框之和接近按钮高度，于是按钮变成了胶囊形。</p>
+<h4>Tiled：平铺</h4>
+<p>按精灵的原始尺寸（同样受 PPU 影响）重复铺满整个矩形，适合地板、花纹背景、虚线边框。Tiled 的实现分两条路，源码里有一段很关键的判断：</p>
+<pre class="code" data-lang="csharp">// 摘自 Image.cs，GenerateTiledSprite（有删节）
+if (activeSprite != null &amp;&amp; (hasBorder || activeSprite.packed ||
+    activeSprite.texture != null &amp;&amp; activeSprite.texture.wrapMode != TextureWrapMode.Repeat))
+{
+    // 有边框、被打进图集、或者纹理不是 Repeat：只能“一块一块”生成四边形来平铺
+    // 顶点数 = 块数 × 4，超过 65000 会报错并自动放大每块的尺寸
+    ...
+}
+else
+{
+    // 纹理是 Repeat 且没有边框、没进图集：只生成一个四边形，把 UV 放大到 0~N，靠 GPU 重复采样
+    ...
+}</pre>
+<p>结论很实用：<b>要平铺的图，单独放、Wrap Mode 设成 Repeat、不要打进图集</b>，这样无论铺多大都只有 4 个顶点。如果图在图集里（<code>packed</code>），UV 不能超出它在图集里的那一小块，Unity 只能按块生成网格，铺得越密顶点越多。精灵带 Border 时，Tiled 还会把边框当作九宫格的四边处理（四边沿边重复、四角不动），中间区域平铺，可以做“花边 + 花纹底”的面板。</p>
+<h4>Filled：只画一部分</h4>
+<p>根据 <b>Fill Amount</b>（0~1）只画精灵的一部分，是进度条、血条、技能冷却的主力。它的选项最多，单独用一节来讲。</p>
+
+<h3 class="sec">4.6 Filled：五种填充方式与扇形网格</h3>
+<p>Filled 类型有四个专属参数：</p>
+<div class="kv">
+<span>Fill Method</span><span>Horizontal（水平）、Vertical（竖直）、Radial 90（以一个角为圆心转 90°）、Radial 180（以一条边的中点为圆心转 180°）、Radial 360（以中心为圆心转一圈）。</span>
+<span>Fill Origin</span><span>从哪里开始填。选项随 Fill Method 变化：水平是 Left/Right，竖直是 Bottom/Top，Radial 90 是四个角，Radial 180 和 360 是四条边。</span>
+<span>Fill Amount</span><span>填充比例 0~1。代码里写 <code>image.fillAmount = 0.6f</code>。</span>
+<span>Clockwise</span><span>（Radial 类型有）顺时针还是逆时针填充。</span>
+</div>
+<p>图 4-9 是五种方式在三个填充比例下的实拍，底下半透明的是完整的原图：</p>
+<figure class="shot"><img src="img/ch04-filled.jpg"><figcaption><b>图 4-9</b> 五种 Fill Method × 三个 Fill Amount（Origin 都取第 0 项，Clockwise 开，实拍）</figcaption></figure>
+<p>环形进度条最常用 Radial 360，它的起点和方向由 Origin 和 Clockwise 决定，图 4-10 把八种组合都拍了出来（Fill Amount 都是 0.3）。做“时钟走过的冷却”，常用 Origin = Top；倒计时“从满到空、像时钟一样顺时针退去”，要把 Clockwise 关掉——遮罩是逆时针收缩的，露出来的部分看起来就是顺时针扫过。</p>
+<figure class="shot"><img src="img/ch04-origin.jpg"><figcaption><b>图 4-10</b> Radial 360 的四种 Origin 与 Clockwise 组合（实拍）</figcaption></figure>
+<h4>扇形是怎么切出来的</h4>
+<p>水平和竖直填充很简单：把矩形的一条边往回缩，UV 同比例缩，仍然是一个四边形。径向填充复杂一些——GPU 只认三角形，没有“扇形”这种图元。UGUI 的做法是把矩形切成几块四边形，再把每块四边形的一个或两个顶点“挪”到扫描线上，让四边形变成三角形或梯形。以 Radial 360 为例（图 4-11）：</p>
+<figure><svg viewBox="0 0 600 264" width="600" font-family="PingFang SC" font-size="13">
+<g transform="translate(30,25)">
+<rect x="0" y="0" width="200" height="200" fill="#e0deef" stroke="#7a8299"/>
+<line x1="100" y1="0" x2="100" y2="200" stroke="#7a8299" stroke-dasharray="4 3"/><line x1="0" y1="100" x2="200" y2="100" stroke="#7a8299" stroke-dasharray="4 3"/>
+<g font-size="12" fill="#1f2436" text-anchor="middle"><text x="50" y="155">corner 0</text><text x="50" y="55">corner 1</text><text x="150" y="55">corner 2</text><text x="150" y="155">corner 3</text></g>
+<text x="100" y="236" text-anchor="middle" fill="#1f2436">① 以中心为界切成 4 个象限</text>
+</g>
+<g transform="translate(330,25)">
+<rect x="0" y="0" width="200" height="200" fill="#f7f7fb" stroke="#7a8299"/>
+<polygon points="100,100 100,0 200,0 200,100" fill="#5b4bd6" opacity="0.85"/>
+<polygon points="100,100 200,100 200,200 100,200" fill="#5b4bd6" opacity="0.85"/>
+<polygon points="100,100 100,200 42,200" fill="#ff8a3d" opacity="0.9"/>
+<line x1="100" y1="100" x2="42" y2="200" stroke="#e5484d" stroke-width="2"/>
+<circle cx="42" cy="200" r="5" fill="#e5484d"/>
+<line x1="100" y1="100" x2="100" y2="-6" stroke="#1f2436" stroke-width="2"/>
+<g font-size="12" fill="#1f2436"><text x="106" y="-10">Origin = Top</text><text x="-4" y="214">挪动的顶点</text></g>
+<text x="210" y="60" font-size="12" fill="#5b4bd6">完整象限：</text><text x="210" y="76" font-size="12" fill="#5b4bd6">原样保留</text>
+<text x="210" y="170" font-size="12" fill="#ff8a3d">部分象限：</text><text x="210" y="186" font-size="12" fill="#ff8a3d">RadialCut</text><text x="210" y="202" font-size="12" fill="#ff8a3d">挪顶点</text>
+<text x="100" y="236" text-anchor="middle" fill="#1f2436">② Fill Amount = 0.6，顺时针</text>
+</g>
+</svg><figcaption><b>图 4-11</b> Radial 360 的网格：4 个象限各是一个四边形，跨过扫描线的那个被 RadialCut 变形</figcaption></figure>
+<pre class="code" data-lang="csharp">// 摘自 Image.cs，GenerateFilledSprite 中 Radial360 的部分（有删节）
+for (int corner = 0; corner &lt; 4; ++corner)
+{
+    // 算出这个象限的 4 个顶点位置 s_Xy 和 UV s_Uv ...
+    // 把总进度换算成“这个象限填了多少”（0~1）
+    float val = m_FillClockwise ?
+        m_FillAmount * 4f - ((corner + m_FillOrigin) % 4) :
+        m_FillAmount * 4f - (3 - ((corner + m_FillOrigin) % 4));
+
+    if (RadialCut(s_Xy, s_Uv, Mathf.Clamp01(val), m_FillClockwise, ((corner + 2) % 4)))
+        AddQuad(toFill, s_Xy, color, s_Uv);
+}
+
+static bool RadialCut(Vector3[] xy, Vector3[] uv, float fill, bool invert, int corner)
+{
+    if (fill &lt; 0.001f) return false;                 // 这个象限一点都没填：不生成
+    if ((corner &amp; 1) == 1) invert = !invert;
+    if (!invert &amp;&amp; fill &gt; 0.999f) return true;      // 填满：原样保留
+    float angle = Mathf.Clamp01(fill);
+    if (invert) angle = 1f - angle;
+    angle *= 90f * Mathf.Deg2Rad;                     // 0~1 换算成 0~90 度
+    float cos = Mathf.Cos(angle), sin = Mathf.Sin(angle);
+    RadialCut(xy, cos, sin, invert, corner);          // 挪顶点位置
+    RadialCut(uv, cos, sin, invert, corner);          // 同样挪 UV，保证贴图不变形
+    return true;
+}</pre>
+<p>每个象限的“填充量”是总进度乘 4 再减去这个象限前面已经填满的象限数，然后夹到 0~1：小于 0 的象限不生成，大于 1 的原样保留，只有扫描线所在的那一个象限需要变形。顶点和 UV 用同一套参数挪动，所以贴图跟着几何形状一起被“裁”掉，而不是被压缩。Radial 90 只有一个四边形，Radial 180 是左右（或上下）两块，原理相同。</p>
+<p>理解这个实现有两个实际意义：第一，<b>改 fillAmount 只会让这一个 Image 重建网格</b>（触发 SetVerticesDirty），开销很小，每帧改也没问题；第二，Filled 是在整张精灵上切的，<b>不支持九宫格</b>。如果精灵是带圆角的 Sliced 图，换成 Filled 后圆角会被当成普通像素一起拉伸、一起切掉。做圆角进度条，常见做法是“Sliced + 改宽度（或锚点）”，或者用 RectMask2D 裁剪一张完整的圆角条，第 6 章的防连点按钮就用了改锚点的写法。</p>
+<div class="note warn"><b>注意</b>Filled 只改变“画了什么”，不改变“能点到哪里”。图片被填充了 30%，射线检测仍然按整个矩形计算（源码里 <code>MapCoordinate</code> 对 Filled 和 Simple 走的是同一条分支）。冷却遮罩记得关掉 Raycast Target，否则它会挡住下面的按钮。</div>
+
+<h3 class="sec">4.7 Preserve Aspect：按比例缩进框里</h3>
+<p>Simple 和 Filled 类型有 <b>Preserve Aspect</b> 选项。勾上后，精灵按原始宽高比缩放到能完整放进 RectTransform 的最大尺寸，多出来的方向留空（图 4-12）。用于头像、商品图、立绘这类不能变形的图片。</p>
+<figure class="shot"><img src="img/ch04-aspect.jpg"><figcaption><b>图 4-12</b> 2:1 的风景图放进正方形区域，Preserve Aspect 关与开（实拍）</figcaption></figure>
+<p>要注意它只改变“画在哪里”，RectTransform 本身的尺寸不变：Layout 计算、射线检测（不开 alpha 检测时）依然按灰框的整个范围。如果希望 RectTransform 的尺寸也跟着图片比例走，用 <b>Aspect Ratio Fitter</b> 组件（第 10 章）。</p>
+
+<h3 class="sec">4.8 能不能被点到：Raycast Target 与像素级检测</h3>
+<p>UGUI 的点击检测由 Canvas 上的 GraphicRaycaster 完成：它遍历这个 Canvas 下所有开了 <b>Raycast Target</b> 的 Graphic，看鼠标是否落在它们的矩形里（第 11 章会读这段源码）。这带来两个常见问题：</p>
+<ul>
+<li><b>透明区域也能点到</b>：一张圆形按钮图，四个透明的角同样会响应点击；一张大的透明装饰图盖在按钮上面，会把按钮“挡住”。后一个问题的解法很简单：不需要交互的 Image、Text 关掉 Raycast Target。</li>
+<li><b>不规则形状</b>：星形、圆环、地图上的省份区块，希望只在不透明的像素上响应。这就需要 Image 的 <code>alphaHitTestMinimumThreshold</code>。</li>
+</ul>
+<p>矩形检测通过之后，GraphicRaycaster 还会调用 Graphic 实现的 <code>ICanvasRaycastFilter.IsRaycastLocationValid</code> 做二次过滤，Image 的实现如下：</p>
+<pre class="code" data-lang="csharp">// 摘自 Image.cs（有删节）
+public virtual bool IsRaycastLocationValid(Vector2 screenPoint, Camera eventCamera)
+{
+    if (alphaHitTestMinimumThreshold &lt;= 0) return true;     // 默认 0：矩形内都算点中
+    if (alphaHitTestMinimumThreshold &gt; 1) return false;
+    if (activeSprite == null) return true;
+
+    Vector2 local;
+    if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rectTransform, screenPoint, eventCamera, out local))
+        return false;
+    Rect rect = GetPixelAdjustedRect();
+    if (m_PreserveAspect)
+        PreserveSpriteAspectRatio(ref rect, new Vector2(activeSprite.texture.width, activeSprite.texture.height));
+    local.x += rectTransform.pivot.x * rect.width;
+    local.y += rectTransform.pivot.y * rect.height;
+    local = MapCoordinate(local, rect);                         // 换算到纹理像素坐标（考虑了九宫格）
+    float x = local.x / activeSprite.texture.width;
+    float y = local.y / activeSprite.texture.height;
+    try
+    {
+        return activeSprite.texture.GetPixelBilinear(x, y).a &gt;= alphaHitTestMinimumThreshold;
+    }
+    catch (UnityException e)
+    {
+        Debug.LogError("Using alphaHitTestMinimumThreshold greater than 0 on Image whose sprite texture " +
+                       "cannot be read. ...");
+        return true;
+    }
+}</pre>
+<p>流程是：屏幕坐标 → Image 本地坐标 → 纹理像素坐标 → 读这个像素的 alpha，和阈值比较。从中可以读出三条使用规则：</p>
+<ol>
+<li><b>纹理必须勾选 Read/Write</b>，否则 <code>GetPixelBilinear</code> 会抛异常。实际上更早就会出错：阈值的 setter 里有检查，纹理不可读或是 Crunch 压缩时直接抛 <code>InvalidOperationException</code>。</li>
+<li><b>精灵不要进图集</b>（或者确认图集纹理可读），因为它读的是 <code>activeSprite.texture</code>，打包后是整张图集纹理。</li>
+<li><b>这个阈值不会被序列化</b>。源码里字段上方有一行注释：<code>// Not serialized until we support read-enabled sprites better.</code> 所以在 Inspector 里找不到这个属性，必须在运行时用代码设置。</li>
+</ol>
+<p>Image 的 Raycast Padding 则是在矩形检测阶段起作用的：GraphicRaycaster 判断点是否在矩形内时，会先用 <code>raycastPadding</code> 把矩形内缩（负值外扩）。手机上图标只有 48 像素、手指却有一大片，给图标填 (-20, -20, -20, -20) 的 Padding，点击范围就大了一圈，而画面不变。</p>
+
+<h3 class="sec">4.9 RawImage 与 UV Rect</h3>
+<p><span class="menu">UI › Raw Image</span> 创建的 RawImage 是 Image 的“简化版兄弟”：它直接显示一张 <b>Texture</b>（任何纹理，包括 RenderTexture、摄像头画面 WebCamTexture、运行时 new 出来的 Texture2D），不需要 Sprite，也没有九宫格、填充这些功能，只多了一个 <b>UV Rect</b>：用 (X, Y, W, H) 指定显示纹理的哪一部分。它的网格生成只有十几行：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/RawImage.cs
+protected override void OnPopulateMesh(VertexHelper vh)
+{
+    Texture tex = mainTexture;
+    vh.Clear();
+    if (tex != null)
+    {
+        var r = GetPixelAdjustedRect();
+        var v = new Vector4(r.x, r.y, r.x + r.width, r.y + r.height);
+        var scaleX = tex.width * tex.texelSize.x;
+        var scaleY = tex.height * tex.texelSize.y;
+        var color32 = color;
+        vh.AddVert(new Vector3(v.x, v.y), color32, new Vector2(m_UVRect.xMin * scaleX, m_UVRect.yMin * scaleY));
+        vh.AddVert(new Vector3(v.x, v.w), color32, new Vector2(m_UVRect.xMin * scaleX, m_UVRect.yMax * scaleY));
+        vh.AddVert(new Vector3(v.z, v.w), color32, new Vector2(m_UVRect.xMax * scaleX, m_UVRect.yMax * scaleY));
+        vh.AddVert(new Vector3(v.z, v.y), color32, new Vector2(m_UVRect.xMax * scaleX, m_UVRect.yMin * scaleY));
+        vh.AddTriangle(0, 1, 2);
+        vh.AddTriangle(2, 3, 0);
+    }
+}</pre>
+<p>一个四边形，四个角的 UV 直接取自 UV Rect。UV 超出 0~1 后显示什么由纹理的 Wrap Mode 决定：Repeat 就重复，Clamp 就拉伸边缘像素。图 4-13 是四种典型用法：</p>
+<figure class="shot"><img src="img/ch04-uvrect.jpg"><figcaption><b>图 4-13</b> RawImage 的 UV Rect：完整显示、重复、放大局部、Clamp 纹理超出范围（实拍）</figcaption></figure>
+<p>最后一格的金币图是 Clamp 模式，UV 从 -1 到 2，超出部分取的是边缘像素——金币图边缘是透明的，所以只在中间显示了一枚缩小的金币。如果边缘像素不透明，你会看到边缘那一行像素被拉成一条条色带。</p>
+<h4>Image 还是 RawImage？</h4>
+<table>
+<tr><th></th><th>Image</th><th>RawImage</th></tr>
+<tr><td>显示的内容</td><td>Sprite（纹理上的一块区域）</td><td>整张 Texture（任意类型）</td></tr>
+<tr><td>九宫格 / 平铺 / 填充</td><td>支持</td><td>不支持</td></tr>
+<tr><td>UV 控制</td><td>由精灵决定</td><td>UV Rect 任意指定，可做滚动、缩放</td></tr>
+<tr><td>能否进图集合批</td><td>能（Sprite Atlas）</td><td>不能，每张纹理一般单独一个批次</td></tr>
+<tr><td>典型用途</td><td>几乎所有 UI 切图</td><td>RenderTexture（3D 角色展示、小地图）、网络下载的图片、视频、滚动背景</td></tr>
+</table>
+<p>经验法则：<b>默认用 Image；显示的不是“美术切图”而是“运行时产生的纹理”，或需要自由控制 UV 时用 RawImage</b>。网络头像下载下来是 Texture2D，可以直接给 RawImage，免去 Sprite.Create 的开销；第 19 章的 3D 角色展示也是 RawImage + RenderTexture。</p>
+
+<h3 class="sec">4.10 Sprite Atlas 初识</h3>
+<p>UGUI 的合批（把多个元素合成一次 Draw Call）有个前提：相邻元素使用<b>同一张纹理和同一个材质</b>。如果每个图标都是独立的 PNG，界面上 30 个图标就可能是 30 次 Draw Call。<b>Sprite Atlas（精灵图集）</b>把许多小精灵在打包时拼进一张大纹理，Image 引用的还是原来的精灵，但运行时它们共享同一张纹理，于是可以合批（图 4-14）。</p>
+<figure><svg viewBox="0 0 600 200" width="600" font-family="PingFang SC" font-size="13">
+<g transform="translate(20,20)">
+<text x="110" y="0" text-anchor="middle" font-weight="bold" fill="#1f2436">独立纹理</text>
+<g><rect x="10" y="16" width="44" height="44" rx="6" fill="#ffb547"/><rect x="64" y="16" width="44" height="44" rx="6" fill="#2fb36a"/><rect x="118" y="16" width="44" height="44" rx="6" fill="#e5484d"/><rect x="172" y="16" width="44" height="44" rx="6" fill="#5b4bd6"/></g>
+<g font-size="12" fill="#7a8299" text-anchor="middle"><text x="32" y="78">tex A</text><text x="86" y="78">tex B</text><text x="140" y="78">tex C</text><text x="194" y="78">tex D</text></g>
+<text x="110" y="110" text-anchor="middle" fill="#e5484d">纹理各不相同 → 4 个批次</text>
+</g>
+<path d="M270,70 L320,70" stroke="#1f2436" stroke-width="2"/><path d="M320,64 L332,70 L320,76 Z" fill="#1f2436"/>
+<text x="300" y="56" text-anchor="middle" font-size="12" fill="#1f2436">打包图集</text>
+<g transform="translate(350,20)">
+<text x="110" y="0" text-anchor="middle" font-weight="bold" fill="#1f2436">Sprite Atlas</text>
+<rect x="50" y="12" width="120" height="120" fill="#f7f7fb" stroke="#7a8299"/>
+<rect x="56" y="18" width="50" height="50" rx="6" fill="#ffb547"/><rect x="112" y="18" width="50" height="50" rx="6" fill="#2fb36a"/><rect x="56" y="74" width="50" height="50" rx="6" fill="#e5484d"/><rect x="112" y="74" width="50" height="50" rx="6" fill="#5b4bd6"/>
+<text x="110" y="156" text-anchor="middle" fill="#2fb36a">同一张纹理 → 可以合成 1 个批次</text>
+</g>
+</svg><figcaption><b>图 4-14</b> Sprite Atlas 让不同精灵共享一张纹理，从而满足合批条件</figcaption></figure>
+<ol class="steps">
+<li>菜单 <span class="menu">Edit › Project Settings › Editor</span>，把 <b>Sprite Packer › Mode</b> 设为 <b>Sprite Atlas V1 - Enabled For Builds</b>（或 Always Enabled，编辑器里也用图集）。</li>
+<li>在 Project 窗口右键 <span class="menu">Create › 2D › Sprite Atlas</span> 创建图集资源。</li>
+<li>在图集的 <b>Objects for Packing</b> 列表里拖入精灵或整个文件夹（推荐按界面/功能分文件夹拖入）。</li>
+<li>点 <b>Pack Preview</b> 预览打包结果。Image 不需要做任何修改。</li>
+</ol>
+<p>Sprite Atlas 打包的时机也值得了解：编辑器里默认（Enabled For Builds）不使用图集，Image 引用的是原始纹理，只有在构建时或 Always Enabled 模式下才使用打包后的图集纹理。所以在编辑器里看 Frame Debugger 时，如果发现图标没有合批，先确认 Sprite Packer 的模式。另外，图集可以勾选 <b>Include in Build</b>：取消后图集不会随引用它的精灵一起自动加载，需要在 <code>SpriteAtlasManager.atlasRequested</code> 回调里自己提供（Late Binding），用于按需从 AssetBundle / Addressables 加载图集，这属于资源管理的进阶话题。</p>
+<p>图集不是越大越好：一个界面只用到图集里的一个小图标，也要把整张图集加载进内存。常见的划分方式是“公共图集（通用按钮、图标）+ 每个大界面一个图集”。另外前面提到的两件事都和图集有冲突：Tiled 平铺在图集里只能按块生成网格，像素级点击检测需要可读纹理。哪些图该进图集、图集怎么划分、如何用 Frame Debugger 验证合批，第 20 章会完整展开。</p>
+
+
+<h3 class="sec">4.11 图片相关的常见问题</h3>
+<p>做 UI 时和图片打交道最多，下面是作者在项目里反复遇到的问题，按“现象 → 原因 → 解决”整理。</p>
+<h4>图片发糊</h4>
+<p>最常见的原因有四个。第一，<b>开了 Mipmap</b>：UI 缩小显示时 GPU 会去采样更小的那一级，看起来一片模糊，UI 纹理关掉 Generate Mip Maps 即可。第二，<b>显示尺寸和原图尺寸不成比例</b>：一张 100 像素的图被显示成 137 像素，每个屏幕像素都落在两个纹理像素之间，双线性插值必然变软；关键图标尽量按 Set Native Size 或整数倍显示。第三，<b>压缩</b>：移动平台的 ASTC/ETC 压缩会让细线条和渐变出现色块，图标类小图可以单独设置更高的压缩质量。第四，<b>Canvas 的缩放</b>：Canvas Scaler 把 1920×1080 的设计稿缩到 1280×720 的屏幕上，所有图都缩小到三分之二，原图本身就该按设计分辨率甚至更高出图。</p>
+<h4>半透明图片边缘有白边或黑边</h4>
+<p>PNG 里完全透明的像素也有 RGB 值，很多软件把它们存成白色或黑色。缩放时双线性过滤会把边缘不透明像素和旁边“透明但 RGB 是白色”的像素混在一起，于是出现一圈白边。导入设置里的 <b>Alpha Is Transparency</b> 会让 Unity 在导入时用相邻像素的颜色“扩散”填充透明区域的 RGB，大多数情况下能解决问题；美术导出时勾选“透明区域保留颜色”或做一次出血（Bleed）处理更彻底。</p>
+<h4>换了 sprite，尺寸不对</h4>
+<p>运行时给 <code>image.sprite</code> 赋一张尺寸不同的图，RectTransform 不会自动变化。需要按原图大小显示就紧接着调用 <code>image.SetNativeSize()</code>；只想保持比例就开 Preserve Aspect。另外，<code>sprite</code> 的 setter 会调用 <code>SetAllDirty()</code>，同时标记布局、顶点、材质三种重建，比只改 <code>color</code>（只标记顶点）昂贵得多。帧动画式的“每帧换一张图”放在少量元素上没问题，大列表里成百上千个元素同时换图就要小心（重建的细节见第 12 章）。</p>
+<h4>空 Image 当纯色块用</h4>
+<p>Source Image 为空时，Image 用一张内置的白色纹理画纯色矩形。半透明遮罩、分割线、纯色背景都可以这么做，不必专门切一张白图。不过要知道，这张内置白纹理和你的图集不是同一张纹理，纯色块夹在两张图集图片之间会打断合批。对合批敏感的界面，可以在图集里放一张 4×4 的纯白小图，纯色块统一用它。</p>
+<h4>大面积透明图片</h4>
+<p>一张 1920×1080、大部分透明、只有角落有点花纹的装饰图，GPU 仍然要为整个矩形的每个像素做一次混合计算，这就是<b>过度绘制（Overdraw）</b>。全屏界面叠上几层这样的图，低端手机上填充率很快就成为瓶颈。做法是把花纹切成小图单独摆放，而不是“一张大透明图包打天下”。第 20 章会用 Overdraw 视图把这类问题直观地显示出来。</p>
+<h4>运行时加载精灵</h4>
+<p>精灵放在 Resources 目录下可以用 <code>Resources.Load&lt;Sprite&gt;("Icons/sword")</code> 加载（路径不含扩展名），图集里的精灵可以用 <code>SpriteAtlas.GetSprite(name)</code> 获取；正式项目更常用 Addressables 管理加载和释放。注意 <code>Resources.Load&lt;Sprite&gt;</code> 对 Sprite Mode = Multiple 的图只返回第一个子精灵，要取全部用 <code>Resources.LoadAll&lt;Sprite&gt;</code>。资源加载策略在第 16 章 UI 框架里会结合界面生命周期讨论。</p>
+
+
+<h3 class="sec">4.12 改一个属性，要付出多少代价</h3>
+<p>Image 的属性在代码里改起来都是一行，但背后触发的工作量差别很大。UGUI 的 Graphic 有三种“脏标记”：<b>顶点脏</b>（SetVerticesDirty，下一帧重新生成网格）、<b>材质脏</b>（SetMaterialDirty，重新设置材质）、<b>布局脏</b>（SetLayoutDirty，通知布局系统重新计算尺寸）。对照 Image.cs 和 Graphic.cs 里各个属性的 setter，可以整理出下表：</p>
+<table>
+<tr><th>修改的属性</th><th>触发</th><th>备注</th></tr>
+<tr><td><code>color</code></td><td>顶点</td><td>只改顶点色，最便宜；按钮的 Color Tint 过渡甚至连顶点都不改，而是改 CanvasRenderer 的颜色（第 6 章）</td></tr>
+<tr><td><code>fillAmount</code> / <code>fillMethod</code> / <code>fillCenter</code> / <code>type</code> / <code>preserveAspect</code></td><td>顶点</td><td>每帧改 fillAmount 做进度条没有问题</td></tr>
+<tr><td><code>sprite</code></td><td>布局 + 顶点 + 材质</td><td>setter 调用 SetAllDirty；尺寸可能变化，所以要通知布局</td></tr>
+<tr><td><code>material</code></td><td>材质</td><td>可能打断合批</td></tr>
+<tr><td><code>raycastTarget</code></td><td>无重建</td><td>只是在 GraphicRegistry 里登记/注销，影响射线检测列表</td></tr>
+<tr><td><code>enabled</code> 开关、<code>SetActive</code></td><td>布局 + 顶点 + 材质</td><td>重新启用时 OnEnable 里 SetAllDirty；同时 Canvas 需要重新合批</td></tr>
+<tr><td>RectTransform 尺寸</td><td>布局 + 顶点</td><td>OnRectTransformDimensionsChange 触发</td></tr>
+</table>
+<p>所有 setter 都用 <code>SetPropertyUtility</code> 先比较新旧值，<b>赋相同的值不会触发任何重建</b>，所以“每帧把 color 设成同一个值”是安全的。不过脏标记只是第一步，标记之后 Canvas 在这一帧末尾重新生成网格、重新合批，重建与合批的完整流程和测量方法在第 12 章。</p>
+<div class="note warn"><b>顺序陷阱</b>看 <code>fillMethod</code> 的 setter：<code>{ SetVerticesDirty(); m_FillOrigin = 0; }</code>——改 Fill Method 会把 Fill Origin 重置为 0。代码里要先设 <code>fillMethod</code>，再设 <code>fillOrigin</code>，反过来写 Origin 就白设了。</div>
+
+<h3 class="case"><span class="no">案例 4.1</span>九宫格对话框<span class="lv">入门</span></h3>
+<p><b>目标</b>：用一张 160×160 的边框图做出能任意改变大小的任务对话框，拖动右下角把手实时缩放；再一键切换 Simple / Sliced / Tiled，直观看到区别。</p>
+<p><b>思路</b>：边框图设好四边各 54 像素的 Border，Image Type 选 Sliced；对话框内的标题、正文、奖励格子、按钮都用锚点贴住对话框的边（第 3 章），这样对话框变大变小时内容跟着走。把手是一个实现了 <code>IDragHandler</code> 的小组件，按拖动量改 <code>sizeDelta</code>。</p>
+<ol class="steps">
+<li>准备边框图，按 4.3 节在 Sprite Editor 里把 Border 设为 L 54 / T 54 / R 54 / B 54，Apply。</li>
+<li>Hierarchy 右键 <span class="menu">UI › Image</span>，命名为 Dialog；Source Image 选边框图，<b>Image Type</b> 选 <b>Sliced</b>。</li>
+<li>在 RectTransform 里把 <b>Pivot</b> 设为 (0, 1)：轴心在左上角，改尺寸时左上角不动，才符合“拖右下角”的直觉。</li>
+<li>在 Dialog 下依次创建标题（顶部拉伸锚点）、正文（四边拉伸）、奖励行（顶部居中）、按钮行（底部拉伸），全部靠锚点定位。</li>
+<li>Dialog 下再建一个小 Image 作为把手，锚点放在右下角，挂上 DialogResizer，把 Dialog 拖进它的 Target 字段。</li>
+</ol>
+<pre class="code" data-file="Ch04/DialogResizer.cs"></pre>
+<p><code>e.delta</code> 是屏幕像素，而 <code>sizeDelta</code> 是画布单位，中间差一个 <code>canvas.scaleFactor</code>（Canvas Scaler 算出来的缩放，第 2 章）。不除这个系数，在高分辨率屏幕上拖动会“跑得比手快”。y 方向取负是因为屏幕坐标向上为正，而我们希望往下拖时高度变大。</p>
+<p>切换 Image Type 的按钮只有几行，演示“运行时改 type 会立刻重建网格”：</p>
+<pre class="code" data-file="Ch04/ImageTypeSwitch.cs"></pre>
+<figure class="shot"><img src="img/ch04-dialog.jpg"><figcaption><b>图 4-15</b> 九宫格对话框：标题、奖励和按钮都靠锚点贴住边框（实拍）</figcaption></figure>
+<div class="tree" data-tree="ch04-dialog" data-root="Canvas/Dialog" data-depth="2"></div>
+<div class="scene">Ch04/Scenes/Ch04_Dialog.unity</div>
+<p><b>调参建议</b>：边框不要切到图案的“中间”，多留几个像素的纯色区域，拉伸时更干净；Tiled 模式下注意看边上的细线，如果边的图案不是严格均匀的，平铺会出现接缝——这也是为什么对话框边框通常用 Sliced 而不是 Tiled。</p>
+
+<h3 class="case"><span class="no">案例 4.2</span>技能冷却（Radial 360）<span class="lv">入门</span></h3>
+<p><b>目标</b>：圆形技能按钮，点击后盖上一层半透明遮罩，遮罩像时钟指针扫过一样逐渐退去，中间显示剩余秒数，最后一秒显示一位小数，冷却结束闪一下。</p>
+<p><b>思路</b>：遮罩是一张和按钮同形状的圆，Image Type = Filled、Fill Method = Radial 360、Origin = Top、<b>Clockwise 关闭</b>；冷却时 fillAmount 从 1 降到 0。遮罩、文字都要关掉 Raycast Target，点击由底下的 Button 接收。</p>
+<ol class="steps">
+<li>建一个圆形 Image 作为技能底图，添加 Button 组件；子物体放技能图标。</li>
+<li>再建一个子物体 CooldownMask：Image 用 circle 精灵、颜色黑色半透明，按 4.6 节设置 Filled 参数，拉伸撑满父节点，取消 Raycast Target。</li>
+<li>再建 Countdown 文字（TextMeshPro，居中、粗体），同样撑满、取消 Raycast Target。</li>
+<li>在技能底图上挂 SkillCooldown，把遮罩和文字拖进对应字段。</li>
+</ol>
+<pre class="code" data-file="Ch04/SkillCooldown.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch04/SkillCooldown.cs" data-region="logic"></pre>
+<p>几个要点：</p>
+<ul>
+<li><b>SetRemain 是公开的</b>：读档后恢复冷却、服务器下发剩余时间、单元测试都可以直接调用。不要把所有逻辑塞进 Update。</li>
+<li><b>不冷却时关掉遮罩</b>：<code>m_Mask.enabled = t &gt; 0</code>。fillAmount 为 0 时 Filled 已经不生成网格，但关掉组件连这次重建都省了。</li>
+<li><b>文字用 SetText 带参数</b>：<code>SetText("{0:1}", remain)</code> 是 TMP 的格式化接口，不会每帧拼字符串产生垃圾，第 5 章细讲。</li>
+<li>冷却中点击会被 <code>Cast()</code> 忽略，按钮本身仍然可点（播放“技能未就绪”的提示音之类的需求很常见）。如果希望冷却时按钮呈禁用样式，设 <code>interactable = false</code> 即可，第 6 章会讲它对状态机的影响。</li>
+</ul>
+<figure class="shot"><img src="img/ch04-cooldown.jpg"><figcaption><b>图 4-16</b> 技能冷却的三个时刻（实拍）</figcaption></figure>
+<div class="scene">Ch04/Scenes/Ch04_Cooldown.unity</div>
+<p><b>扩展方向</b>：充能型技能（最多存 3 次）可以在图标角上加一个层数文字，冷却遮罩表示“下一层”的进度；冷却中按住显示技能说明，是 HUD 章（第 17 章）的内容。</p>
+
+<h3 class="case"><span class="no">案例 4.3</span>带延迟白条的血条<span class="lv">入门</span></h3>
+<p><b>目标</b>：受击时血条立刻缩短，后面跟一条白色“残影”，停顿一下再平滑追上来，让玩家一眼看清这一下掉了多少血；血量低于 60% 变橙、低于 30% 变红；连续受击时白条攒住整段伤害。</p>
+<p><b>思路</b>：两个叠在一起的 Filled / Horizontal Image：下面一层是白条（Delay），上面一层是血条（Fill）。受伤时 Fill 立刻改，Delay 记录一个停顿计时，计时结束后用 <code>Mathf.MoveTowards</code> 匀速追赶。</p>
+<pre class="code" data-file="Ch04/DelayedHealthBar.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch04/DelayedHealthBar.cs" data-region="logic"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>层级顺序决定谁盖住谁</b>。Delay 必须在 Fill 之前（Hierarchy 中靠上），这样 Fill 画在上面，白条只露出 Fill 右侧的那一截。</li>
+<li><b>连续受击</b>：每次 <code>Damage</code> 都重置 <code>m_Hold</code>，白条在连击过程中一直停着，攒住整段伤害，最后一起退去。这是格斗、动作游戏里的常见手感。</li>
+<li><b>回血</b>：白条不能落在血条后面，所以 Heal 时把 Delay 直接抬到新值。也有游戏用另一种颜色（绿色）表示“即将回复的量”，思路相同，只是追赶方向反过来。</li>
+<li><b>Gradient 用 Fixed 模式</b>：Blend 模式会在绿色和橙色之间插出一段发灰的“橄榄色”，Fixed 模式下按区间直接切换颜色，更干净。</li>
+<li><b>Tick(dt) 是公开的</b>，图 4-17 就是在不运行游戏的情况下调 <code>Damage(380)</code> 再 <code>Tick</code> 两次拍出来的“中间状态”。</li>
+</ul>
+<figure class="shot"><img src="img/ch04-hpbar.jpg"><figcaption><b>图 4-17</b> 满血、受击瞬间、白条追赶中（实拍）</figcaption></figure>
+<div class="scene">Ch04/Scenes/Ch04_HealthBar.unity</div>
+<div class="note"><b>为什么填充图用方角</b>本例的填充精灵是一张 32×32 的方形渐变图，外框的圆角由底板 round_8 提供。原因正是 4.6 节说的：Filled 不支持九宫格，用圆角图做 Filled，两端的圆角会随填充量被拉伸、被切掉。如果设计一定要圆角填充，改用“Sliced + 改宽度”的方式，或用 RectMask2D 裁剪。</div>
+
+<h3 class="case"><span class="no">案例 4.4</span>不规则形状按钮<span class="lv">进阶</span></h3>
+<p><b>目标</b>：星形按钮只在星星本身响应点击，五个尖角之间的透明区域点下去，点击穿透给后面的背景；圆环按钮中间的洞点不中。</p>
+<p><b>思路</b>：按 4.8 节，纹理开启 Read/Write，运行时设置 <code>alphaHitTestMinimumThreshold</code>。</p>
+<ol class="steps">
+<li>选中星形图片，在导入设置里勾选 <b>Read/Write</b>，压缩格式不要用 Crunch，Apply。</li>
+<li>建 Image + Button，Source Image 选星形精灵。</li>
+<li>挂上 AlphaHitArea 组件，阈值保持 0.5。</li>
+</ol>
+<pre class="code" data-file="Ch04/AlphaHitArea.cs" data-region="main"></pre>
+<p>代码在设置前先检查纹理是否可读，给出明确的提示，而不是让 setter 抛出一个没头没脑的异常。图 4-18 是用这三个按钮实拍的检测结果：在每个按钮的矩形范围里均匀取 15×15 个点，<b>直接调用</b> <code>Image.IsRaycastLocationValid</code>，绿点表示能点中，红点表示点不中。</p>
+<figure class="shot"><img src="img/ch04-hit.jpg"><figcaption><b>图 4-18</b> 阈值 0（整个矩形都能点）与阈值 0.5（只有不透明像素能点）的对比，点阵是真实检测结果</figcaption></figure>
+<div class="scene">Ch04/Scenes/Ch04_AlphaHit.unity</div>
+<p>场景里有一个铺满全屏的“背景”按钮，配合 HitLog 组件显示每次点中的是谁，可以亲手验证：点星星的尖角之间，点中的是背景。</p>
+<pre class="code" data-file="Ch04/HitLog.cs"></pre>
+<p><b>常见坑</b>：</p>
+<ul>
+<li>开了 Read/Write 的纹理会在内存里多一份副本，大图慎用。地图省份这种大面积的不规则区域，更好的做法是用多边形碰撞判断（把 PolygonCollider2D 的路径点数据拿来做点在多边形内的判断）或者一张低分辨率的“点击掩码图”。</li>
+<li>Sliced 类型也支持 alpha 检测，<code>MapCoordinate</code> 会按九宫格规则把点映射回纹理，但边框缩放比的计算用的是 <code>pixelsPerUnit</code> 而不是乘了 Multiplier 之后的值，Multiplier 不为 1 时边缘附近可能有偏差，以实际测试为准。</li>
+<li>Filled 类型做 alpha 检测时，检测的是整张精灵的像素，与填了多少无关。</li>
+</ul>
+
+<h3 class="case"><span class="no">案例 4.5</span>无限滚动背景（UV Rect）<span class="lv">入门</span></h3>
+<p><b>目标</b>：两层山丘剪影以不同速度向左滚动，形成视差，永远不会“滚到头”。</p>
+<p><b>思路</b>：不移动物体，而是移动 RawImage 的 UV。纹理设成横向 Repeat，每帧把 <code>uvRect.x</code> 加一点，画面就会循环滚动。远处的层滚得慢、近处的层滚得快，就有了纵深感。</p>
+<ol class="steps">
+<li>准备横向可无缝平铺的山丘图（本例由代码生成：正弦波的频率取整数，保证首尾高度一致）。导入设置：Texture Type 保持 <b>Default</b> 即可，<b>Wrap Mode 的 U 方向设 Repeat、V 方向设 Clamp</b>（展开 Wrap Mode 可以分别设置 U / V）。</li>
+<li><span class="menu">UI › Raw Image</span> 建两层，锚点设为底部横向拉伸，高度分别 420 和 300，Texture 拖入两张山丘图。</li>
+<li>分别挂上 UVScroller，Speed 填 (0.015, 0) 和 (0.05, 0)。</li>
+</ol>
+<pre class="code" data-file="Ch04/UVScroller.cs" data-region="main"></pre>
+<p>讲解：</p>
+<ul>
+<li><b>Mathf.Repeat 取模</b>：uvRect.x 一直累加，跑几个小时后浮点数会很大、精度下降，画面会开始抖动。取模保持在 0~1，效果完全一样。</li>
+<li><b>FitAspect</b>：RawImage 默认 UV 宽度 1，会把整张纹理压进控件。控件比纹理“宽”时，按宽高比算出 UV 宽度（比如 2.3），纹理就以原比例重复 2.3 次，不会被横向拉伸。在 <code>OnRectTransformDimensionsChange</code> 里调用，分辨率变化时自动重算。</li>
+<li><b>为什么 V 方向要 Clamp</b>：作者第一次生成时 U、V 都设了 Repeat，结果山顶上方出现了一条细线。原因是双线性过滤在纹理最上面一行采样时，会混入“重复过来”的最下面一行（不透明的山体）。只需要水平循环的图，V 方向一定用 Clamp。</li>
+</ul>
+<figure class="shot"><img src="img/ch04-parallax.jpg"><figcaption><b>图 4-19</b> 两层 RawImage 视差滚动（实拍，滚动了一段时间后的画面）</figcaption></figure>
+<div class="scene">Ch04/Scenes/Ch04_Parallax.unity</div>
+<p><b>性能提示</b>：修改 uvRect 会让这个 RawImage 重建网格（只有 4 个顶点），开销很小；但重建会标记 Canvas 需要重新合批。把持续运动的背景放进单独的子 Canvas（动静分离，第 20 章），避免拖累整个界面。如果背景层数很多，也可以写一个 UV 动画 Shader，让 GPU 根据时间偏移 UV，CPU 完全不用动（第 14 章）。</p>
+
+<h3 class="case"><span class="no">案例 4.6</span>头像框<span class="lv">入门</span></h3>
+<p><b>目标</b>：圆形头像 + 按品质染色的外环 + 底部等级角标 + 右上角红点，点击轮换头像。</p>
+<p><b>思路</b>：方形头像放进一个带 Mask 的圆形节点里裁成圆；外环是白色 ring 精灵，用 Image.color 染成品质色；角标和红点按锚点定位到外框的底边中点和右上角（第 3 章九宫格位置角标的做法）。</p>
+<pre class="code" data-file="Ch04/AvatarFrame.cs" data-region="fields"></pre>
+<pre class="code" data-file="Ch04/AvatarFrame.cs" data-region="setdata"></pre>
+<figure class="shot"><img src="img/ch04-avatar.jpg"><figcaption><b>图 4-20</b> 五种品质的头像框（实拍）</figcaption></figure>
+<div class="tree" data-tree="ch04-avatar" data-root="Canvas/AvatarFrame_avatar_2" data-depth="2"></div>
+<div class="scene">Ch04/Scenes/Ch04_Avatar.unity</div>
+<p>讲解：</p>
+<ul>
+<li><b>Mask 节点的 Show Mask Graphic 关闭</b>：Mask 用自身 Image 的形状（circle）作为模板，但自己不显示出来。Mask 的原理（模板缓冲）以及为什么在长列表里更推荐 RectMask2D，第 9、14 章再讲；这里只用它最基本的功能。</li>
+<li><b>一套素材多种品质</b>：外环、红点都是白色精灵 + Color 染色。美术只需要出一张图，新增品质只改颜色表。注意 Color 是乘法，彩色精灵用 Color 染色会变脏，所以要染色的图一律出白色（或灰度）版本。</li>
+<li><b>层级顺序</b>：Mask（含头像）→ 外环 → 角标 → 红点，后面的盖住前面的，外环正好压住头像被裁出的锯齿边缘。</li>
+<li>根节点上有一张全透明的 Image 作为点击区域，Button 的 Transition 设为 None。透明 Image 仍然会生成网格、参与渲染（只是输出的像素全透明）。只要点击区域、不要画面时，可以写一个 OnPopulateMesh 里什么都不加的 Graphic 子类，它照样能被射线检测到（自定义 Graphic 见第 13 章）。</li>
+</ul>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>Image 用的是 Sprite，纹理要先导入为 Sprite (2D and UI)；UI 纹理一般关闭 Mipmap 和 Read/Write，改完点 Apply；规则多了用编辑器脚本统一设置。</li>
+<li>原生尺寸 = 精灵像素 × Canvas Reference PPU ÷ 精灵 PPU；PPU 同样决定九宫格边框的显示大小，多倍图把 PPU 设成对应倍数。</li>
+<li>Sliced 由 4×4 个顶点、最多 9 个四边形组成，四角按边框大小绘制、与控件尺寸无关；控件小于边框之和时四角被等比压缩；Pixels Per Unit Multiplier 调边框显示大小。</li>
+<li>Tiled 在纹理为 Repeat、无边框、未进图集时只用一个四边形，否则按块生成网格；要平铺的图单独存放、设 Repeat。</li>
+<li>Filled 把矩形切成若干四边形，再用 RadialCut 挪顶点得到扇形；改 fillAmount 只重建这一个 Image；Filled 不支持九宫格，也不影响点击范围。</li>
+<li>像素级点击用 alphaHitTestMinimumThreshold：纹理要可读、不能 Crunch、最好不进图集，而且该值不会被序列化，必须运行时设置；Raycast Padding 可以不改画面地扩大点击区。</li>
+<li>RawImage 显示任意 Texture，靠 UV Rect 控制采样区域，适合运行时纹理和 UV 滚动；默认用 Image，Sprite Atlas 让小图共享纹理以便合批。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>把案例 4.1 的边框图 Border 改成四边各 20 像素，再拖动对话框，观察四角花饰发生了什么变化，解释原因。</li>
+<li>用 Filled / Radial 180 做一个半圆形的仪表盘（速度表），指针用一个旋转的 Image，指针角度和 fillAmount 保持一致。</li>
+<li>给案例 4.3 的血条加上“护盾”：护盾值显示为接在血条后面的一段浅蓝色，受伤时先扣护盾。提示：再叠一层 Filled 图，它的 fillAmount = (血量 + 护盾) / 上限。</li>
+<li>写一个编辑器菜单：选中一批图片，一键设置为 Sprite、关闭 Mipmap、PPU 100，并把文件名以 <code>_9s</code> 结尾的图片的 Border 统一设成 16 像素。</li>
+<li>用 RawImage 显示一张运行时生成的 256×256 噪声纹理（<code>new Texture2D</code> + <code>SetPixels</code>），并让它的 uvRect 缓慢缩放，做出“云层流动”的效果。思考：为什么这张纹理在场景保存后再打开会丢失？应该在什么时机生成它？</li>
+</ol></div>
+</section>

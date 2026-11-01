@@ -1,0 +1,15 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,TransitionDemo
+1|PageA|Image
+2|Text|TextMeshProUGUI
+1|!PageB|Image
+2|Text|TextMeshProUGUI
+1|Buttons|HorizontalLayoutGroup
+2|Button_擦除|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_圆形|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_溶解|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+1|Transition|Image,ScreenTransition
+0|EventSystem|EventSystem,StandaloneInputModule

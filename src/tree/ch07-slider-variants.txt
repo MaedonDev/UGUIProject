@@ -1,0 +1,86 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Horizontal|
+2|Shadow|Image
+2|Bg|Image
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Text|TextMeshProUGUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Text|TextMeshProUGUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Tick|Image
+2|Text|TextMeshProUGUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Text|TextMeshProUGUI
+1|Vertical|
+2|Shadow|Image
+2|Bg|Image
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Slider_Radial|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

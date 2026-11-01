@@ -1,0 +1,318 @@
+<section class="chapter" id="c19" data-title="适配、多语言与 3D 混合" data-sub="横竖屏、安全区、本地化、RenderTexture、粒子排序与 World Space">
+<div class="chap-head"><div class="num">CHAPTER 19<b>第 19 章</b></div><h2>适配、多语言与 3D 混合</h2><p class="lead">界面做出来只是第一步。上线之后，它要跑在各种比例的屏幕上、绕开刘海和圆角、翻译成好几种语言，还常常要和 3D 模型、粒子特效、场景里的物体混在一起。这一章把这些“做完界面之后才冒出来”的问题集中处理掉，每一类都给出一个能直接放进项目的组件。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>适配的三层分工：CanvasScaler 管缩放、锚点管贴边、布局切换管结构</div><div>用 AspectLayout 在横屏 / 竖屏两套布局之间自动切换</div><div>Safe Area 的坐标、逐边适配、背景延伸进刘海的做法</div><div>一套完整的轻量本地化：CSV 表、LocalizedText、按语言换字体、伪本地化</div><div>文字变长时的三种排版对策，以及 Unity Localization 包怎么选</div><div>RenderTexture 角色展示（拖拽旋转、透明背景、预乘 Alpha 的坑）</div><div>粒子夹在两层 UI 之间的排序方案，以及 World Space 画布的交互</div></div>
+
+<h3 class="sec">19.1 适配的三层分工</h3>
+<p>第 2 章讲了 Canvas Scaler，第 3 章讲了锚点，很多人会觉得“适配”就是这两件事。确实，90% 的界面只要 <b>Scale With Screen Size + 合理的锚点</b> 就够了。但项目做到后期你会碰到三类它们解决不了的情况：</p>
+<ul>
+<li><b>比例差得太多</b>：同一套界面要同时跑在 21:9 的手机横屏、4:3 的平板和 9:16 的竖屏上。锚点只能让元素“贴边”和“拉伸”，没法把“横幅在左、按钮在右”变成“横幅在上、按钮在下”。</li>
+<li><b>屏幕不是矩形</b>：刘海、挖孔、圆角、底部 Home 指示条。CanvasScaler 只知道屏幕有多大，不知道哪一块被挡住了。</li>
+<li><b>内容长度会变</b>：同一个按钮，中文“设置”两个字，德语是 <code>Einstellungen</code> 十三个字母。</li>
+</ul>
+<p>所以我习惯把适配分成三层，每一层只解决自己的问题，互不越界：</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="12" width="580" height="60" rx="8" fill="#f1effc" stroke="#5b4bd6"/>
+<text x="24" y="36" fill="#5b4bd6" font-weight="bold">第 1 层：Canvas Scaler —— 缩放</text>
+<text x="24" y="58" fill="#1f2436">把“设计分辨率”映射到真实屏幕；决定 1 个 UI 单位等于几个像素（第 2 章）</text>
+<rect x="10" y="84" width="580" height="60" rx="8" fill="#fff4ea" stroke="#ff8a3d"/>
+<text x="24" y="108" fill="#ff8a3d" font-weight="bold">第 2 层：锚点 + Safe Area —— 贴边</text>
+<text x="24" y="130" fill="#1f2436">元素相对父节点哪条边固定、哪个方向拉伸；整体先让开刘海和圆角（第 3 章 + 19.3 节）</text>
+<rect x="10" y="156" width="580" height="60" rx="8" fill="#eef8f2" stroke="#2fb36a"/>
+<text x="24" y="180" fill="#2fb36a" font-weight="bold">第 3 层：布局切换 —— 结构</text>
+<text x="24" y="202" fill="#1f2436">比例越过阈值时，换一套锚点 / 显隐 / 列数（19.2 节）；文字长短变化交给弹性布局（19.5 节）</text>
+</svg><figcaption><b>图 19-1</b> 适配的三层分工：越往下越“重”，能在上一层解决的就不要拖到下一层</figcaption></figure>
+<p>这个分层有一个很实际的好处：<b>排查问题时知道该去哪儿找</b>。界面整体偏大偏小，看 CanvasScaler；某个元素离边太近、被刘海挡住，看锚点和 Safe Area；横屏好好的、竖屏挤成一团，才需要第三层。很多项目把三件事搅在一起——在代码里根据 <code>Screen.width</code> 手算每个元素的位置——结果每加一种机型都要改代码。</p>
+
+<h3 class="case"><span class="no">案例 19.1</span>横竖屏 / 不同比例的布局切换<span class="lv">进阶</span></h3>
+<p><b>目标</b>：一个游戏大厅，横屏时横幅在左、四个入口按钮在右；竖屏时横幅在上、按钮在下排成两列。21:9、16:9、4:3 都用横屏布局，但要各自好看；9:16 自动切到竖屏布局。拖动 Game 视图的分辨率就能看到切换。</p>
+<p><b>思路</b>：最直接的做法是做两个预制体，横屏一个、竖屏一个，转屏时销毁重建。它的问题是两份预制体要同步维护，界面状态（滚动位置、输入框里的字）在切换时丢失。更轻的做法是：<b>只有少数几个“大块”的 RectTransform 需要在两种布局之间变化</b>，给它们各记两份锚点快照，比例越过阈值时整体套用另一份。块内部的东西照常用锚点和布局组，自然跟着走。</p>
+<p>为什么判断依据是“本节点自己的 rect”而不是 <code>Screen.width / Screen.height</code>？因为 Canvas 的 rect 就是屏幕按 CanvasScaler 换算后的大小，比例和屏幕一致；而用自己的 rect 还有两个额外的好处：它能嵌套使用（比如一个只占半屏的面板也想按自己的比例切换），也能在编辑器里放进“预览框”里测试——本节的配图就是把同一个大厅放进三个不同比例的“屏幕框”里拍的。</p>
+<pre class="code" data-file="Ch19/AspectLayout.cs" data-region="state"></pre>
+<p><code>RectState</code> 就是 RectTransform 的五个核心字段（第 3 章讲过，<code>offsetMin/offsetMax</code> 可以由它们算出来，不必另存）。每个 <code>Entry</code> 记一个目标的两份状态。切换逻辑如下：</p>
+<pre class="code" data-file="Ch19/AspectLayout.cs" data-region="refresh"></pre>
+<p>几个要点：</p>
+<ul>
+<li><b>触发时机</b>是 <code>OnRectTransformDimensionsChange</code>。这是 UIBehaviour 提供的回调，节点尺寸变化时由 Unity 调用——转屏、改 Game 视图分辨率、父节点拉伸都会触发，不需要在 Update 里每帧检查。</li>
+<li><b>滞回（hysteresis）</b>：如果某台设备的比例正好卡在阈值附近（比如折叠屏展开到一半），没有滞回的话可能在两种布局之间来回跳。规则是“横屏要变成竖屏，比例得低于 <code>阈值 − 0.05</code>；反过来要高于 <code>阈值 + 0.05</code>”。</li>
+<li><b>切完之后标记布局重建</b>：我们是在尺寸回调里改了子节点的锚点，子节点下面如果有布局组，需要 <code>LayoutRebuilder.MarkLayoutForRebuild</code> 让它在本帧的布局阶段重新排列（第 10、12 章讲过布局的两阶段）。</li>
+<li><b>编辑模式默认不切换</b>：组件标了 <code>[ExecuteAlways]</code>，但只有勾选 <code>previewInEditMode</code> 时才会在编辑模式下自动套用快照。否则你在 Scene 里手动挪了横幅，一改 Game 视图尺寸就被快照覆盖，非常恼人。</li>
+</ul>
+<p>两份快照怎么录？提供了两个右键菜单：</p>
+<pre class="code" data-file="Ch19/AspectLayout.cs" data-region="capture"></pre>
+<ol class="steps">
+<li>在 Canvas 下建一个铺满的 <code>Screen</code> 节点，挂 <span class="menu">Add Component › Aspect Layout</span>，在 <code>Entries</code> 里加两项，分别拖入 <code>Banner</code> 和 <code>Menu</code>。</li>
+<li>把 Game 视图设成 <code>1920×1080</code>，在 Scene 里把横幅摆在左边 60%、按钮区摆在右边 40%（用锚点拉伸，第 3 章的做法）。</li>
+<li>在 Aspect Layout 组件标题上右键，选 <span class="menu">记录当前为横屏布局</span>。</li>
+<li>把 Game 视图切到 <code>1080×1920</code>，把横幅改成上半屏、按钮区改成下半屏，右键 <span class="menu">记录当前为竖屏布局</span>。</li>
+<li>点 Play，来回切换 Game 视图的分辨率，布局会自动跟着变。</li>
+</ol>
+<p>按钮区内部用的是 GridLayoutGroup，约束（Constraint）保持 <code>Flexible</code>：格子尺寸固定，列数由宽度自动决定。于是横屏右侧的窄区域里是一列，竖屏下半屏里是两列，21:9 的超宽屏右侧更宽，也自动排成了两列——<b>这部分完全不需要切换逻辑参与</b>，这就是“块之间用快照、块内部用布局”的分工。</p>
+<figure class="shot"><img src="img/ch19-aspect-land.jpg"><figcaption><b>图 19-2</b> 同一个大厅在三种横屏比例下：横幅用 AspectRatioFitter（Envelope Parent）保持 2:1 不变形、多余部分被裁掉；按钮区的列数由 GridLayoutGroup 按宽度自动决定</figcaption></figure>
+<figure class="shot"><img src="img/ch19-aspect-portrait.jpg"><figcaption><b>图 19-3</b> 竖屏 9:16：左边是不做布局切换、硬套横屏锚点的结果（横幅被挤成细条、按钮溢出），右边是 AspectLayout 自动切到竖屏布局</figcaption></figure>
+<div class="tree" data-tree="ch19-aspect-portrait" data-root="Device_Adapt/Screen" data-depth="1" data-title="Hierarchy · 大厅（AspectLayout 挂在 Screen 上）"></div>
+<div class="scene">Ch19/Scenes/Ch19_Responsive.unity</div>
+<div class="note tip"><b>提示</b>横幅图用的是“外框 + RectMask2D + 内部图片挂 AspectRatioFitter(Envelope Parent)”的结构。Envelope Parent 的意思是“保持比例并完全覆盖父节点”，多出来的部分被外框裁掉——这正是 CSS 里 <code>object-fit: cover</code> 的效果。背景图、横幅、封面图都应该这么做，不要直接把图片拉伸到任意比例。</div>
+<h4>还有哪些切换手段</h4>
+<p>锚点快照能覆盖大部分需求，但有时你需要更多：</p>
+<div class="kv"><span>显隐不同的节点</span><span>竖屏放不下侧边栏，就把它藏起来，换成底部的页签栏：<code>landscapeOnly</code> / <code>portraitOnly</code> 两个数组正是为此准备的</span><span>改布局组参数</span><span>监听 <code>onModeChanged</code> 事件，在回调里改 GridLayoutGroup 的 <code>constraintCount</code>、HorizontalLayoutGroup 的 <code>spacing</code> 等</span><span>换整个预制体</span><span>两种布局差别大到连控件都不同（比如竖屏把列表改成卡片流），才值得做两套预制体，切换时把数据重新绑一次</span><span>按设备类型而不是比例</span><span>平板和手机比例接近但希望字号不同：可以结合 <code>Screen.dpi</code> 或物理尺寸判断，再改 CanvasScaler 的参考分辨率</span></div>
+<p>还有一个容易忽略的配合点：<b>CanvasScaler 的 Match 值也应该随方向变</b>。横屏游戏常用 Match = 1（按高度适配，宽屏两侧多出空间），可一旦允许竖屏，按高度适配会让竖屏下的界面被横向压得很窄。常见做法是在 <code>onModeChanged</code> 里把参考分辨率换成竖屏的 1080×1920、Match 改成 0（按宽度适配）。这样两种方向下“一个 UI 单位等于多少像素”都保持合理，快照里记录的尺寸也不会在切换后显得过大或过小。</p>
+<div class="note warn"><b>注意</b>移动端还要配合 <span class="menu">Project Settings › Player › Resolution and Presentation › Default Orientation</span>。选 <code>Auto Rotation</code> 并勾选允许的方向，系统才会在用户转动手机时改变屏幕方向；如果游戏只支持横屏，就锁定 Landscape Left/Right，此时 AspectLayout 只需要处理不同的横屏比例。</div>
+
+<h3 class="sec">19.2 Safe Area 深入</h3>
+<p>第 3 章做过一个最简单的 SafeArea 组件：把 <code>Screen.safeArea</code> 换算成锚点。真正在项目里用，还要处理几个细节。先把概念摆清楚：</p>
+<figure><svg viewBox="0 0 600 270" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="20" width="250" height="230" rx="26" fill="#1f2436"/>
+<rect x="28" y="28" width="234" height="214" rx="20" fill="#eef0f6"/>
+<rect x="110" y="30" width="70" height="18" rx="9" fill="#000"/>
+<rect x="40" y="58" width="210" height="160" fill="none" stroke="#ff8a3d" stroke-width="2" stroke-dasharray="6 4"/>
+<rect x="110" y="230" width="70" height="5" rx="2.5" fill="#1f2436"/>
+<text x="62" y="140" fill="#ff8a3d">Screen.safeArea</text>
+<text x="44" y="236" fill="#7a8299" font-size="12">(0,0)</text>
+<line x1="34" y1="238" x2="34" y2="226" stroke="#7a8299"/>
+<text x="300" y="44" fill="#1f2436" font-weight="bold">Screen.safeArea 的含义</text>
+<text x="300" y="70" fill="#1f2436">· 单位是<tspan fill="#5b4bd6">屏幕像素</tspan>，原点在<tspan fill="#5b4bd6">左下角</tspan></text>
+<text x="300" y="94" fill="#1f2436">· 与 CanvasScaler 无关：先除以屏幕宽高</text>
+<text x="300" y="114" fill="#1f2436">  变成 0~1 的比例，再当锚点用</text>
+<text x="300" y="140" fill="#1f2436">· 转屏后它会变：竖屏让开上下，</text>
+<text x="300" y="160" fill="#1f2436">  横屏让开左右（和底部 Home 条）</text>
+<text x="300" y="186" fill="#1f2436">· Screen.cutouts 给出每个刘海/挖孔的矩形，</text>
+<text x="300" y="206" fill="#1f2436">  需要精细避让（比如只躲开挖孔）时用</text>
+<text x="300" y="232" fill="#7a8299">· 编辑器 Game 视图里它等于整个屏幕；</text>
+<text x="300" y="252" fill="#7a8299">  用 Device Simulator 才能看到真实值</text>
+</svg><figcaption><b>图 19-4</b> 安全区是屏幕上“不会被硬件或系统手势挡住”的矩形（示意）</figcaption></figure>
+<h4>问题一：不是所有边都该让开</h4>
+<p>“整个界面缩进安全区”是最安全的做法，但视觉上往往不好看：顶栏的紫色背景在刘海两侧断开，露出一截页面底色；底部页签栏下面多出一条空白。好看的做法是<b>背景延伸进去、内容留在里面</b>。实现上有两种：</p>
+<ul>
+<li>背景条放在安全区面板里面，但让它的 RectTransform 向外多撑出一截（offset 设成负数），屏幕边缘自然会把多余部分切掉；</li>
+<li>或者给不同的部分各挂一个 SafeAreaPanel，用 <code>conform</code> 只让开部分边——比如全屏背景层只让开左右（横屏时躲开刘海），而底部按钮层只让开底边。</li>
+</ul>
+<h4>问题二：安全区会在运行中变化</h4>
+<p>转屏、折叠屏展开、Android 用户切换“手势导航 / 三键导航”、iPad 进入分屏，都会让安全区变化，而且<b>不一定伴随分辨率变化</b>。所以不能只在 Start 里算一次。另一方面，每帧都去改锚点也不好——即使值没变，赋值本身也会让 RectTransform 走一遍脏标记检查。折中是每帧读一次 <code>Screen.safeArea</code>（很便宜），和上次比较，变了才改：</p>
+<pre class="code" data-file="Ch19/SafeAreaPanel.cs" data-region="update"></pre>
+<pre class="code" data-file="Ch19/SafeAreaPanel.cs" data-region="apply"></pre>
+<p><code>conform</code> 是一个 <code>[Flags]</code> 枚举，Inspector 里会显示成可多选的下拉框。没勾的边把锚点“推回”屏幕边缘（0 或 1）。<code>extraPadding</code> 用于“安全区之外再留一点呼吸空间”，单位是画布像素，会被 CanvasScaler 正常缩放。</p>
+<figure class="shot"><img src="img/ch19-safearea.jpg"><figcaption><b>图 19-5</b> 模拟的刘海屏：左为未适配（标题被挡住、页签栏压在 Home 条上）；中为竖屏适配后，顶栏紫色背景延伸进刘海两侧；右为横屏，左右都让开、底部让开 Home 条（橙框即安全区面板的范围）</figcaption></figure>
+<div class="scene">Ch19/Scenes/Ch19_SafeArea.unity</div>
+<h4>问题三：在编辑器里怎么测</h4>
+<p>两个办法：</p>
+<ol>
+<li><b>Device Simulator</b>（<span class="menu">Window › General › Device Simulator</span>，Unity 2021 起内置）：Game 视图旁多出一个 Simulator 页签，选一台机型后，<code>Screen.safeArea</code>、<code>Screen.cutouts</code>、分辨率、DPI 都会返回那台设备的值，并画出设备外框。这是最推荐的做法。</li>
+<li><b>组件自带的模拟</b>：勾选 <code>simulateInEditor</code>，填一组内缩比例（左、下、右、上）。不依赖任何窗口，适合截图、写自动化测试。配套场景默认开着它，读者打开就能看到效果；要用 Device Simulator 测试时先取消勾选。</li>
+</ol>
+<div class="note warn"><b>注意</b>Android 上还要看 <span class="menu">Player Settings › Resolution and Presentation › Render outside safe area</span>：不勾时系统直接把刘海区域涂黑，游戏画面只在安全区内渲染，<code>Screen.safeArea</code> 等于整个（缩小后的）屏幕；勾选后画面铺满全屏，才需要自己做安全区适配。两种选择都合理，但要和美术、策划约定好。</div>
+
+<h3 class="sec">19.3 多语言：先想清楚的几件事</h3>
+<p>多语言（本地化，Localization，常缩写为 L10n）的代码其实不难，难的是一开始没想清楚，后期返工。动手前先定下这几件事：</p>
+<div class="kv"><span>文本放哪</span><span>所有面向玩家的文字都从“表”里取，界面上不出现任何写死的字符串。哪怕游戏暂时只有中文，也建议从第一天就这么做——后补的成本是逐个界面翻找</span><span>key 怎么起</span><span>用“模块.含义”的形式：<code>menu.start</code>、<code>settings.music</code>、<code>shop.buy</code>。不要用中文原文当 key（原文一改 key 就变），也不要用纯数字 ID（没人记得 10086 是什么）</span><span>表用什么格式</span><span>CSV 或 JSON 都行。CSV 的优势是翻译和策划可以直接用 Excel / WPS / 在线表格编辑，一行一个 key、一列一种语言，一目了然</span><span>缺翻译怎么办</span><span>回退到默认语言；缺 key 则显示 <code>#key</code>，让问题在测试时一眼可见，而不是默默显示空白</span><span>带参数的句子</span><span>“你有 {0} 个金币”整句进表，参数用占位符。<b>不要拼接</b>：“你有” + n + “个金币”在别的语言里语序完全不同</span><span>字体</span><span>不同语言的字形覆盖不同。本书配套的思源黑体子集只含 GB2312 和拉丁字母，日文假名、韩文会显示方块；真实项目要给每种语言准备字体或配置 TMP 的 Fallback（第 5 章）</span></div>
+<figure><svg viewBox="0 0 600 190" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="60" width="120" height="70" rx="8" fill="#f1effc" stroke="#5b4bd6"/>
+<text x="28" y="88" fill="#5b4bd6" font-weight="bold">strings.csv</text>
+<text x="22" y="110" fill="#1f2436" font-size="12">key, zh, en, de</text>
+<rect x="165" y="60" width="160" height="70" rx="8" fill="#fff4ea" stroke="#ff8a3d"/>
+<text x="233" y="88" fill="#ff8a3d" font-weight="bold">Loc</text>
+<text x="175" y="110" fill="#1f2436" font-size="12">Get · Format · SetLanguage</text>
+<rect x="360" y="20" width="220" height="44" rx="8" fill="#eef8f2" stroke="#2fb36a"/>
+<text x="374" y="47" fill="#1f2436">LocalizedText（标题）</text>
+<rect x="360" y="74" width="220" height="44" rx="8" fill="#eef8f2" stroke="#2fb36a"/>
+<text x="374" y="101" fill="#1f2436">LocalizedText（按钮）</text>
+<rect x="360" y="128" width="220" height="44" rx="8" fill="#eef8f2" stroke="#2fb36a"/>
+<text x="374" y="155" fill="#1f2436">LocFontSet（各语言字体、字号）</text>
+<line x1="130" y1="95" x2="163" y2="95" stroke="#7a8299" stroke-width="2" marker-end="url(#a19)"/>
+<line x1="325" y1="85" x2="358" y2="44" stroke="#7a8299" stroke-width="2" marker-end="url(#a19)"/>
+<line x1="325" y1="95" x2="358" y2="96" stroke="#7a8299" stroke-width="2" marker-end="url(#a19)"/>
+<line x1="470" y1="128" x2="470" y2="120" stroke="#7a8299" stroke-width="2"/>
+<text x="196" y="160" fill="#7a8299" font-size="12">切换语言 → Changed 事件</text>
+<defs><marker id="a19" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+</svg><figcaption><b>图 19-6</b> 本节的本地化结构：表 → 静态类 Loc → 每个文字组件各自刷新</figcaption></figure>
+
+<h3 class="case"><span class="no">案例 19.2</span>本地化表与 Loc 静态类<span class="lv">进阶</span></h3>
+<p><b>目标</b>：一张 CSV 表管理所有文本；运行时按 key 取当前语言的字符串；切换语言时通知所有界面刷新；记住玩家的选择，首次启动按系统语言选。</p>
+<p>表放在 <code>Ch19/Resources/Ch19/strings.csv</code>，长这样（节选）：</p>
+<pre class="code" data-lang="text">key,zh,en,de,note
+menu.start,开始游戏,Start Game,Spiel starten,
+settings.notify,消息通知,Notifications,Benachrichtigungen,德语往往比英语长 30% 以上
+coins,"你有 {0} 个金币","You have {0} coins","Du hast {0} Gold",带参数：用 Loc.Format
+dialog.quit.body,"确定要退出游戏吗？
+未保存的进度将会丢失。","Are you sure you want to quit?
+...",带换行的单元格要用双引号包起来</pre>
+<p>注意最后一行：单元格里有换行，就必须用双引号包起来；单元格里本身有双引号，要写成两个双引号 <code>""</code>。这是 CSV 的标准规则（RFC 4180），Excel 另存为 CSV 时会自动这样处理。所以解析器不能简单地 <code>Split(',')</code>，要逐字符处理引号状态：</p>
+<pre class="code" data-file="Ch19/Loc.cs" data-region="csv"></pre>
+<p>读表时，表头第一列是 key，后面每列是一种语言，遇到以 <code>note</code> 开头的列就停止（备注列给翻译看，程序不用）：</p>
+<pre class="code" data-file="Ch19/Loc.cs" data-region="load"></pre>
+<pre class="code" data-file="Ch19/Loc.cs" data-region="get"></pre>
+<p>设计上的几个取舍：</p>
+<ul>
+<li><b>静态类 + 事件</b>，而不是 MonoBehaviour 单例。本地化数据和场景无关，任何地方（包括没有 GameObject 的纯逻辑代码）都可能要取字符串；用静态类最省事。<code>Changed</code> 事件让界面层自己订阅、自己刷新，Loc 不需要知道有哪些界面存在。</li>
+<li><b>首次启动按系统语言</b>：<code>Application.systemLanguage</code> 返回 <code>SystemLanguage</code> 枚举，映射到表里的语言代码。玩家手动选过之后存进 <code>PlayerPrefs</code>，以后以玩家的选择为准。</li>
+<li><b>Resources 加载</b>：简单直接，适合文本量不大的情况。表很大或想热更新时，换成 Addressables 或从服务器下载，<code>Load(string csvText)</code> 接口不变。</li>
+</ul>
+
+<h3 class="case"><span class="no">案例 19.3</span>LocalizedText 组件与按语言换字体<span class="lv">进阶</span></h3>
+<p><b>目标</b>：给任意 TMP 文字挂上组件、填一个 key，它就显示当前语言的文字；切换语言时自动刷新；不同语言可以用不同的字体和字号倍率。</p>
+<pre class="code" data-file="Ch19/LocalizedText.cs" data-region="comp"></pre>
+<p>逐段说明：</p>
+<ul>
+<li><b>在 OnEnable 订阅、OnDisable 退订</b>，并且在 OnEnable 里立刻刷新一次。这样隐藏中的界面不会响应切换（省事），重新显示时又能补上期间错过的变化。忘了退订是本地化系统最常见的 bug：界面销毁后 Loc 的事件仍持有它的引用，下次切换语言时调用到已销毁的对象，报 <code>MissingReferenceException</code>。</li>
+<li><b>记住设计字号</b>：<code>m_BaseSize</code> 在 Awake 里记下 Inspector 里填的字号，各语言在它基础上乘倍率。如果每次切换都在当前字号上乘，切几次字号就越来越大。</li>
+<li><b>字体从 LocFontSet 取</b>：这是一个 ScriptableObject，列出每种语言的字体资源、字号倍率和字间距。拉丁字母视觉上比同字号的汉字小一圈，英文 / 德文常给 1.05～1.1 的倍率。</li>
+</ul>
+<div class="note"><b>关于配套工程的字体</b>配套工程只带了思源黑体一款字体（它本身包含拉丁字母），所以 <code>LocFontSet</code> 里三种语言都指向同一个字体资源、只有字号倍率不同。你的项目里把 en / de 的字体换成一款拉丁字体即可，代码不用改。日文、韩文也是同样的思路：每种语言一个 TMP 字体资源，或者以一个主字体为准、把其他语言的字体挂成 Fallback。</div>
+<p>场景里的设置面板，每个文字都挂了 LocalizedText，底部三个按钮由 <code>LanguageButtons</code> 调 <code>Loc.SetLanguage</code>。三种语言的效果：</p>
+<figure class="shot"><img src="img/ch19-loc-langs.jpg"><figcaption><b>图 19-7</b> 同一个设置面板在中文、英文、德文下：结构完全不动，文字由 LocalizedText 按 key 取；德语的 “Automatisch speichern” 太长，标签开着 Auto Size 自动缩小了一号</figcaption></figure>
+<div class="scene">Ch19/Scenes/Ch19_Localization.unity</div>
+<div class="note tip"><b>提示</b>除了文字，图片也可能要本地化：带字的 Logo、写着“NEW”的角标、不同地区不同的货币图标。思路相同——做一个 <code>LocalizedSprite</code> 组件，按语言从表里取精灵名再加载。能避免就尽量避免：把字从图里拿出来，用 TMP 叠在图上，一套图走天下。</div>
+
+<h3 class="sec">19.4 文字长度差异的排版对策</h3>
+<p>同一句话在不同语言里的长度差别很大。经验上，英文比中文长 1.5～3 倍（按字符宽度算），德语、俄语又比英语长 20%～40%；反过来日文、韩文和中文接近。界面按中文设计、上线后翻成德语，最常见的事故就是文字冲出按钮。三种对策：</p>
+<figure class="shot"><img src="img/ch19-loc-length.jpg"><figcaption><b>图 19-8</b> 同一个“领取每日奖励”按钮（宽 380）在中 / 英 / 德三种语言下：① 不处理，英、德文冲出按钮（红框）；② TMP Auto Size，自动缩小，但德文已经小到难以辨认；③ 水平布局 + ContentSizeFitter，按钮跟着文字变宽，并用 LayoutElement 保证最小宽度</figcaption></figure>
+<div class="kv"><span>① 预留空间</span><span>设计阶段就按最长的语言留宽度（常见做法是按英文再加 30%）。最省心，但中文版会显得空</span><span>② Auto Size</span><span>TMP 的 <code>enableAutoSizing</code> + <code>fontSizeMin/Max</code>。简单，但有下限：缩得太小就看不清；而且每次改文字都要多次排版试字号——第 20 章实测它让单段文字的重建耗时变成原来的 5 倍左右，不要用在每帧变化的文字上</span><span>③ 弹性布局</span><span>让容器跟着文字长：按钮挂 HorizontalLayoutGroup + ContentSizeFitter，标签允许换行，列表行高由内容撑开（第 10 章）。界面要有足够的“弹性空间”，适合按钮、标签、对话气泡</span><span>④ 截断 + 提示</span><span>TMP 的 <code>overflowMode = Ellipsis</code>，放不下显示“…”，长按或悬停显示全文。适合列表里的名字、描述等次要信息</span></div>
+<p>实际项目里通常组合使用：<b>按钮用 ③</b>，标题用 ② 并把下限设得保守一些，列表里的次要文字用 ④。图 19-8 中③的做法是给按钮加 HorizontalLayoutGroup（左边距留给图标、图标本身用 <code>LayoutElement.ignoreLayout</code> 排除在布局外）、ContentSizeFitter 横向取 Preferred Size，再加一个 LayoutElement 把 <code>minWidth</code> 设成 380——中文短的时候按钮保持设计宽度，外语长了才变宽。</p>
+<h4>伪本地化：还没翻译就先测排版</h4>
+<p>翻译往往在开发后期才到位，等到那时再发现排版问题就晚了。<b>伪本地化（Pseudo-localization）</b>是一个很实用的技巧：自动生成一种“假语言”，把英文拉长 30% 以上并加上括号，用来提前测试：</p>
+<pre class="code" data-file="Ch19/Loc.cs" data-region="pseudo"></pre>
+<figure class="shot"><img src="img/ch19-loc-pseudo.jpg"><figcaption><b>图 19-9</b> 切到伪本地化后：所有走了本地化的文字都变成带括号、元音重复的样子；写死在界面上的“音量”纹丝不动；表里缺失的 key 显示成 #settings.vibrate——三类问题一眼就能看出来</figcaption></figure>
+<p>它一次能暴露三类问题：<b>写死的文字</b>（没变成假语言的就是没走本地化的）、<b>缺失的 key</b>（显示成 <code>#key</code>）、<b>长度不够</b>（括号被截掉就说明放不下，括号的作用就在这里）。建议在测试版本里加一个开关，QA 每轮测试切到伪语言过一遍。</p>
+
+<h3 class="sec">19.5 简述 Unity Localization 包</h3>
+<p>Unity 官方有一个本地化包 <code>com.unity.localization</code>（Package Manager 里搜 Localization），功能比本章的轻量方案完整得多：String Table / Asset Table（文本表和资源表，资源表能按语言换图片、音频、字体）、Smart Strings（复数、性别、条件格式）、CSV / Google Sheets / XLIFF 导入导出、按语言异步加载（基于 Addressables）、伪本地化、编辑器内预览。界面这边用 <code>LocalizeStringEvent</code> 一类的组件把表项绑定到文字上。</p>
+<div class="cmp"><div class="good"><h5>适合用官方包</h5>语言多（5 种以上）、文本量大、需要复数/性别等语法规则、要和专业翻译平台对接、资源也要按语言切换、团队愿意接受 Addressables</div><div class="bad"><h5>适合本章的轻量方案</h5>语言少、文本量中等、希望零依赖、构建流程简单、需要完全掌控加载和热更新逻辑（比如表从自己的服务器下载）</div></div>
+<p>两者的核心思想一致：key → 表 → 当前语言 → 通知界面刷新。从轻量方案迁移到官方包时，key 和表格内容可以直接导入，主要工作是把 LocalizedText 换成官方组件。具体 API 以你使用的包版本文档为准（本书配套工程没有安装该包）。</p>
+
+<h3 class="case"><span class="no">案例 19.4</span>RenderTexture 角色展示：拖拽旋转<span class="lv">进阶</span></h3>
+<p><b>目标</b>：角色详情界面左侧显示一个 3D 角色，玩家在上面左右拖动可以旋转、松手后有惯性，滚轮缩放；界面的背景光晕能透过模型周围显示出来。</p>
+<p><b>原理</b>：UGUI 本身画不了 3D 模型，但它能画一张贴图。让一台专用相机只拍角色，输出到 RenderTexture（渲染纹理），再用 RawImage 显示这张纹理，3D 模型就“进了” UI。这样做的好处是模型完全按 UI 的规则排序和裁剪——可以被弹窗盖住、可以放进 ScrollView、可以做淡入淡出，没有任何深度冲突。</p>
+<figure><svg viewBox="0 0 600 150" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="40" width="130" height="70" rx="8" fill="#f1effc" stroke="#5b4bd6"/><text x="75" y="70" fill="#5b4bd6" font-weight="bold" text-anchor="middle">角色模型</text><text x="75" y="92" fill="#1f2436" font-size="12" text-anchor="middle">独立 Layer / 远离场景</text>
+<rect x="160" y="40" width="130" height="70" rx="8" fill="#fff4ea" stroke="#ff8a3d"/><text x="225" y="70" fill="#ff8a3d" font-weight="bold" text-anchor="middle">ModelCamera</text><text x="225" y="92" fill="#1f2436" font-size="12" text-anchor="middle">清屏色 alpha = 0</text>
+<rect x="310" y="40" width="130" height="70" rx="8" fill="#eef8f2" stroke="#2fb36a"/><text x="375" y="70" fill="#2fb36a" font-weight="bold" text-anchor="middle">RenderTexture</text><text x="375" y="92" fill="#1f2436" font-size="12" text-anchor="middle">按显示像素创建</text>
+<rect x="460" y="40" width="130" height="70" rx="8" fill="#f5f6fa" stroke="#1f2436"/><text x="525" y="70" fill="#1f2436" font-weight="bold" text-anchor="middle">RawImage</text><text x="525" y="92" fill="#1f2436" font-size="12" text-anchor="middle">挂 ModelViewer</text>
+<line x1="140" y1="75" x2="158" y2="75" stroke="#7a8299" stroke-width="2" marker-end="url(#b19)"/><line x1="290" y1="75" x2="308" y2="75" stroke="#7a8299" stroke-width="2" marker-end="url(#b19)"/><line x1="440" y1="75" x2="458" y2="75" stroke="#7a8299" stroke-width="2" marker-end="url(#b19)"/>
+<path d="M525 112 C525 142, 80 142, 75 112" fill="none" stroke="#ff8a3d" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#b19)"/><text x="300" y="146" fill="#ff8a3d" font-size="12" text-anchor="middle">拖动的 delta.x → 旋转模型</text>
+<defs><marker id="b19" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+</svg><figcaption><b>图 19-10</b> RenderTexture 角色展示的数据流</figcaption></figure>
+<p>RenderTexture 的创建和释放放在组件的启用 / 禁用里：</p>
+<pre class="code" data-file="Ch19/ModelViewer.cs" data-region="rt"></pre>
+<p>要点：</p>
+<ul>
+<li><b>RT 尺寸 = RawImage 在屏幕上的实际像素</b>。<code>rect.size</code> 是画布单位，乘以 <code>canvas.scaleFactor</code> 才是像素（第 2 章）。写死 512×512 的话，在 2K 屏上放大显示会糊，在小屏上又浪费显存。<code>resolutionScale</code> 留给低端机降分辨率用。</li>
+<li><b>界面关闭就释放 RT、关掉相机</b>。一张 1000×1000、带 24 位深度和 4× MSAA 的 RT 要占十几 MB 显存，而且相机每帧都在渲染——界面关了还在跑，是很常见的浪费。</li>
+<li><b>清屏色的 alpha 设成 0</b>：模型以外的像素透明，界面背景（图中的紫色光晕）就能透过来。</li>
+<li><b>模型怎么不被主相机看到</b>：配套场景是把模型放在远离场景的位置（x = 100）。正式项目建议在 <span class="menu">Project Settings › Tags and Layers</span> 新建一个 <code>UIModel</code> 层，模型放进这一层，主相机的 Culling Mask 去掉它、展示相机只勾它。</li>
+</ul>
+<p>拖拽部分实现了 <code>IBeginDragHandler / IDragHandler / IEndDragHandler / IScrollHandler</code>（第 11 章），旋转量直接取 <code>PointerEventData.delta.x</code>：</p>
+<pre class="code" data-file="Ch19/ModelViewer.cs" data-region="drag"></pre>
+<p>惯性用的是“指数衰减”：每帧速度乘一个与帧时间相关的系数 <code>1 - e^(-damping·dt)</code>，帧率高低都能得到同样的减速手感。时间用 <code>Time.unscaledDeltaTime</code>，因为角色界面常在游戏暂停（<code>timeScale = 0</code>）时打开。</p>
+<figure class="shot"><img src="img/ch19-model.jpg"><figcaption><b>图 19-11</b> 角色详情界面：左侧是 RawImage 显示的 RenderTexture，模型已被拖动旋转了一个角度，背后的紫色光晕是 UI 图片，透过 RT 的透明区域显示出来</figcaption></figure>
+<div class="scene">Ch19/Scenes/Ch19_ModelViewer.unity</div>
+<h4>边缘发黑：预乘 Alpha 的坑</h4>
+<p>透明背景的 RT 有一个容易被忽视的问题：模型边缘有一圈暗边，在浅色背景上尤其明显。原因是相机渲染时，边缘的抗锯齿像素已经和“透明黑色”背景混合过了——颜色已经乘过一次 alpha，也就是<b>预乘（Premultiplied）</b>格式。而 UI/Default Shader 在片元里会再乘一次 alpha（<code>color.rgb *= color.a</code>，见第 14 章对 UI-Default.shader 的讲解），半透明的边缘就被乘了两次，变暗。</p>
+<p>解决办法是给 RawImage 换一个“认为贴图已经预乘过”的 Shader，只在这一点上与 UI/Default 不同：</p>
+<pre class="code" data-file="Ch19/Shaders/UIPremultiplied.shader" data-region="frag"></pre>
+<p>混合模式保持 <code>Blend One OneMinusSrcAlpha</code>（预乘混合，Unity 2022.3 的 UI/Default 本身也是这个混合模式），只是片元里不再用贴图的 alpha 去乘贴图的 rgb。顶点色的 alpha（包括 CanvasGroup 的透明度）仍然要同时乘到 rgb 和 a 上，界面淡入淡出才正确。</p>
+<figure class="shot"><img src="img/ch19-model-edge.jpg"><figcaption><b>图 19-12</b> 放大到像素看模型头顶的边缘（浅色背景）：左边 UI/Default，抗锯齿的边缘像素偏暗，形成一圈暗边；右边换成预乘 Shader 后，边缘自然过渡到背景色</figcaption></figure>
+<div class="note warn"><b>注意</b>Linear 色彩空间下还有另一层问题：RT 默认按 sRGB 还是线性存储会影响颜色是否偏灰。本书工程是 Gamma 空间，上面的讨论只涉及 alpha；在 Linear 项目里如果发现 RT 显示偏亮或偏灰，检查 RenderTexture 的 <code>sRGB</code>（<code>RenderTextureReadWrite</code>）设置。</div>
+<h4>点中模型上的某个部位</h4>
+<p>有时还需要“点模型的武器弹出武器详情”。RawImage 只是一张图，UGUI 不知道图里画的是什么，要自己做一次坐标换算：在 RawImage 上实现 <code>IPointerClickHandler</code>，用 <code>RectTransformUtility.ScreenPointToLocalPointInRectangle</code> 把点击位置换成 RawImage 内的本地坐标，再归一化成 0～1 的 UV（考虑 <code>uvRect</code>），然后调用展示相机的 <code>ViewportPointToRay(uv)</code> 得到一条射线，用 <code>Physics.Raycast</code> 去打模型上的 Collider。这条链路的每一步在第 3、11 章都出现过，只是把“屏幕 → UI”和“视口 → 世界”两段接在了一起。</p>
+<p><b>扩展方向</b>：多个角色同屏展示（如阵容界面）时，不要每个角色一台相机一张 RT——可以一台相机拍一排模型、输出到一张大 RT，再用多个 RawImage 的 <code>uvRect</code> 各取一块；或者干脆把这部分做成真正的 3D 场景叠在 UI 下面（Camera 模式画布，见下一节）。</p>
+
+<h3 class="sec">19.6 粒子特效与 UI 的排序</h3>
+<p>UI 上加粒子特效（按钮流光、开宝箱的星星、升级的光柱）是另一个高频需求，也是排序问题的重灾区。先理解规则，再看做法。</p>
+<h4>为什么 Overlay 画布上的粒子看不见</h4>
+<p>Screen Space - Overlay 画布不经过任何相机，Unity 在所有相机渲染完之后才把它直接画到屏幕上（第 2 章）。粒子系统是普通的 3D 渲染器，必须由相机渲染——于是它<b>永远在 Overlay 画布下面</b>，不管你把它的 sortingOrder 设多大。想让粒子和 UI 交错，画布必须改成 <b>Screen Space - Camera</b>（或 World Space），让 UI 和粒子由同一台相机渲染、参与同一套排序。</p>
+<h4>同一台相机下的排序规则</h4>
+<p>Camera 模式的画布在渲染上就是一个“透明物体”，和粒子、精灵一样进入相机的透明队列，按以下优先级从先到后排序（先画的在下面）：</p>
+<ol>
+<li><b>Sorting Layer</b>：层的顺序在 <span class="menu">Project Settings › Tags and Layers › Sorting Layers</span> 里定义；</li>
+<li><b>Order in Layer</b>：Canvas 的 <code>sortingOrder</code>、粒子 Renderer 的 <code>sortingOrder</code>；</li>
+<li>以上都相同时，才按<b>到相机的距离</b>（远的先画）——这就是“粒子有时在 UI 上面、有时在下面”的根源：Canvas 的 Plane Distance 和粒子的 Z 坐标一变，结果就变。</li>
+</ol>
+<p>所以靠距离排序是不可靠的，<b>正确的做法是让每一层都有明确不同的 sortingOrder</b>：</p>
+<figure><svg viewBox="0 0 600 170" width="600" font-family="PingFang SC" font-size="13">
+<rect x="60" y="110" width="300" height="40" rx="6" fill="#24283b"/><text x="74" y="135" fill="#fff">BgCanvas  sortingOrder = 0（背景、宝箱）</text>
+<rect x="110" y="66" width="300" height="40" rx="6" fill="#ffd54a" opacity=".85"/><text x="124" y="91" fill="#1f2436">粒子  Renderer.sortingOrder = 5</text>
+<rect x="160" y="22" width="300" height="40" rx="6" fill="#fff" stroke="#5b4bd6"/><text x="174" y="47" fill="#5b4bd6">PopupCanvas  sortingOrder = 10（弹窗）</text>
+<text x="480" y="44" fill="#7a8299">后画，在最上</text><text x="480" y="134" fill="#7a8299">先画，在最下</text>
+<line x1="470" y1="56" x2="470" y2="118" stroke="#7a8299" marker-start="url(#c19)"/>
+<defs><marker id="c19" markerWidth="8" markerHeight="8" refX="4" refY="1" orient="auto"><path d="M0,8 L4,0 L8,8 z" fill="#7a8299"/></marker></defs>
+</svg><figcaption><b>图 19-13</b> “三明治”排序：背景画布、粒子、弹窗画布各占一个 sortingOrder</figcaption></figure>
+
+<h3 class="case"><span class="no">案例 19.5</span>粒子夹在两层 UI 之间<span class="lv">进阶</span></h3>
+<p><b>目标</b>：开宝箱界面，星星粒子从宝箱里冒出来，盖在背景和宝箱上面，但被“恭喜获得”弹窗挡住。</p>
+<ol class="steps">
+<li>建两个画布，Render Mode 都选 <code>Screen Space - Camera</code>，Render Camera 拖入主相机，Plane Distance 都填 100。背景画布 Order in Layer = 0，弹窗画布 = 10。</li>
+<li>在背景画布的宝箱旁 <span class="menu">Effects › Particle System</span>。粒子系统的 Transform 会被换成 RectTransform，没关系。</li>
+<li>粒子的 Main 模块里把 <code>Scaling Mode</code> 改成 <code>Hierarchy</code>：这样它会继承画布的缩放，<code>Start Size</code>、<code>Start Speed</code>、Shape 半径都可以直接按“画布像素”填（比如大小 40～90、速度 160～420）。默认的 <code>Local</code> 模式下画布那极小的缩放不会作用到粒子大小上，粒子会大得离谱。</li>
+<li>给粒子挂 <code>UIParticleOrder</code> 组件，<code>Offset</code> 填 5：它会把粒子的 sortingLayer / sortingOrder 设成“所属画布 + 5”。</li>
+</ol>
+<pre class="code" data-file="Ch19/UIParticleOrder.cs" data-region="order"></pre>
+<p>为什么不直接在 Inspector 里把粒子 Renderer 的 Order in Layer 填成 5？可以，但界面多了以后，画布的 order 会被 UI 框架动态分配（第 16 章的层级管理：Normal 层 100、Popup 层 200……），粒子写死的数字很快就对不上了。<code>UIParticleOrder</code> 用的是<b>相对值</b>，界面挪到哪一层，粒子跟到哪一层。<code>SortingCanvas</code> 找的是“真正决定排序的画布”：最近的根画布，或者开了 <code>overrideSorting</code> 的嵌套画布——没开 Override Sorting 的嵌套画布沿用父画布的排序，它自己的 sortingOrder 不起作用。</p>
+<figure class="shot"><img src="img/ch19-particles.jpg"><figcaption><b>图 19-14</b> 粒子的 sortingOrder 分别取 5、-1、20：5 时正好夹在背景（0）和弹窗（10）之间；-1 时整个被背景画布盖住；20 时连弹窗都被盖住了</figcaption></figure>
+<div class="scene">Ch19/Scenes/Ch19_ParticleSorting.unity</div>
+<p>反过来的需求也很常见：按钮上冒粒子，但按钮上的文字、红点要压在粒子上面。这时给“要抬上去的元素”加一个开启 Override Sorting 的嵌套画布：</p>
+<pre class="code" data-file="Ch19/UISortingOverride.cs" data-region="override"></pre>
+<div class="note warn"><b>注意</b>每个开了 Override Sorting 的嵌套画布都会打断合批（它要单独排序、单独提交），而且嵌套画布下的按钮需要自己的 GraphicRaycaster 才能点到。只在真正需要“夹层”的地方用，别给每个按钮都加。粒子本身也有开销：UI 粒子通常数量少但覆盖面积大，半透明叠加会带来 Overdraw（第 20 章），手机上要控制粒子的大小和数量。</div>
+<p>第三方的“UI 粒子”方案（把粒子网格转换成 UI 网格、直接由 Canvas 绘制）可以让粒子在 Overlay 画布里正常排序、被 Mask 裁剪，代价是粒子顶点每帧都要进入 Canvas 重建。本书不放第三方代码，思路在第 13 章的自定义 Graphic 里都讲过：在 <code>OnPopulateMesh</code> 里读 <code>ParticleSystem.GetParticles</code> 的结果、为每个粒子生成一个四边形即可。</p>
+
+<h3 class="sec">19.7 World Space UI 的交互</h3>
+<p>World Space 画布是摆在 3D 场景里的一块“平面”，有自己的位置、旋转和缩放，会被 3D 物体遮挡，也有近大远小。游戏里的电脑屏幕、自动售货机、VR 里的菜单、NPC 头顶的名字，都适合用它。第 2 章讲了它的基本设置，这里补全交互相关的细节。</p>
+<h4>尺寸：用“像素”设计，用缩放换算成米</h4>
+<p>World Space 画布的 RectTransform 尺寸单位是世界单位（米）。直接把宽高设成 1.4×1.0，再在里面放 36 号字的文字，字会大得离谱（36 米）。约定俗成的做法是：<b>宽高按像素设计（如 1500×1100），缩放设成 0.001</b>，画布在世界里就是 1.5 米 × 1.1 米，里面的字号、间距都按熟悉的像素尺度来填。</p>
+<h4>点击：Event Camera 和 Blocking Objects</h4>
+<p>World Space 画布的点击由它自己的 GraphicRaycaster 处理：从 <b>Event Camera</b>（画布上的 <code>worldCamera</code> 字段，Inspector 里叫 Event Camera）发出一条穿过鼠标位置的射线，看打中了画布上的哪个图形。所以：</p>
+<ul>
+<li><b>Event Camera 必须指定</b>。不指定时 Unity 会在运行时退回到 <code>Camera.main</code>，主相机没有 MainCamera 标签的话就完全点不到。</li>
+<li><b>被 3D 物体挡住的 UI 默认仍然能点</b>：GraphicRaycaster 只检测 UI 图形。要让柱子挡住后面的屏幕，把 <code>Blocking Objects</code> 设成 <code>Three D</code>（需要 3D 物体有 Collider），射线打到 Collider 的距离比 UI 近，UI 就不响应。</li>
+<li><b>多个 World Space 画布重叠</b>：它们之间按到相机的距离排序；需要固定顺序时用 sortingOrder。</li>
+</ul>
+
+<h3 class="case"><span class="no">案例 19.6</span>3D 场景里的控制台与头顶名牌<span class="lv">进阶</span></h3>
+<p><b>目标</b>：场景里一台控制台，屏幕是 World Space 画布，上面三个按钮切换路灯颜色、一个滑块调亮度；三个 NPC 头顶有名牌，始终面向相机，而且不管远近在屏幕上一样大。</p>
+<p>控制台的逻辑很普通——按钮回调改 Light 的颜色，滑块改强度（注意用 <code>renderer.material</code> 而不是 <code>sharedMaterial</code> 改灯泡颜色，前者会复制一份材质实例，不会改到资源文件）：</p>
+<pre class="code" data-file="Ch19/WorldConsole.cs" data-region="console"></pre>
+<p>头顶名牌是这一节的重点。第 17 章用的是“Screen Space 画布 + 每帧 <code>WorldToScreenPoint</code> 换算”的做法；这里给出另一种：<b>名牌本身就是 World Space 小画布，挂在 NPC 身上，每帧只需要转向相机</b>：</p>
+<pre class="code" data-file="Ch19/Billboard.cs" data-region="billboard"></pre>
+<p>两个细节：</p>
+<ul>
+<li><b>朝向和相机“平行”，而不是“看向相机位置”</b>。用 <code>LookAt(camera.position)</code> 的话，屏幕边缘的名牌会侧过来变成梯形；用相机的 forward 作为名牌的 forward，所有名牌都和屏幕平行，看起来像 2D 的。</li>
+<li><b>恒定屏幕大小</b>：透视相机下，物体在屏幕上的大小与它到相机的距离（沿视线方向的深度）成反比，所以把缩放设成“深度 × 系数”就抵消了近大远小。</li>
+</ul>
+<figure class="shot"><img src="img/ch19-worldspace.jpg"><figcaption><b>图 19-15</b> World Space 控制台（可点击）与三个头顶名牌：守卫站得最远，名牌在屏幕上仍然和其他两个一样大</figcaption></figure>
+<div class="scene">Ch19/Scenes/Ch19_WorldSpace.unity</div>
+<div class="cmp"><div class="good"><h5>World Space 名牌</h5>天然被墙和地形遮挡；有立体感，可以选择近大远小或恒定大小；不用每帧换算坐标。代价：每个名牌一个画布，各自合批、各自一次以上的 Draw Call；文字在远处可能发糊（TMP 的 SDF 能缓解）</div><div class="bad"><h5>Screen Space 跟随（第 17 章）</h5>所有名牌在一个画布里，可以合批；像素级清晰；能自己控制屏幕外的指示箭头。代价：每帧换算坐标、要自己处理遮挡和“在相机背后”的情况</div></div>
+<p>经验上，同屏名牌在几十个以内、需要遮挡效果的（MMO 里的 NPC、FPS 的队友标记），两种都可以；名牌多到上百个（大规模战斗的血条）时，Screen Space 方案合批后的优势会很明显。</p>
+<div class="note tip"><b>提示</b>World Space 画布里如果还在用旧版 Text，字会糊得厉害——它的字形按 <code>CanvasScaler.dynamicPixelsPerUnit</code> 生成，默认值太低。换成 TMP 就没有这个问题。另外，World Space 画布的 GraphicRaycaster 在没有可点击元素时（比如名牌）应当删掉，否则每次点击都要白白检测一遍。</div>
+
+<h3 class="sec">19.8 上线前的适配与本地化检查清单</h3>
+<p>适配和本地化的问题有一个共同点：开发机上永远看不出来，一上线就被玩家截图发到论坛。下面这份清单是我在项目里每次提测前都会过一遍的，按“发现成本从低到高”排列：</p>
+<table>
+<tr><th>检查项</th><th>怎么查</th><th>常见问题</th></tr>
+<tr><td>极端比例</td><td>Game 视图依次切 4:3、16:9、19.5:9、21:9 和对应竖屏</td><td>按钮被挤出屏幕、背景图露边、横幅变形</td></tr>
+<tr><td>刘海与圆角</td><td>Device Simulator 选两台刘海屏、一台挖孔屏，各转一次屏</td><td>关闭按钮在右上角被圆角切掉；横屏时刘海挡住左侧血条</td></tr>
+<tr><td>分屏 / 折叠屏</td><td>真机分屏，或者 Device Simulator 里切换可折叠设备</td><td>安全区变化后没有刷新；只在 Start 里算了一次</td></tr>
+<tr><td>伪本地化</td><td>切到 pseudo 语言，所有界面过一遍</td><td>写死的字、缺 key、被截断的括号</td></tr>
+<tr><td>最长语言</td><td>切到最长的语言（通常是德语、俄语）</td><td>按钮文字溢出、Auto Size 缩到看不清、两行文字压住下面的控件</td></tr>
+<tr><td>字形覆盖</td><td>把整张表的每种语言拼成一段文字，用 TMP 的 <code>HasCharacters</code> 检查缺字</td><td>某个生僻字、全角符号、货币符号显示成方块</td></tr>
+<tr><td>动态内容</td><td>玩家昵称、公会名填最长允许长度、填 emoji</td><td>昵称把排行榜一行撑成两行；emoji 显示成方块（需要在输入时过滤或准备 emoji 字体）</td></tr>
+<tr><td>数字与日期</td><td>切到英文 / 德文，看金额、日期、百分比</td><td>德语小数点是逗号；日期顺序不同；“1,000” 在部分地区是一个小数</td></tr>
+</table>
+<p>最后一条值得多说一句：<code>float.ToString()</code>、<code>DateTime.ToString()</code> 默认使用系统当前的区域设置（CultureInfo），德语系统上 <code>3.5f.ToString()</code> 得到的是 <code>"3,5"</code>。显示给玩家的数字按当前语言格式化是对的，但<b>存档、网络协议、配置表解析一律要用 <code>CultureInfo.InvariantCulture</code></b>，否则德国玩家的存档在中国服务器上解析会出错——这类 bug 在开发团队里几乎不可能被自己发现。</p>
+<p>阿拉伯语、希伯来语这类从右向左书写（RTL）的语言是另一个量级的工作：不只是文字方向，整个界面的布局都要镜像（返回按钮跑到右上角、进度条从右往左涨）。TMP 本身对 RTL 的支持有限，一般需要专门的文字处理插件。如果项目有进入中东市场的计划，最好在立项时就评估，而不是上线前一个月才开始做。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>适配分三层：CanvasScaler 管缩放，锚点 + Safe Area 管贴边，布局切换管结构；能在上一层解决的不要拖到下一层。</li>
+<li>AspectLayout 只给少数“大块”记两份锚点快照，比例越过阈值时整体切换；块内部交给锚点和布局组。用自己的 rect 判断比例，带滞回避免抖动。</li>
+<li>Safe Area 用像素、原点在左下角，先除以屏幕尺寸再当锚点；可以逐边适配，背景延伸进刘海、内容留在安全区内；只在变化时才改锚点；用 Device Simulator 测试。</li>
+<li>本地化的核心是 key → 表 → 当前语言 → 事件通知刷新；整句进表、参数用占位符，缺翻译回退、缺 key 显眼地暴露；按语言换字体和字号倍率。</li>
+<li>文字长度差异用“预留空间、Auto Size、弹性布局、截断”组合应对；用伪本地化在翻译到位之前就测出排版问题。</li>
+<li>RenderTexture 展示 3D 模型：RT 按 RawImage 实际像素创建、界面关闭即释放；透明背景要用预乘 Shader 显示，否则边缘发黑。</li>
+<li>粒子要和 UI 交错，画布必须是 Camera / World Space 模式；用相对画布的 sortingOrder 偏移保证“三明治”顺序，不要依赖距离排序。</li>
+<li>World Space 画布按像素设计、缩放 0.001；必须指定 Event Camera；Blocking Objects 决定 3D 物体是否挡住点击；名牌用 Billboard 朝向相机，可选恒定屏幕大小。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>给 AspectLayout 增加第三种模式“超宽屏”（比例 &gt; 2.1）：超宽屏时在大厅左侧多显示一个活动侧栏。提示：把 Mode 扩展成三值，阈值改成数组。</li>
+<li>修改 SafeAreaPanel，只躲开 <code>Screen.cutouts</code> 里的挖孔矩形而不是整条安全区：顶栏左边的头像正好在挖孔下面时向右挪，否则保持原位。</li>
+<li>为 Loc 增加复数支持：表里写 <code>coins.one</code> 和 <code>coins.other</code> 两行，<code>Loc.Plural("coins", n)</code> 按英语规则（n == 1 用 one）选择。想一想：为什么中文不需要这一套，而俄语需要三种以上的形式？</li>
+<li>把 ModelViewer 改成“阵容界面”：一台相机拍一排五个角色到一张 RT，五个 RawImage 用不同的 <code>uvRect</code> 各显示一个，点哪个就只旋转哪个。比较它和“五台相机五张 RT”的显存占用。</li>
+<li>在案例 19.5 的场景里，把弹窗画布改成 World Space、放在粒子前方一点点的位置，然后去掉所有 sortingOrder 差异，观察粒子与弹窗的前后关系如何随相机距离变化，体会“靠距离排序不可靠”。</li>
+</ol></div>
+</section>

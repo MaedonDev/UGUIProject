@@ -1,0 +1,16 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Menu|
+2|Shadow|Image
+2|Bg|Image
+2|Button_|Image,Button
+3|Text (TMP)|TextMeshProUGUI,LocalizedText
+2|Button_|Image,Button
+3|Text (TMP)|TextMeshProUGUI,LocalizedText
+2|Button_|Image,Button
+3|Text (TMP)|TextMeshProUGUI,LocalizedText
+2|Button_|Image,Button
+3|Text (TMP)|TextMeshProUGUI,LocalizedText
+2|HardCoded|TextMeshProUGUI
+2|MissingKey|TextMeshProUGUI,LocalizedText
+0|EventSystem|EventSystem,StandaloneInputModule

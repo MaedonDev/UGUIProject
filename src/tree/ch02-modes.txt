@@ -1,0 +1,13 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|UIPanel|
+2|Bg|Image
+2|Title|TextMeshProUGUI
+2|Button_确定|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+1|TopBar|Image
+2|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|Directional Light|Light
+0|Ground|MeshFilter,MeshCollider,MeshRenderer
+0|Cube|MeshFilter,BoxCollider,MeshRenderer

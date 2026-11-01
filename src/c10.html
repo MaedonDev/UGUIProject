@@ -1,0 +1,466 @@
+<section class="chapter" id="c10" data-title="自动布局" data-sub="两阶段算法、布局组件全参数与自定义布局">
+<div class="chap-head"><div class="num">CHAPTER 10<b>第 10 章</b></div><h2>自动布局</h2><p class="lead">列表越来越长、文字长短不一、屏幕比例千奇百怪——手摆坐标很快就会失控。UGUI 的自动布局系统用一套“先问尺寸、再定位置”的两阶段算法，把这些活接了过去。本章先把这套算法从源码里拆开讲清楚，再把每个布局组件的参数逐一实测，最后亲手实现一个流式布局。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>布局系统的两阶段流程：LayoutRebuilder 如何自下而上算尺寸、自上而下定位置</div><div>ILayoutElement / ILayoutController / ILayoutGroup / ILayoutSelfController 的分工，min / preferred / flexible 的分配公式</div><div>Horizontal / Vertical / Grid Layout Group、Layout Element、Content Size Fitter、Aspect Ratio Fitter 的全部参数与实测效果</div><div>聊天气泡、表单、自动列数网格、流式标签云、可折叠分组五个完整案例，以及布局系统的常见坑与性能注意</div></div>
+
+<h3 class="sec">10.1 为什么需要自动布局</h3>
+<p>前几章我们都是用 RectTransform 的锚点和尺寸“手摆”界面。手摆适合结构固定的界面：标题永远在顶上、按钮永远在右下角。但游戏里有大量“内容决定形状”的界面：背包里物品数量随时变化，聊天消息有长有短，多语言版本里同一个按钮的文字可能差出一倍长。这时如果还靠手算坐标，每次数据变化都得写一堆“上一个元素的底部 + 间距 = 下一个元素的顶部”的代码，而且屏幕尺寸一变就得重算。</p>
+<p>自动布局（Auto Layout）把这类计算标准化了：每个元素只需要报告“我最少要多大、最好多大、愿不愿意分多余的空间”，由父物体上的布局组（Layout Group）统一决定每个孩子放在哪、多大。数据变了，元素只要说一声“我脏了”，布局系统会在本帧渲染前把受影响的部分重新算一遍。</p>
+<p>代价也要先说清楚：自动布局是在 C# 里遍历层级、调用接口、反复 <code>GetComponents</code> 的，层级越深、元素越多越贵；而且结果有“一帧延迟”的特性。所以本章的态度是：<b>该用就用，但要知道它在背后干了什么</b>。读完 10.2、10.3 两节的源码分析，后面那些参数和坑都会变得很好理解。</p>
+
+<h3 class="sec">10.2 布局系统的骨架：四个接口</h3>
+<p>布局系统的全部约定写在 <code>Runtime/UI/Core/Layout/ILayoutElement.cs</code> 这一个文件里，一共 5 个接口：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Layout/ILayoutElement.cs（去掉了注释）
+public interface ILayoutElement
+{
+    void CalculateLayoutInputHorizontal();
+    void CalculateLayoutInputVertical();
+    float minWidth { get; }
+    float preferredWidth { get; }
+    float flexibleWidth { get; }
+    float minHeight { get; }
+    float preferredHeight { get; }
+    float flexibleHeight { get; }
+    int layoutPriority { get; }
+}
+public interface ILayoutController
+{
+    void SetLayoutHorizontal();
+    void SetLayoutVertical();
+}
+public interface ILayoutGroup : ILayoutController
+{
+}
+public interface ILayoutSelfController : ILayoutController
+{
+}
+public interface ILayoutIgnorer
+{
+    bool ignoreLayout { get; }
+}
+</pre>
+<p>可以把它们理解成两种角色：</p>
+<div class="kv"><span>ILayoutElement</span><span>“报尺寸的人”。实现它的组件回答三个问题：最小尺寸 min（再小就放不下了）、首选尺寸 preferred（不受约束时最舒服的大小）、弹性 flexible（有多余空间时愿意按什么比例分）。Image、Text、TextMeshProUGUI、LayoutElement、所有 LayoutGroup 都实现了它。</span>
+<span>ILayoutController</span><span>“定尺寸的人”。它会修改 RectTransform。分两种：<b>ILayoutGroup</b> 改的是孩子（Horizontal/Vertical/Grid Layout Group），<b>ILayoutSelfController</b> 改的是自己（Content Size Fitter、Aspect Ratio Fitter）。</span>
+<span>ILayoutIgnorer</span><span>“不参加的人”。LayoutElement 勾选 Ignore Layout 时，父布局组会跳过这个孩子，它可以自由摆放（常用于角标、装饰、描边）。</span></div>
+<p>注意布局组同时实现了 ILayoutElement 和 ILayoutGroup：它一方面要控制孩子，一方面还要把“孩子们加起来需要多大”报告给自己的父级——这正是嵌套布局能够工作的原因。</p>
+
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="16" width="270" height="220" rx="10" fill="#f4f2fd" stroke="#5b4bd6"/>
+<text x="145" y="38" text-anchor="middle" font-weight="bold" fill="#5b4bd6">ILayoutElement（报尺寸）</text>
+<text x="24" y="62" fill="#1f2436">min / preferred / flexible × 宽、高</text>
+<text x="24" y="82" fill="#1f2436">layoutPriority（同物体多个时谁说了算）</text>
+<rect x="24" y="96" width="112" height="28" rx="6" fill="#fff" stroke="#e0deef"/><text x="80" y="115" text-anchor="middle">Image</text>
+<rect x="148" y="96" width="118" height="28" rx="6" fill="#fff" stroke="#e0deef"/><text x="207" y="115" text-anchor="middle">Text / TMP</text>
+<rect x="24" y="132" width="112" height="28" rx="6" fill="#fff" stroke="#e0deef"/><text x="80" y="151" text-anchor="middle">LayoutElement</text>
+<rect x="148" y="132" width="118" height="28" rx="6" fill="#fff" stroke="#e0deef"/><text x="207" y="151" text-anchor="middle">ScrollRect</text>
+<rect x="24" y="176" width="242" height="44" rx="6" fill="#fff4ec" stroke="#ff8a3d"/><text x="145" y="196" text-anchor="middle" fill="#ff8a3d" font-weight="bold">LayoutGroup（两种身份都有）</text><text x="145" y="213" text-anchor="middle" fill="#7a8299">Horizontal / Vertical / Grid</text>
+<rect x="320" y="16" width="270" height="220" rx="10" fill="#eef8f2" stroke="#2fb36a"/>
+<text x="455" y="38" text-anchor="middle" font-weight="bold" fill="#2fb36a">ILayoutController（定尺寸）</text>
+<text x="334" y="62" fill="#1f2436">SetLayoutHorizontal / SetLayoutVertical</text>
+<rect x="334" y="78" width="242" height="54" rx="6" fill="#fff" stroke="#e0deef"/><text x="455" y="98" text-anchor="middle" font-weight="bold">ILayoutGroup：改孩子</text><text x="455" y="118" text-anchor="middle" fill="#7a8299">LayoutGroup 及其子类</text>
+<rect x="334" y="142" width="242" height="54" rx="6" fill="#fff" stroke="#e0deef"/><text x="455" y="162" text-anchor="middle" font-weight="bold">ILayoutSelfController：改自己</text><text x="455" y="182" text-anchor="middle" fill="#7a8299">ContentSizeFitter / AspectRatioFitter</text>
+<text x="455" y="222" text-anchor="middle" fill="#7a8299">（ScrollRect 也实现了 ILayoutGroup）</text>
+<line x1="266" y1="198" x2="334" y2="105" stroke="#ff8a3d" stroke-width="2" stroke-dasharray="5 3"/>
+</svg><figcaption><b>图 10-1</b> 布局系统的两类角色。LayoutGroup 既报尺寸给父级，又给孩子定尺寸</figcaption></figure>
+
+<h4>同一个物体上有多个 ILayoutElement 时听谁的</h4>
+<p>一个按钮上可能同时有 Image（报 sprite 的尺寸）、LayoutElement（你手填的值）、HorizontalLayoutGroup（报孩子加起来的尺寸）。到底采纳哪个值，由 <code>LayoutUtility.GetLayoutProperty</code> 决定：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/Layout/LayoutUtility.cs
+for (int i = 0; i &lt; componentsCount; i++)
+{
+    var layoutComp = components[i] as ILayoutElement;
+    if (layoutComp is Behaviour &amp;&amp; !((Behaviour)layoutComp).isActiveAndEnabled)
+        continue;
+    int priority = layoutComp.layoutPriority;
+    // If this layout components has lower priority than a previously used, ignore it.
+    if (priority &lt; maxPriority)
+        continue;
+    float prop = property(layoutComp);
+    // If this layout property is set to a negative value, it means it should be ignored.
+    if (prop &lt; 0)
+        continue;
+    if (priority &gt; maxPriority)
+    {
+        min = prop;
+        maxPriority = priority;
+        source = layoutComp;
+    }
+    else if (prop &gt; min)
+    {
+        min = prop;
+        source = layoutComp;
+    }
+}
+</pre>
+<p>规则只有三条：<b>负数表示“这一项我不管”，直接跳过；优先级高的说了算；同优先级取最大值</b>。Image、Text、TMP、LayoutGroup 的 layoutPriority 都是 0，LayoutElement 默认是 1，所以 LayoutElement 里填了的值会盖过其他组件，没填的（默认 -1）就不参与。另外还有一个细节：<code>GetPreferredWidth</code> 返回的是 <code>Mathf.Max(min, preferred)</code>，所以 preferred 永远不会小于 min。</p>
+<p>这三条规则是本章后面自定义布局元素的基础：案例 10.1 的 MaxSizeLayoutElement 就是靠“优先级 2 + 对不管的项返回 -1”来给气泡加上最大宽度的。</p>
+
+<h3 class="sec">10.3 两阶段算法：LayoutRebuilder 源码精读</h3>
+<p>布局到底什么时候算、按什么顺序算？答案在 <code>LayoutRebuilder.cs</code>。它的入口有两个：<code>MarkLayoutForRebuild</code>（标脏，延后到本帧末尾统一算）和 <code>ForceRebuildLayoutImmediate</code>（立刻算）。我们先看标脏。</p>
+<h4>标脏：向上找“布局根”</h4>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/Layout/LayoutRebuilder.cs（MarkLayoutForRebuild，节选）
+bool validLayoutGroup = true;
+RectTransform layoutRoot = rect;
+var parent = layoutRoot.parent as RectTransform;
+while (validLayoutGroup &amp;&amp; !(parent == null || parent.gameObject == null))
+{
+    validLayoutGroup = false;
+    parent.GetComponents(typeof(ILayoutGroup), comps);
+    for (int i = 0; i &lt; comps.Count; ++i)
+    {
+        var cur = comps[i];
+        if (cur != null &amp;&amp; cur is Behaviour &amp;&amp; ((Behaviour)cur).isActiveAndEnabled)
+        {
+            validLayoutGroup = true;
+            layoutRoot = parent;
+            break;
+        }
+    }
+    parent = parent.parent as RectTransform;
+}
+// We know the layout root is valid if it's not the same as the rect,
+// since we checked that above. But if they're the same we still need to check.
+if (layoutRoot == rect &amp;&amp; !ValidController(layoutRoot, comps))
+{
+    ListPool&lt;Component&gt;.Release(comps);
+    return;
+}
+MarkLayoutRootForRebuild(layoutRoot);
+</pre>
+<p>某个元素变脏时（比如文字变了），它会沿父链一直往上走，只要父物体上有启用的 ILayoutGroup 就继续，直到遇到第一个“没有布局组”的父物体为止。最后停下的那一层就是<b>布局根</b>，整棵子树会作为一个单元重建。如果元素自己和父物体都没有任何布局控制器，什么都不会发生——这就是为什么改一个普通 Image 的 sprite 虽然会调用 SetLayoutDirty，但布局队列里根本不会多出东西（第 12 章的实测表能看到这一点）。</p>
+<p>找到根后，<code>MarkLayoutRootForRebuild</code> 从对象池里取一个 LayoutRebuilder 包住它，交给 <code>CanvasUpdateRegistry.TryRegisterCanvasElementForLayoutRebuild</code>。同一个根在一帧内只会登记一次（IndexedSet 去重），所以一帧里改一百次文字，布局也只算一遍。</p>
+
+<h4>重建：四趟遍历</h4>
+<p>到了本帧渲染前，CanvasUpdateRegistry 调用每个登记过的 LayoutRebuilder 的 <code>Rebuild(CanvasUpdate.Layout)</code>：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/Layout/LayoutRebuilder.cs
+public void Rebuild(CanvasUpdate executing)
+{
+    switch (executing)
+    {
+        case CanvasUpdate.Layout:
+            PerformLayoutCalculation(m_ToRebuild, e =&gt; (e as ILayoutElement).CalculateLayoutInputHorizontal());
+            PerformLayoutControl(m_ToRebuild, e =&gt; (e as ILayoutController).SetLayoutHorizontal());
+            PerformLayoutCalculation(m_ToRebuild, e =&gt; (e as ILayoutElement).CalculateLayoutInputVertical());
+            PerformLayoutControl(m_ToRebuild, e =&gt; (e as ILayoutController).SetLayoutVertical());
+            break;
+    }
+}
+</pre>
+<p>四行代码就是整个布局系统的核心：<b>先水平、后垂直；每个方向先“计算输入”（问尺寸）、再“控制”（定尺寸）</b>。两个辅助函数的遍历方向正好相反：</p>
+<pre class="code" data-lang="csharp">// PerformLayoutCalculation（节选）：先递归孩子，再处理自己 —— 自下而上
+if (components.Count &gt; 0  || rect.TryGetComponent(typeof(ILayoutGroup), out _))
+{
+    for (int i = 0; i &lt; rect.childCount; i++)
+        PerformLayoutCalculation(rect.GetChild(i) as RectTransform, action);
+    for (int i = 0; i &lt; components.Count; i++)
+        action(components[i]);
+}
+
+// PerformLayoutControl（节选）：先处理自己，再递归孩子 —— 自上而下
+if (components.Count &gt; 0)
+{
+    for (int i = 0; i &lt; components.Count; i++)
+        if (components[i] is ILayoutSelfController)
+            action(components[i]);
+    for (int i = 0; i &lt; components.Count; i++)
+        if (!(components[i] is ILayoutSelfController))
+        {
+            // ……（ScrollRect 不去控制自己的 content 时的特殊处理）
+            action(components[i]);
+        }
+    for (int i = 0; i &lt; rect.childCount; i++)
+        PerformLayoutControl(rect.GetChild(i) as RectTransform, action);
+}
+</pre>
+<p>为什么要这样安排？道理很朴素：</p>
+<ul>
+<li><b>算尺寸必须自下而上</b>：父物体的首选宽度等于孩子首选宽度之和加间距，只有孩子先算完，父亲才知道自己要多宽。</li>
+<li><b>定尺寸必须自上而下</b>：孩子最终多宽取决于父亲实际有多宽，所以父亲先拿到自己的尺寸，再分给孩子。同一个物体上，ILayoutSelfController（比如 Content Size Fitter）先执行、先把自己的尺寸定好，然后布局组才用这个尺寸去分配孩子。</li>
+<li><b>水平必须先于垂直</b>：文字的首选高度取决于宽度（宽度越窄、换行越多、越高）。Text 的 preferredHeight 源码里就是用当前 rect 的宽度去生成文字的，所以必须等所有宽度都定完，再统一算高度。</li>
+</ul>
+
+<figure><svg viewBox="0 0 600 270" width="600" font-family="PingFang SC" font-size="13">
+<defs><marker id="a10" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ff8a3d"/></marker><marker id="b10" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2fb36a"/></marker></defs>
+<g>
+<rect x="60" y="30" width="110" height="34" rx="6" fill="#f4f2fd" stroke="#5b4bd6"/><text x="115" y="52" text-anchor="middle">VLG（根）</text>
+<rect x="10" y="110" width="100" height="34" rx="6" fill="#fff" stroke="#5b4bd6"/><text x="60" y="132" text-anchor="middle">Row（HLG）</text>
+<rect x="120" y="110" width="100" height="34" rx="6" fill="#fff" stroke="#5b4bd6"/><text x="170" y="132" text-anchor="middle">Row（HLG）</text>
+<rect x="10" y="190" width="45" height="30" rx="6" fill="#fff" stroke="#e0deef"/><text x="32" y="210" text-anchor="middle" font-size="12">Icon</text>
+<rect x="62" y="190" width="48" height="30" rx="6" fill="#fff" stroke="#e0deef"/><text x="86" y="210" text-anchor="middle" font-size="12">Text</text>
+<rect x="120" y="190" width="45" height="30" rx="6" fill="#fff" stroke="#e0deef"/><text x="142" y="210" text-anchor="middle" font-size="12">Icon</text>
+<rect x="172" y="190" width="48" height="30" rx="6" fill="#fff" stroke="#e0deef"/><text x="196" y="210" text-anchor="middle" font-size="12">Text</text>
+<line x1="115" y1="64" x2="60" y2="110" stroke="#e0deef"/><line x1="115" y1="64" x2="170" y2="110" stroke="#e0deef"/>
+<line x1="60" y1="144" x2="32" y2="190" stroke="#e0deef"/><line x1="60" y1="144" x2="86" y2="190" stroke="#e0deef"/>
+<line x1="170" y1="144" x2="142" y2="190" stroke="#e0deef"/><line x1="170" y1="144" x2="196" y2="190" stroke="#e0deef"/>
+<path d="M232 210 C 250 160, 250 90, 182 47" fill="none" stroke="#ff8a3d" stroke-width="2.5" marker-end="url(#a10)"/>
+<text x="248" y="150" fill="#ff8a3d" font-weight="bold">算尺寸↑</text>
+<path d="M30 47 C -2 90, -2 160, 4 200" fill="none" stroke="#2fb36a" stroke-width="2.5" marker-end="url(#b10)" transform="translate(12 0)"/>
+<text x="0" y="96" fill="#2fb36a" font-weight="bold" font-size="12">定尺寸↓</text>
+</g>
+<g transform="translate(300 20)">
+<rect x="0" y="0" width="290" height="230" rx="10" fill="#fff" stroke="#e0deef"/>
+<text x="16" y="28" font-weight="bold" fill="#1f2436">一次 Rebuild(Layout) 的四趟遍历</text>
+<rect x="12" y="44" width="266" height="38" rx="6" fill="#fff4ec"/><text x="20" y="68" font-size="12">① CalculateLayoutInputHorizontal</text><text x="270" y="68" text-anchor="end" font-size="12" fill="#7a8299">自下而上</text>
+<rect x="12" y="90" width="266" height="38" rx="6" fill="#eef8f2"/><text x="20" y="114" font-size="12">② SetLayoutHorizontal</text><text x="270" y="114" text-anchor="end" font-size="12" fill="#7a8299">自上而下</text>
+<rect x="12" y="136" width="266" height="38" rx="6" fill="#fff4ec"/><text x="20" y="160" font-size="12">③ CalculateLayoutInputVertical</text><text x="270" y="160" text-anchor="end" font-size="12" fill="#7a8299">自下而上</text>
+<rect x="12" y="182" width="266" height="38" rx="6" fill="#eef8f2"/><text x="20" y="206" font-size="12">④ SetLayoutVertical</text><text x="270" y="206" text-anchor="end" font-size="12" fill="#7a8299">自上而下</text>
+</g>
+</svg><figcaption><b>图 10-2</b> 布局重建的四趟遍历。宽度全部定完之后才计算高度，这样换行后的文字高度才是准的</figcaption></figure>
+
+<div class="note warn"><b>注意</b><code>PerformLayoutCalculation</code> 只会深入“自己有 ILayoutElement 或 ILayoutGroup”的节点；<code>PerformLayoutControl</code> 只会深入“自己有 ILayoutController”的节点。在布局组下面插一个<b>什么组件都没有的空 GameObject</b>，布局链会在这里断掉：空节点的孩子既不会被计算，也不会被控制。想给布局分组又不想打断链条，就给分组节点也挂上布局组（或至少挂个 LayoutElement）。</div>
+
+<h4>Horizontal/Vertical Layout Group 的分配公式</h4>
+<p>知道了调用顺序，再看布局组怎么分尺寸。Horizontal 和 Vertical 共用基类 <code>HorizontalOrVerticalLayoutGroup</code>，计算阶段（CalcAlongAxis）沿主轴把孩子的 min、preferred 加起来（再加间距和 padding），flexible 也加起来；在“另一个轴”上则取最大值。设置阶段（SetChildrenAlongAxis）沿主轴的核心是这几行：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/Layout/HorizontalOrVerticalLayoutGroup.cs（SetChildrenAlongAxis，主轴部分节选）
+float itemFlexibleMultiplier = 0;
+float surplusSpace = size - GetTotalPreferredSize(axis);
+if (surplusSpace &gt; 0)
+{
+    if (GetTotalFlexibleSize(axis) == 0)
+        pos = GetStartOffset(axis, GetTotalPreferredSize(axis) - (axis == 0 ? padding.horizontal : padding.vertical));
+    else if (GetTotalFlexibleSize(axis) &gt; 0)
+        itemFlexibleMultiplier = surplusSpace / GetTotalFlexibleSize(axis);
+}
+float minMaxLerp = 0;
+if (GetTotalMinSize(axis) != GetTotalPreferredSize(axis))
+    minMaxLerp = Mathf.Clamp01((size - GetTotalMinSize(axis)) / (GetTotalPreferredSize(axis) - GetTotalMinSize(axis)));
+// …… 对每个孩子：
+float childSize = Mathf.Lerp(min, preferred, minMaxLerp);
+childSize += flexible * itemFlexibleMultiplier;
+</pre>
+<p>翻译成三段话：</p>
+<ol>
+<li><b>容器比总 min 还小</b>：minMaxLerp = 0，每个孩子都取自己的 min，总宽超出容器——孩子会溢出，布局组不会再压缩。</li>
+<li><b>容器介于总 min 和总 preferred 之间</b>：按同一个比例 t 在每个孩子的 min 和 preferred 之间插值。比例 t = (容器 − 总 min) ÷ (总 preferred − 总 min)，所有孩子用同一个 t。</li>
+<li><b>容器比总 preferred 还大</b>：每个孩子先取 preferred，多出来的空间按 flexible 的比例分；如果所有孩子 flexible 都是 0，就不分，整组按 Child Alignment 对齐。</li>
+</ol>
+<div class="formula"><math display="block"><mrow><msub><mi>w</mi><mi>i</mi></msub><mo>=</mo><mi>lerp</mi><mo>(</mo><msub><mi>min</mi><mi>i</mi></msub><mo>,</mo><msub><mi>pref</mi><mi>i</mi></msub><mo>,</mo><mi>t</mi><mo>)</mo><mo>+</mo><msub><mi>flex</mi><mi>i</mi></msub><mo>×</mo><mfrac><mrow><mi>max</mi><mo>(</mo><mn>0</mn><mo>,</mo><mi>W</mi><mo>−</mo><mo>∑</mo><mi>pref</mi><mo>)</mo></mrow><mrow><mo>∑</mo><mi>flex</mi></mrow></mfrac></mrow></math></div>
+<p>图 10-3 是在配套工程里用三个容器宽度实拍的结果，孩子上的数字是截图时读出的真实宽度。中间那格：总 min = 100+100+60+20 = 280，总 preferred = 200+150+100+20 = 470，容器 375，t = (375−280)/(470−280) = 0.5，于是 A = lerp(100,200,0.5) = 150，B = 125，C = 80，和图上一致。右边那格多出 300，flex 1:0:2，A 多分 100、C 多分 200。</p>
+<figure class="shot"><img src="img/ch10-flex.jpg"><figcaption><b>图 10-3</b> min / preferred / flexible 的分配实测（Child Control Width 开、Force Expand 关）</figcaption></figure>
+<h4>“另一个轴”上的规则</h4>
+<p>上面的公式只针对主轴（Horizontal 的宽、Vertical 的高）。在另一个轴上，每个孩子是各自独立处理的，源码只有一行关键代码：</p>
+<pre class="code" data-lang="csharp">// 摘自 HorizontalOrVerticalLayoutGroup.cs（SetChildrenAlongAxis，另一个轴的分支）
+float requiredSpace = Mathf.Clamp(innerSize, min, flexible &gt; 0 ? size : preferred);
+</pre>
+<p>意思是：孩子在另一个轴上的尺寸 = 容器内尺寸，但不小于自己的 min；如果孩子的 flexible 大于 0（或者勾了 Force Expand），上限是容器尺寸，于是撑满；否则上限是自己的 preferred，于是“能多大就多大，但不超过首选”。这解释了图 10-4 第三格里孩子的高度是 140（preferred）而不是撑满，而第四格勾了 Force Expand 后高度撑满了 298。</p>
+<h4>谁会触发布局标脏</h4>
+<p>布局重建不是每帧都发生的，只有“标脏”之后才会排队。会调用 SetLayoutDirty / MarkLayoutForRebuild 的典型操作有：Graphic 的 RectTransform 尺寸变化（OnRectTransformDimensionsChange）、Text / TMP 的文字或字号变化、Image 换了一个尺寸不同的 sprite（同尺寸的 sprite 会被 m_SkipLayoutUpdate 优化掉）、布局组和 LayoutElement 的任何属性被修改、子物体的增删与激活状态变化、组件启用禁用、父子关系改变。而改颜色、移动位置、旋转、缩放都<b>不会</b>触发布局。第 12 章 12.7 节会用实验把这些逐一测出来。</p>
+<p>还有一个只在编辑器里存在的细节：HorizontalOrVerticalLayoutGroup 在 <code>#if UNITY_EDITOR</code> 里有一个 Update，非 Play 模式下每帧检查所有孩子的 sizeDelta 是否变化，变了就标脏。这是为了让你在 Scene 视图里拖动孩子尺寸时布局能实时刷新。它不会进入发布版本，所以不必担心它的开销，但它解释了为什么“编辑器里看着对、运行时却没刷新”的情况偶尔会出现：你在运行时直接改了某个不受控孩子的 sizeDelta，而运行时没有这个 Update 帮你标脏，需要自己调用 <code>LayoutRebuilder.MarkLayoutForRebuild</code>。</p>
+
+
+<h3 class="sec">10.4 Horizontal / Vertical Layout Group 全部参数</h3>
+<p>在 Hierarchy 里选中一个空物体，<span class="menu">Add Component › Layout › Horizontal Layout Group</span>。Inspector 里的字段如下（Vertical 完全相同，只是主轴换成竖直方向）：</p>
+<div class="kv"><span>Padding</span><span>Left / Right / Top / Bottom 内边距。计入布局组报告的 min 和 preferred。</span>
+<span>Spacing</span><span>相邻孩子之间的距离，可以为负（让孩子互相叠一点，比如叠放的头像）。</span>
+<span>Child Alignment</span><span>九宫格对齐。孩子总尺寸小于容器时，整组往哪边靠；孩子本身比“格子”小时，在格子里往哪边靠。源码里用 <code>(int)childAlignment % 3 * 0.5</code> 得到水平方向 0/0.5/1，<code>/ 3 * 0.5</code> 得到垂直方向。</span>
+<span>Reverse Arrangement</span><span>反向排列（最后一个孩子排在最前面）。案例 10.1 用它让“自己的消息”头像出现在右侧，而不用改子物体顺序。</span>
+<span>Control Child Size</span><span>Width / Height 两个勾。勾上：孩子的尺寸由布局组根据 min/preferred/flexible 决定，并且会被锁定（Inspector 里变灰）；不勾：孩子保持自己的 sizeDelta，布局组只管位置。</span>
+<span>Use Child Scale</span><span>计算时把孩子的 localScale 乘进去。默认关闭——这意味着你给孩子做缩放动画时，布局组不会给它让位置，适合“按下放大”这种不想挤动邻居的效果。</span>
+<span>Child Force Expand</span><span>Width / Height 两个勾。勾上：在计算时把每个孩子的 flexible 至少当作 1（源码 <code>flexible = Mathf.Max(flexible, 1)</code>），于是多余空间会平均分给所有孩子。</span></div>
+
+<h4>Control Child Size × Force Expand 四种组合</h4>
+<p>这两组勾选是最容易让人迷糊的地方，因为“Force Expand”在不控制尺寸时也有效果——它扩张的是孩子占的“格子”，不是孩子本身。图 10-4 是同一组孩子在四种组合下的实拍：三个孩子的 sizeDelta 都是 120×90，LayoutElement 里填的 preferred 宽分别是 140/200/260、高 140，Child Alignment 为 MiddleCenter，两个轴的勾选相同。</p>
+<figure class="shot"><img src="img/ch10-combo.jpg"><figcaption><b>图 10-4</b> Control Child Size × Child Force Expand 四种组合（数字为截图时读出的实际尺寸）</figcaption></figure>
+<table>
+<tr><th>Control</th><th>Expand</th><th>效果（对照图 10-4）</th><th>典型用途</th></tr>
+<tr><td>关</td><td>关</td><td>孩子保持 120×90，按 spacing 紧挨着排，整组居中</td><td>一排固定大小的图标</td></tr>
+<tr><td>关</td><td>开</td><td>孩子仍是 120×90，但每个孩子分到一个等宽的“格子”，在格子里居中——看起来像均匀分布</td><td>底部导航栏的几个按钮均分</td></tr>
+<tr><td>开</td><td>关</td><td>孩子变成各自的 preferred 尺寸（140/200/260 × 140），sizeDelta 被覆盖</td><td>按钮宽度跟随文字</td></tr>
+<tr><td>开</td><td>开</td><td>孩子先取 preferred，再平分多余空间：宽 215/275/335，高撑满容器内高 298</td><td>表单里拉伸的输入框、填满的列</td></tr>
+</table>
+<div class="note tip"><b>提示</b>新添加的 Horizontal/Vertical Layout Group 默认 Control Child Size 两项都是<b>关</b>，Force Expand 都是<b>开</b>。源码里字段默认值是 true，但编辑器的 <code>Reset()</code> 把 Control 两项改成了 false，注释说这是为了“别在你来得及关掉之前就覆盖了孩子的尺寸”。所以从代码 AddComponent 和从菜单添加，得到的默认值可能不同（代码里以你设置的为准，本书的 UIKit 都显式赋值）。</div>
+
+<h3 class="sec">10.5 Grid Layout Group</h3>
+<p>网格布局和前两者完全不同：它<b>不读孩子的 min/preferred</b>，所有格子都是固定的 Cell Size，孩子的尺寸被强制设为 Cell Size。字段：</p>
+<div class="kv"><span>Cell Size / Spacing / Padding</span><span>格子尺寸、格子间距、内边距。</span>
+<span>Start Corner</span><span>第一个孩子放在哪个角：UpperLeft / UpperRight / LowerLeft / LowerRight。</span>
+<span>Start Axis</span><span>先沿哪个方向填：Horizontal（先填满一行再换行）/ Vertical（先填满一列再换列）。</span>
+<span>Child Alignment</span><span>整个网格块在容器里的对齐方式。</span>
+<span>Constraint</span><span>Flexible：按容器宽度能放几列就放几列；Fixed Column Count：固定列数；Fixed Row Count：固定行数。后两者配合 Constraint Count。</span></div>
+<figure class="shot"><img src="img/ch10-grid.jpg"><figcaption><b>图 10-5</b> 同样 7 个格子在三种设置下的排列（角标是子物体顺序）</figcaption></figure>
+<p>源码里有两个值得知道的细节。第一，<code>SetCellsAlongAxis(0)</code> 在水平阶段只设置尺寸，位置要等到垂直阶段才连同 x、y 一起设——注释专门解释了这样做“不违反先水平后垂直的规则”，因为水平阶段已经把孩子的宽度定好了。第二，Flexible 模式下，<code>CalculateLayoutInputVertical</code> 用当前宽度算列数，再推出需要几行、多高：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/Layout/GridLayoutGroup.cs（CalculateLayoutInputVertical 的 Flexible 分支）
+float width = rectTransform.rect.width;
+int cellCountX = Mathf.Max(1, Mathf.FloorToInt((width - padding.horizontal + spacing.x + 0.001f) / (cellSize.x + spacing.x)));
+minRows = Mathf.CeilToInt(rectChildren.Count / (float)cellCountX);
+</pre>
+<p>所以“宽度固定、高度随内容增长”的背包格子，只要在网格上再挂一个 Content Size Fitter（Vertical Fit = Preferred Size），高度就会自动等于行数所需的高度——这是 ScrollRect 里放网格的标准做法。Grid 的局限也很明显：格子尺寸不会随屏幕宽度伸缩，宽屏下右边会空一大块。案例 10.3 会通过继承 GridLayoutGroup 解决这个问题。</p>
+
+<h3 class="sec">10.6 Layout Element、Content Size Fitter 与 Aspect Ratio Fitter</h3>
+<h4>Layout Element：手动覆盖尺寸信息</h4>
+<p>LayoutElement 什么都不控制，它只是一个“报尺寸”的组件，用来覆盖或补充同物体上其他组件报的值。七个数值字段默认都是 -1（不参与），勾选左边的复选框才会生效：</p>
+<div class="kv"><span>Ignore Layout</span><span>让父布局组完全忽略本物体（ILayoutIgnorer）。</span>
+<span>Min Width / Height</span><span>最小尺寸。父布局组怎么挤都不会小于它。</span>
+<span>Preferred Width / Height</span><span>首选尺寸。常用来给“没有内容”的物体（空节点、纯色 Image）一个尺寸。</span>
+<span>Flexible Width / Height</span><span>分多余空间的权重。注意是“比例”而不是像素：两个孩子 flex 1 和 2，就按 1:2 分。</span>
+<span>Layout Priority</span><span>默认 1，高于 Image/Text/LayoutGroup 的 0。</span></div>
+<p>一个常用技巧是“弹簧”：在一排按钮中间放一个空物体，只挂 LayoutElement，Flexible Width = 1。多余的空间全部被它吃掉，左右两组按钮就被推到两端（案例 10.2 的“取消 / 创建”按钮就是这么靠右的）。</p>
+
+<h4>Content Size Fitter：让自己等于内容的尺寸</h4>
+<p>Content Size Fitter 是一个 ILayoutSelfController，Horizontal Fit / Vertical Fit 各有三个选项：Unconstrained（不管）、Min Size、Preferred Size。它的实现极其简单：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/Layout/ContentSizeFitter.cs（HandleSelfFittingAlongAxis 节选）
+m_Tracker.Add(this, rectTransform, (axis == 0 ? DrivenTransformProperties.SizeDeltaX : DrivenTransformProperties.SizeDeltaY));
+// Set size to min or preferred size
+if (fitting == FitMode.MinSize)
+    rectTransform.SetSizeWithCurrentAnchors((RectTransform.Axis)axis, LayoutUtility.GetMinSize(m_Rect, axis));
+else
+    rectTransform.SetSizeWithCurrentAnchors((RectTransform.Axis)axis, LayoutUtility.GetPreferredSize(m_Rect, axis));
+</pre>
+<p>也就是：读同一物体上其他组件报的 preferred（文字的长度、布局组算出的孩子总和），然后把自己的尺寸设成它。<code>DrivenRectTransformTracker</code> 会把被驱动的属性在 Inspector 里锁成灰色，防止你手动修改。</p>
+<figure class="shot"><img src="img/ch10-csf.jpg"><figcaption><b>图 10-6</b> 按钮宽度随文字变化（HLG 提供 padding + CSF 水平 Preferred），提示框两个方向都跟随内容</figcaption></figure>
+<p>注意按钮的结构：按钮本身挂 HorizontalLayoutGroup（Control Child Size 勾上、padding 左右 48），子物体是文字。这样按钮的 preferred 宽度 = 文字宽度 + 96，CSF 再把按钮宽度设成这个值。<b>CSF 只认它所在物体的 ILayoutElement</b>，如果按钮上没有布局组，CSF 读到的是 Image 的 preferred（sprite 的尺寸），而不是文字的长度——这是新手最常见的“Fitter 不起作用”的原因。</p>
+
+<h4>Aspect Ratio Fitter：锁定宽高比</h4>
+<p>Aspect Ratio Fitter 的 Aspect Mode 有五种：None、Width Controls Height（宽定、高按比例）、Height Controls Width（高定、宽按比例）、Fit In Parent（整个放进父物体，相当于 CSS 的 contain）、Envelope Parent（铺满父物体，超出部分溢出，相当于 cover）。图 10-7 中子物体都是 2:1 的风景图。</p>
+<figure class="shot"><img src="img/ch10-aspect.jpg"><figcaption><b>图 10-7</b> Aspect Ratio Fitter 四种模式实拍（Envelope Parent 的图片超出了父框）</figcaption></figure>
+<p>它和 Content Size Fitter 有一个实现上的差别：<code>SetLayoutHorizontal/Vertical</code> 是空的，真正的计算在 <code>UpdateRect()</code> 里，由 SetDirty、OnEnable、OnRectTransformDimensionsChange 直接触发，不走 LayoutRebuilder 的两阶段流程。所以它的结果是立即生效的。另外有个编辑器下的小坑（作者搭配图时真踩到了）：模式为 None 时，编辑器会在 UpdateRect 里把 aspectRatio 改成当前矩形的宽高比——如果你用代码先设 aspectRatio 再设模式，比例会被覆盖。正确顺序是<b>先设 aspectMode，再设 aspectRatio</b>。Fit In Parent / Envelope Parent 用于全屏背景图适配各种屏幕比例非常方便。</p>
+
+<h4>滚动列表里的布局：Content 的标准配方</h4>
+<p>布局组件最常出现的地方是 ScrollRect 的 Content。配方几乎是固定的：Content 的锚点设为“顶部横向拉伸”（anchorMin = (0,1)、anchorMax = (1,1)、pivot = (0.5,1)），挂 VerticalLayoutGroup（Control Child Size 两项勾、Force Expand 只勾 Width）和 Content Size Fitter（Vertical Fit = Preferred Size）。这样 Content 的宽度跟随 Viewport，高度等于所有子项高度之和，ScrollRect 自然就知道能滚多远。横向列表把方向全部换过来即可。</p>
+<p>为什么 Content 上挂 Fitter 不会触发“坑 1”的警告？因为 Content 的父物体 Viewport 上没有布局组，Content 本身就是布局根，它上面的 Fitter 位于布局链的最顶层。ScrollRect 自己也实现了 ILayoutGroup（用来根据内容尺寸显示/隐藏滚动条），但 LayoutRebuilder 的 PerformLayoutControl 专门判断了“ScrollRect 的 content 就是当前节点时不调用它”，避免 ScrollRect 和 Content 互相驱动。pivot 设在顶部也很关键：Fitter 改高度时以 pivot 为基准伸缩，pivot 在顶部，列表才会向下增长，而不是上下同时长。</p>
+<p>如果子项高度各不相同（比如聊天消息），子项自身要能报出正确的 preferred 高度：要么子项上有布局组、高度由内容决定，要么挂 LayoutElement 写死高度。子项是一个没有任何 ILayoutElement 的空物体时，VLG 读到的 preferred 高度是 0，所有子项会叠在一起——这是滚动列表“全部挤在顶上”的最常见原因。</p>
+
+<h3 class="case"><span class="no">案例 10.1</span>自适应聊天气泡<span class="lv">进阶</span></h3>
+<p><b>目标</b>：气泡宽度跟随文字，短消息是小气泡，长消息到最大宽度后自动换行，高度随行数增长；对方消息头像在左、自己的在右；发送后列表自动滚到底。</p>
+<p><b>思路</b>：每一行是 HorizontalLayoutGroup（头像 + 气泡），气泡是 Image + VerticalLayoutGroup（提供内边距）+ TMP 文字。难点在“最大宽度”：LayoutElement 只有 min/preferred/flexible，没有 max。我们利用 10.2 节的优先级规则自己写一个 ILayoutElement：优先级 2，preferred 宽度 = min(其他组件报的 preferred, 最大宽度)，其余各项返回 -1 交给别人。</p>
+<pre class="code" data-file="Ch10/MaxSizeLayoutElement.cs" data-region="core"></pre>
+<p><code>OthersPreferred</code> 里调用的正是 LayoutUtility.GetLayoutProperty，只是在 lambda 里遇到自己时返回 -1，于是得到“除我以外”的值——和 UGUI 内部的取值规则完全一致。整个流程是这样串起来的：</p>
+<ol>
+<li>水平计算阶段，气泡上的 VLG 报 preferred 宽 = 文字单行宽度 + 左右 padding；MaxSizeLayoutElement 把它压到 ≤ 640。</li>
+<li>水平设置阶段，行的 HLG 把气泡宽度设成 640（长消息）或文字宽度（短消息）；接着气泡的 VLG 把文字宽度设成气泡宽度减 padding。</li>
+<li>垂直计算阶段，TMP 按刚设好的宽度换行，报出多行的高度；气泡 VLG、行 HLG 依次往上累加；Content 的 Content Size Fitter 最终把列表高度设对。</li>
+</ol>
+<div class="tree" data-tree="ch10-chat" data-root="Templates" data-depth="3"></div>
+<figure class="shot"><img src="img/ch10-chat.jpg" style="width:50%"><figcaption><b>图 10-8</b> 聊天气泡：短消息小气泡，长消息在 640 处换行</figcaption></figure>
+<p>发送消息的脚本只负责克隆模板和滚动：</p>
+<pre class="code" data-file="Ch10/ChatDemo.cs" data-region="add"></pre>
+<p><code>ScrollToBottom</code> 里的 <code>Canvas.ForceUpdateCanvases()</code> 不能省：新加的行此刻只是被标脏，Content 的高度还是旧的，直接设 <code>verticalNormalizedPosition = 0</code> 会停在“倒数第二条”。强制更新后再滚，才能真正到底（原理见 10.8 节）。</p>
+<div class="scene">Ch10/Scenes/Ch10_Chat.unity</div>
+<div class="note tip"><b>调参建议</b>行的 HLG 必须 Control Child Size 两项都勾、Force Expand 都不勾；气泡的 VLG 同理。如果勾了 Force Expand Width，短消息也会被拉满整行。想给气泡加个“小尾巴”，把尾巴图片作为气泡的子物体并挂 LayoutElement（Ignore Layout），用锚点贴在角上即可。头像必须挂 LayoutElement 写死 96×96：Image 报的 preferred 是 sprite 的原始像素尺寸，不同头像图片大小不一时，行高和气泡位置会跟着乱跳。消息很多时，记得配合第 18 章的循环列表，只为屏幕内的消息创建气泡。</div>
+
+<h3 class="case"><span class="no">案例 10.2</span>表单布局<span class="lv">入门</span></h3>
+<p><b>目标</b>：一个“创建角色”表单，左侧标签列宽度固定、右对齐，右侧输入框随表单宽度伸缩；底部按钮靠右；表单高度随行数自动变化。</p>
+<ol class="steps">
+<li>新建 Image 作为表单底板，<span class="menu">Add Component › Layout › Vertical Layout Group</span>：Padding 44/44/36/36，Spacing 22，Control Child Size 两项都勾，Child Force Expand 只勾 Width。再加 <span class="menu">Layout › Content Size Fitter</span>，Vertical Fit 选 Preferred Size。</li>
+<li>每一行建一个空物体，挂 Horizontal Layout Group：Spacing 20，Child Alignment = Middle Left，Control Child Size 两项都勾，Force Expand 都不勾。</li>
+<li>行里第一个孩子是标签文字（TextMeshPro，对齐 Midline Right），挂 Layout Element：Min Width 120、Preferred Width 150、Flexible Width 0。</li>
+<li>第二个孩子是输入框 / 下拉框，挂 Layout Element：Min Width 160、Preferred Width 400、<b>Flexible Width 1</b>、Preferred Height 84。多行的“签名”框把 Preferred Height 设为 150。</li>
+<li>按钮行：最前面放一个空物体只挂 Layout Element（Flexible Width 1）当“弹簧”，后面两个按钮各挂 Layout Element（Preferred Width 200、Preferred Height 88）。</li>
+</ol>
+<figure class="shot"><img src="img/ch10-form.jpg"><figcaption><b>图 10-9</b> 同一个表单在 900 和 640 两种宽度下：标签列不变，输入框吸收宽度差</figcaption></figure>
+<p>这个案例没有一行代码，全靠 10.3 节的分配公式：标签的 flex 是 0、输入框的 flex 是 1，表单变宽时多出来的空间全部给了输入框；表单变窄到总 preferred 以下时，标签和输入框按同一比例在 min 和 preferred 之间收缩，标签最窄 120、输入框最窄 160。</p>
+<div class="scene">Ch10/Scenes/Ch10_Form.unity</div>
+<p><b>扩展</b>：同一套结构很容易改成“窄屏时标签在上、输入框在下”的响应式表单——给每一行加一个小脚本，在行宽小于某个阈值时把 HorizontalLayoutGroup 换成 VerticalLayoutGroup（或者启用/禁用两个预先放好的布局组之一）。切换时布局组的 OnEnable/OnDisable 会自动标脏，不需要手动刷新。做多语言时，德语、俄语的标签往往比中文长一倍，建议标签列的 Preferred Width 按最长的语言来定，或者把标签文字的 TMP 打开 Auto Size（注意它的代价，见第 5 章）。</p>
+<div class="note"><b>为什么标签列能对齐</b>每行都是独立的 HLG，它们之所以对齐，是因为每行标签的 min/preferred/flex 完全一样，而每行的宽度又都等于表单内宽（父 VLG 勾了 Force Expand Width）。如果某一行的标签文字特别长、preferred 不同，那一行就会错位。多语言项目里建议给标签写死 Preferred Width，而不是依赖文字长度。</div>
+
+<h3 class="case"><span class="no">案例 10.3</span>按宽度自动算列数的网格<span class="lv">进阶</span></h3>
+<p><b>目标</b>：商城格子在宽屏上自动多放几列，在窄屏上少放几列，并且格子宽度拉伸到正好填满，不在右边留空。</p>
+<p><b>思路</b>：继承 GridLayoutGroup，在水平阶段根据自身宽度算列数和格子宽度，然后交给父类完成排列。关键在于把计算放进<b>水平设置阶段</b>：按 10.3 节的顺序，SetLayoutHorizontal 执行时父物体已经把我的宽度定好了，这时读 <code>rect.width</code> 才是最终值；而垂直计算阶段（算需要几行、多高）在所有水平设置之后，用的就是我们刚算好的格子尺寸。</p>
+<pre class="code" data-file="Ch10/ResponsiveGridLayout.cs" data-region="fit"></pre>
+<p>注释里提到的细节很重要：GridLayoutGroup 的 <code>cellSize</code> setter 会调用 <code>SetProperty → SetDirty</code>，而 LayoutGroup.SetDirty 发现自己正处在布局重建中时，会启动一个协程在<b>下一帧</b>再标脏一次（<code>DelayedSetDirty</code>）。如果我们每次布局都通过属性去设 cellSize，就会每帧重建一次布局，形成一个停不下来的循环。直接写受保护的字段 m_CellSize、m_ConstraintCount 可以绕开它。</p>
+<figure class="shot"><img src="img/ch10-autogrid.jpg"><figcaption><b>图 10-10</b> 最小格宽 180：宽 900 放 4 列、660 放 3 列、420 放 2 列，格子宽度自动拉伸</figcaption></figure>
+<div class="scene">Ch10/Scenes/Ch10_AutoGrid.unity</div>
+<p><b>常见坑</b>：ResponsiveGridLayout 的宽度必须来自锚点拉伸或父布局组，不能来自它自己的 Content Size Fitter 水平适配——那样宽度取决于列数、列数又取决于宽度，形成循环依赖。只在竖直方向挂 Fitter。另外，GridLayoutGroup 自带的 Inspector 编辑器不会显示子类新增的字段，如果想在 Inspector 里调 m_MinCellWidth，可以给子类写一个简单的自定义编辑器，或者在 Debug 模式的 Inspector 里修改。</p>
+
+<p><b>扩展</b>：把 m_CellAspect 换成固定高度，就是“卡片宽度自适应、高度固定”的列表；加一个 m_MaxColumns 限制超宽屏下的最大列数，避免格子太小看不清。</p>
+
+<h3 class="case"><span class="no">案例 10.4</span>自定义流式布局 FlowLayoutGroup（标签云）<span class="lv">高阶</span></h3>
+<p><b>目标</b>：实现 UGUI 没有的“自动换行”布局：标签一个接一个排，放不下就换行，行高取本行最高的元素，支持左/中/右对齐和两端对齐。</p>
+<p><b>思路</b>：继承 LayoutGroup（它已经实现了 ILayoutElement 和 ILayoutGroup，并帮我们收集好了参与布局的孩子 rectChildren），严格按四个阶段分工：</p>
+<table>
+<tr><th>阶段</th><th>已知</th><th>要做的事</th></tr>
+<tr><td>CalculateLayoutInputHorizontal</td><td>孩子的宽度输入（它们先算完）</td><td>报自己的宽度：min = 最宽的孩子，preferred = 所有孩子排成一行</td></tr>
+<tr><td>SetLayoutHorizontal</td><td>自己的最终宽度</td><td>贪心断行；设置每个孩子的 x 和宽度</td></tr>
+<tr><td>CalculateLayoutInputVertical</td><td>孩子的最终宽度（文字已能算出换行后的高度）</td><td>每行高 = 本行最高的孩子，报自己的总高度</td></tr>
+<tr><td>SetLayoutVertical</td><td>自己的最终高度</td><td>设置每个孩子的 y 和高度</td></tr>
+</table>
+<p>先看两个“报尺寸”的阶段：</p>
+<pre class="code" data-file="Ch10/FlowLayoutGroup.cs" data-region="calcH"></pre>
+<p>preferred = 全部排成一行的宽度，这样如果你给流式布局挂 Content Size Fitter 的水平 Preferred，它会变成单行（这在横向滚动的标签条里正好有用）；min = 最宽的那个孩子，保证父级不会把它压得比最宽的标签还窄。</p>
+<pre class="code" data-file="Ch10/FlowLayoutGroup.cs" data-region="setH"></pre>
+<p>断行是最朴素的贪心：放得下就接在本行后面，放不下就换行。<code>GetAlignmentOnAxis(0)</code> 是基类提供的工具，把 Child Alignment 换算成 0 / 0.5 / 1，乘以本行剩余宽度就是这一行的起始偏移。两端对齐时把剩余宽度平分给本行每个元素（最后一行不做，和排版软件的习惯一致）。</p>
+<pre class="code" data-file="Ch10/FlowLayoutGroup.cs" data-region="calcV"></pre>
+<pre class="code" data-file="Ch10/FlowLayoutGroup.cs" data-region="setV"></pre>
+<p>垂直两个阶段复用了水平阶段算好的 m_Lines。这里体现了两阶段算法的价值：断行只依赖宽度，所以在水平阶段做；行高依赖孩子的高度，而孩子（比如会换行的文字）的高度依赖它的宽度，所以必须等到垂直计算阶段再读。如果你在 CalculateLayoutInputHorizontal 里就去读孩子的高度，长标签换行时就会算错。</p>
+<p>标签本身不需要任何代码：每个标签是“Image(pill 精灵) + HorizontalLayoutGroup(padding 28/28/10/12，Control Child Size 勾上) + TMP 文字”，它的 preferred 宽度自然就是文字宽度加 padding。容器挂 FlowLayoutGroup + Content Size Fitter（Vertical Preferred），高度随行数变化。</p>
+<figure class="shot"><img src="img/ch10-flow.jpg"><figcaption><b>图 10-11</b> FlowLayoutGroup 实拍：左为 UpperLeft，右为 MiddleCenter + 两端对齐</figcaption></figure>
+<p>演示脚本 TagCloud 负责生成标签、点击切换选中、输入框回车添加新标签。在场景里输入一个很长的标签，可以看到它被压到整行宽度（BreakLines 里的 <code>Mathf.Min(..., inner)</code>）。</p>
+<div class="scene">Ch10/Scenes/Ch10_Flow.unity</div>
+<p><b>常见坑</b>：如果关掉 Child Control Size，FlowLayoutGroup 用的是孩子原来的 sizeDelta，这时孩子必须是固定尺寸的（比如统一大小的图标），否则文字标签会按创建时的默认宽度排列，看起来“断行位置不对”。还要注意孩子不能再挂 Content Size Fitter（理由同 10.8 节坑 1）：标签的宽度要由标签自己的布局组报给流式布局，而不是让标签自己改自己。最后，流式布局的高度依赖宽度，所以它的宽度不能交给 Fitter 的水平 Preferred 去决定，否则永远只有一行。</p>
+
+<div class="note deep"><b>深入</b>为什么继承 LayoutGroup 而不是自己从头实现接口？因为 LayoutGroup 还帮你做了几件容易漏的事：OnEnable/OnDisable 时标脏、子物体增删时（OnTransformChildrenChanged）标脏、根布局组尺寸变化时标脏、用 DrivenRectTransformTracker 锁定孩子被控制的属性、跳过 ignoreLayout 和未激活的孩子。<code>SetChildAlongAxis</code> 还会把孩子的锚点统一设到左上角 (0,1)，后续的位置换算才简单。</div>
+
+<h3 class="case"><span class="no">案例 10.5</span>可折叠分组列表<span class="lv">进阶</span></h3>
+<p><b>目标</b>：背包按“装备 / 消耗品 / 任务道具”分组，点击分组标题展开或收起，带平滑动画，下面的分组自动跟着移动。</p>
+<p><b>思路</b>：不要去手动移动下面的分组，让布局系统来做。每个分组是一个 VLG，里面是标题按钮和 Body。Body 挂 RectMask2D（裁掉没展开的部分）和 LayoutElement，Body 下面的 Content 挂 VLG + Content Size Fitter，决定“完全展开时有多高”。动画只做一件事：在 0 和 Content 的首选高度之间插值 Body 的 LayoutElement.preferredHeight。</p>
+<div class="tree" data-tree="ch10-fold" data-root="Section_装备" data-depth="3" data-hide="Item_橡木盾,Item_皮革头盔,Item_猎人短弓"></div>
+<pre class="code" data-file="Ch10/FoldoutSection.cs" data-region="anim"></pre>
+<p>preferredHeight 的 setter 内部调用了 <code>SetDirty → MarkLayoutForRebuild</code>，于是从 Body 一路向上找到最外层的布局根（滚动列表的 Content），整棵树重新布局：本分组变高，下面的分组被往下推，Content 的高度也变了，ScrollRect 的滚动范围随之更新。注意 SetProgress 读的是 <code>LayoutUtility.GetPreferredHeight(m_Content)</code> 而不是 <code>m_Content.rect.height</code>：前者是 Content 的 VLG 在上一次布局计算中报的值，即使 Content 自己的 Fitter 还没执行，也能拿到正确的目标高度。</p>
+<figure class="shot"><img src="img/ch10-fold.jpg" style="width:50%"><figcaption><b>图 10-12</b> 第一组展开、第二组收起、第三组停在动画一半的那一帧</figcaption></figure>
+<div class="scene">Ch10/Scenes/Ch10_Foldout.unity</div>
+<div class="note warn"><b>性能提醒</b>动画期间每一帧都会重建整个列表的布局。三五个分组无所谓；如果列表有上百项，展开动画会明显掉帧——这时可以动画期间只改 Body 的 sizeDelta、并临时关闭外层的布局组，动画结束再打开；或者干脆用第 18 章的虚拟化列表。静止时 Update 里只做一次比较，值没变时 LayoutElement 的 setter 不会标脏，不产生任何布局开销。</div>
+
+<h3 class="sec">10.7 实测：布局的“一帧延迟”与 ForceRebuildLayoutImmediate</h3>
+<p>前面多次提到“标脏后要等到本帧末尾才算”。来看实测：一个挂 VerticalLayoutGroup + Content Size Fitter 的列表，往里加一项，分别在加之前、刚加完、调用 <code>LayoutRebuilder.ForceRebuildLayoutImmediate</code> 之后读列表高度：</p>
+<pre class="code" data-file="Ch10/LayoutTimingDemo.cs" data-region="measure"></pre>
+<figure class="shot"><img src="img/ch10-delay.jpg"><figcaption><b>图 10-13</b> 实测：刚加完一项时读到的高度仍是旧值 196，强制重建后才是 280（20+72×3+12×2+20）</figcaption></figure>
+<p>原因在 10.3 节已经讲过：加子物体只会触发 LayoutGroup.OnTransformChildrenChanged → SetDirty → MarkLayoutForRebuild，真正的计算在 Canvas.willRenderCanvases 回调里（第 12 章会展开这个回调）。所以<b>同一帧里，任何依赖布局结果的代码都可能读到旧值</b>：滚到底、根据内容高度放置提示箭头、读文字换行后的高度……解决办法有三种：</p>
+<table>
+<tr><th>方法</th><th>做了什么</th><th>代价与注意</th></tr>
+<tr><td><code>LayoutRebuilder.ForceRebuildLayoutImmediate(rt)</code></td><td>立刻以 rt 为根做一次完整的四趟布局</td><td>只算布局，不做图形重建；如果 rt 不是真正的布局根（它的父物体也有布局组），父级不会更新。嵌套很深时可能要对内层、外层各调一次</td></tr>
+<tr><td><code>Canvas.ForceUpdateCanvases()</code></td><td>立刻执行一遍完整的 CanvasUpdateRegistry 更新（所有画布的布局 + 图形重建）</td><td>范围最大、最省心，开销也最大；案例 10.1 用的就是它</td></tr>
+<tr><td>等一帧（协程 <code>yield return null</code> 或 <code>WaitForEndOfFrame</code>）</td><td>让系统按正常流程算完再读</td><td>没有额外计算，但逻辑会晚一帧，可能闪一下</td></tr>
+</table>
+
+<h3 class="sec">10.8 常见坑与性能建议</h3>
+<h4>坑 1：布局组的孩子上挂了 Content Size Fitter</h4>
+<p>Inspector 会给出黄色警告：“Parent has a type of layout group component. A child of a layout group should not have a Content Size Fitter component, since it should be driven by the layout group.”（来自 <code>Editor/UI/SelfControllerEditor.cs</code>）。原因看 10.3 节的遍历：布局根是父物体，PerformLayoutControl 先执行父物体的 HLG（此时孩子还是旧尺寸），再递归到孩子执行 Fitter。父亲排位置时用的是孩子的旧宽度，孩子随后才改成新宽度——于是重叠或留缝。图 10-14 左边是作者实拍的错误结果：“返回主界面”压在了“下一步”上面。</p>
+<figure class="shot"><img src="img/ch10-fitter-pitfall.jpg"><figcaption><b>图 10-14</b> 左：孩子各自挂 Fitter，父 HLG 用旧尺寸排位置，按钮重叠；右：交给父布局组控制尺寸</figcaption></figure>
+<p>正确做法：让父布局组勾选 Control Child Size，孩子不挂 Fitter，孩子的尺寸信息通过它自己的布局组（或文字）报上去。<b>Fitter 只该挂在布局链的最顶层</b>（比如 ScrollRect 的 Content、独立的提示框）。</p>
+<h4>坑 2：父子争夺控制权</h4>
+<p>同一个 RectTransform 的同一个属性只能有一个“驱动者”。父 HLG 勾了 Control Child Size Width，孩子又挂 Aspect Ratio Fitter（Height Controls Width），两者都想改宽度，结果取决于执行顺序，表现为闪烁或尺寸来回跳。排查时看 Inspector：被驱动的字段会变灰，并显示 “Some values driven by ...”。</p>
+<h4>坑 3：空节点切断布局链</h4>
+<p>见 10.3 节的警告框。症状是“深层的文字改了内容，外层的列表高度不变”。</p>
+<h4>坑 4：在布局重建过程中改布局属性</h4>
+<p>在 SetLayoutHorizontal 之类的回调里设置布局组的公开属性，会触发 DelayedSetDirty，导致每帧都重建。自定义布局时改自己的参数请直接写字段（案例 10.3）。</p>
+<h4>坑 5：在未激活的父物体下创建 TMP 文字</h4>
+<p>作者在搭聊天气泡模板时遇到：模板放在一个未激活的节点下，用代码 AddComponent 的 TextMeshProUGUI 不会执行 Awake，TMP Settings 里的默认值（包括自动换行）没有读进来，enableWordWrapping 是 false，克隆出来的气泡文字一行到底不换行。显式设置 <code>enableWordWrapping = true</code> 即可。</p>
+<h4>性能建议</h4>
+<ul>
+<li><b>静态界面别挂布局组</b>：布局只是“帮你算坐标”的工具。一个永远不变的面板，在编辑器里用布局组排好后，可以把布局组移除（坐标已经写进 RectTransform 了），运行时零开销。</li>
+<li><b>控制嵌套深度</b>：每次标脏都会从元素一路往上找布局根，然后整棵子树做四趟遍历、每个节点 GetComponents 好几次。三四层嵌套的列表，一个文字变化就会重排整个列表。第 12 章的实测里，40 行 TMP 文字放在 VLG 中改文字，布局部分耗时约 1 ms（编辑器下），而不在布局组里的旧版 Text 改文字，布局部分几乎为 0。</li>
+<li><b>频繁变化的元素移出布局</b>：每帧变化的数字（倒计时、血量）如果放在布局组里，会每帧触发布局重建。给它挂 LayoutElement 固定尺寸，或者 Ignore Layout，让文字变化不再向上传播（文字仍会标脏布局，但父链上找不到需要重建的根）。</li>
+<li><b>大列表用虚拟化</b>：成百上千项的列表不要靠 VLG + 实例化全部子项，见第 18 章。</li>
+</ul>
+
+<h3 class="sec">10.9 选型速查与移动端注意事项</h3>
+<p>最后把本章的组件按“要解决的问题”整理一遍，遇到需求时对号入座：</p>
+<table>
+<tr><th>需求</th><th>推荐组件</th><th>要点</th></tr>
+<tr><td>一排/一列元素，尺寸各异</td><td>Horizontal / Vertical Layout Group</td><td>尺寸跟随内容就勾 Control Child Size；要均分就再勾 Force Expand</td></tr>
+<tr><td>等大的格子（背包、技能栏）</td><td>Grid Layout Group</td><td>宽度要自适应时用案例 10.3 的子类</td></tr>
+<tr><td>自动换行的标签、词条</td><td>FlowLayoutGroup（案例 10.4）</td><td>UGUI 没有内置，需要自己写</td></tr>
+<tr><td>容器大小跟随内容（滚动列表、提示框）</td><td>Content Size Fitter</td><td>只挂在布局链最顶层</td></tr>
+<tr><td>某个元素固定尺寸 / 吃掉剩余空间 / 不参与布局</td><td>Layout Element</td><td>Preferred、Flexible、Ignore Layout</td></tr>
+<tr><td>图片保持比例、背景铺满屏幕</td><td>Aspect Ratio Fitter</td><td>Envelope Parent 铺满，Fit In Parent 留边</td></tr>
+<tr><td>内容有最大宽度</td><td>自定义 ILayoutElement（案例 10.1）</td><td>用高优先级覆盖 preferred</td></tr>
+</table>
+<p>移动端还有几点值得注意。第一，布局重建全部在主线程的 C# 里执行，低端安卓机上一次深层布局可能比编辑器慢好几倍，列表滚动时切忌每帧改动列表里的文字或尺寸。第二，横竖屏切换、刘海屏安全区调整会改变根节点尺寸，根布局组会因为 OnRectTransformDimensionsChange 自动重排，这是好事，但如果界面里有几十个独立的布局根，切换的那一帧会有明显卡顿，可以在切换时先隐藏复杂界面。第三，CanvasScaler 改变缩放因子时，所有文字的 preferred 尺寸都会变化，布局会整体重算一次，这在第一次打开界面时是不可避免的开销，不要误以为是你的代码问题。第四，在 Awake 里读布局结果一定是旧值（甚至是 0），需要尺寸的初始化逻辑放到下一帧，或者先调用一次 ForceRebuildLayoutImmediate。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>布局系统由“报尺寸”的 ILayoutElement 和“定尺寸”的 ILayoutController 组成；LayoutGroup 同时扮演两种角色，Fitter 是只改自己的 ILayoutSelfController。</li>
+<li>同物体多个 ILayoutElement 时：负数跳过、优先级高的说了算、同优先级取最大值；LayoutElement 默认优先级 1。</li>
+<li>LayoutRebuilder 的四趟遍历：水平计算（自下而上）→ 水平设置（自上而下）→ 垂直计算 → 垂直设置。宽度定完才算高度，文字换行才准。</li>
+<li>H/V Layout Group 的分配：容器小于总 min 则溢出；介于 min 与 preferred 之间按同一比例插值；大于 preferred 时按 flexible 分多余空间。Force Expand 等于把 flexible 至少当作 1。</li>
+<li>Grid Layout Group 不读孩子尺寸，格子固定；Content Size Fitter 只读同物体的 ILayoutElement；Aspect Ratio Fitter 不走两阶段流程、立即生效。</li>
+<li>布局结果有一帧延迟，需要立刻读结果时用 ForceRebuildLayoutImmediate 或 Canvas.ForceUpdateCanvases。</li>
+<li>Fitter 只放在布局链最顶层；空节点会切断布局链；静态界面和高频变化的元素尽量不要放在布局组里。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>给 MaxSizeLayoutElement 增加 minWidth 支持（返回值仍要遵守“-1 表示不管”的约定），让一个字的气泡也不会窄得像竖条。</li>
+<li>修改 FlowLayoutGroup，支持“每行最多 N 个元素”的限制，并实现从右往左排列（提示：参考 HorizontalOrVerticalLayoutGroup 的 reverseArrangement）。</li>
+<li>在案例 10.5 的列表里放 200 个物品，用 Profiler 观察展开动画期间 Layout 的耗时；然后实现“动画期间关闭外层布局组”的优化，比较前后差异。</li>
+<li>做一个底部导航栏：5 个按钮均分宽度，选中的那个宽度是其他的 1.5 倍且带文字，切换时宽度平滑过渡（提示：动画 LayoutElement.flexibleWidth）。</li>
+<li>解释为什么在 ScrollRect 的 Content 上同时挂 GridLayoutGroup 和 Content Size Fitter（Vertical Preferred）可以正常工作，而在 Content 的每个格子上挂 Content Size Fitter 不行。用 10.3 节的遍历顺序作答。</li>
+</ol></div>
+</section>

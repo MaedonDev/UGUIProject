@@ -1,0 +1,9 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Zoom|RawImage
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|TinyCamera|Camera
+0|TinyCanvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Mask|Image,Mask
+2|Avatar|Image

@@ -1,0 +1,497 @@
+<section class="chapter" id="c12" data-title="Graphic、Canvas 与重建（源码原理）" data-sub="标脏、重建、网格生成、裁剪与合批，全部实测">
+<div class="chap-head"><div class="num">CHAPTER 12<b>第 12 章</b></div><h2>Graphic、Canvas 与重建（源码原理）</h2><p class="lead">改一个颜色、换一张图、挪一下位置，UGUI 在背后分别干了多少活？本章沿着 Graphic → CanvasUpdateRegistry → CanvasRenderer → Canvas 这条链路读源码，把“标脏—重建—合批”讲清楚；然后在配套工程里搭两个实验台，实测每种修改触发哪种重建、花多少时间，以及哪些摆法会打断合批。本章所有数字都来自作者机器上的实测。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>Graphic / MaskableGraphic / Image / Text 的继承关系，CanvasRenderer 在 C# 与原生层之间的角色</div><div>SetLayoutDirty / SetVerticesDirty / SetMaterialDirty 的触发条件，CanvasUpdateRegistry 两个队列与 PerformUpdate 的执行顺序</div><div>网格生成（VertexHelper、UIVertex、IMeshModifier）、材质修改（IMaterialModifier）、裁剪（IClipper / IClippable）的源码流程</div><div>实测：14 种修改各自触发的重建与耗时；13 种摆法下的 Batches 数，以及合批被打断的条件</div></div>
+
+<h3 class="sec">12.1 继承关系：谁是 Graphic</h3>
+<p>屏幕上每一个能看见的 UGUI 元素，都是 <code>Graphic</code> 的子类。Graphic 是一个抽象的 MonoBehaviour，它负责三件事：知道自己属于哪个 Canvas、生成网格和材质、在需要时把自己登记到重建队列。它的直接子类 <code>MaskableGraphic</code> 增加了“能被遮罩”的能力，Image、RawImage、Text 以及 TextMeshPro 的 TextMeshProUGUI 都继承自 MaskableGraphic。</p>
+<figure><svg viewBox="0 0 600 270" width="600" font-family="PingFang SC" font-size="13">
+<rect x="230" y="8" width="140" height="34" rx="6" fill="#fff" stroke="#7a8299"/><text x="300" y="30" text-anchor="middle">UIBehaviour</text>
+<rect x="215" y="62" width="170" height="44" rx="6" fill="#f4f2fd" stroke="#5b4bd6"/><text x="300" y="82" text-anchor="middle" font-weight="bold" fill="#5b4bd6">Graphic（抽象）</text><text x="300" y="99" text-anchor="middle" font-size="12" fill="#7a8299">ICanvasElement</text>
+<rect x="190" y="128" width="220" height="44" rx="6" fill="#f4f2fd" stroke="#5b4bd6"/><text x="300" y="148" text-anchor="middle" font-weight="bold" fill="#5b4bd6">MaskableGraphic（抽象）</text><text x="300" y="165" text-anchor="middle" font-size="12" fill="#7a8299">IClippable · IMaskable · IMaterialModifier</text>
+<rect x="20" y="200" width="100" height="34" rx="6" fill="#fff" stroke="#e0deef"/><text x="70" y="222" text-anchor="middle">Image</text>
+<rect x="135" y="200" width="100" height="34" rx="6" fill="#fff" stroke="#e0deef"/><text x="185" y="222" text-anchor="middle">RawImage</text>
+<rect x="250" y="200" width="100" height="34" rx="6" fill="#fff" stroke="#e0deef"/><text x="300" y="222" text-anchor="middle">Text</text>
+<rect x="365" y="200" width="110" height="34" rx="6" fill="#fff" stroke="#e0deef"/><text x="420" y="217" text-anchor="middle" font-size="12">TMP_Text</text><text x="420" y="230" text-anchor="middle" font-size="11" fill="#7a8299">→ TextMeshProUGUI</text>
+<rect x="490" y="200" width="100" height="34" rx="6" fill="#fff4ec" stroke="#ff8a3d"/><text x="540" y="222" text-anchor="middle" fill="#ff8a3d">你的 Graphic</text>
+<line x1="300" y1="42" x2="300" y2="62" stroke="#7a8299"/><line x1="300" y1="106" x2="300" y2="128" stroke="#7a8299"/>
+<line x1="300" y1="172" x2="70" y2="200" stroke="#7a8299"/><line x1="300" y1="172" x2="185" y2="200" stroke="#7a8299"/><line x1="300" y1="172" x2="300" y2="200" stroke="#7a8299"/><line x1="300" y1="172" x2="420" y2="200" stroke="#7a8299"/><line x1="300" y1="172" x2="540" y2="200" stroke="#7a8299"/>
+<rect x="430" y="62" width="160" height="80" rx="6" fill="#eef8f2" stroke="#2fb36a"/><text x="510" y="84" text-anchor="middle" font-weight="bold" fill="#2fb36a">CanvasRenderer</text><text x="510" y="104" text-anchor="middle" font-size="12">（原生组件）</text><text x="510" y="122" text-anchor="middle" font-size="12">SetMesh / SetMaterial</text>
+<line x1="385" y1="84" x2="430" y2="96" stroke="#2fb36a" stroke-dasharray="4 3"/>
+<text x="20" y="262" fill="#7a8299" font-size="12">ILayoutElement 由 Image / Text / TMP 各自实现（第 10 章）</text>
+</svg><figcaption><b>图 12-1</b> Graphic 家族。每个 Graphic 旁边都有一个 CanvasRenderer，负责把网格和材质交给原生层</figcaption></figure>
+<p><b>CanvasRenderer</b> 是这条链路上唯一的原生（C++）组件。Graphic 在 C# 里算好网格和材质，通过 <code>canvasRenderer.SetMesh / SetMaterial / SetTexture / SetColor</code> 交给它；之后的合批、排序、提交绘制全部发生在原生层的 Canvas 里，C# 看不到。理解这条分界线很重要：<b>C# 层的开销叫“重建”（Rebuild），原生层的开销叫“合批”（Batch）</b>，两者的触发条件完全不同。</p>
+<p>Image 和 Text 的类声明上都写着 <code>[RequireComponent(typeof(CanvasRenderer))]</code>，而 Graphic 基类只要求 RectTransform。Graphic 的 canvasRenderer 属性在找不到组件时会尝试 AddComponent，但在编辑器里 GetComponent 返回的是一个“假 null”对象，判断 <code>ReferenceEquals(..., null)</code> 为假，于是不会自动添加。作者在写本章的线框图组件时真踩到了：用 AddComponent 把自定义 Graphic 加到空物体上，重建时抛出 MissingComponentException。<b>自定义 Graphic 一定要自己加 <code>[RequireComponent(typeof(CanvasRenderer))]</code></b>。</p>
+
+<h4>Graphic 的一生：注册、标脏、注销</h4>
+<p>Graphic 从启用到销毁，会在两个全局注册表里进进出出。OnEnable 时，它先找到自己所属的 Canvas（沿父链找第一个启用的 Canvas，结果缓存在 m_Canvas 里），然后调用 <code>GraphicRegistry.RegisterGraphicForCanvas</code> 把自己登记到“这个 Canvas 的图形列表”里；如果开着 Raycast Target，还会登记到“这个 Canvas 的可射线图形列表”——第 11 章的 GraphicRaycaster 遍历的就是后者。登记完调用 SetAllDirty，于是刚启用的图形在本帧末尾一定会完整重建一次。</p>
+<pre class="code" data-lang="csharp">// 摘自 Graphic.cs
+protected override void OnEnable()
+{
+    base.OnEnable();
+    CacheCanvas();
+    GraphicRegistry.RegisterGraphicForCanvas(canvas, this);
+#if UNITY_EDITOR
+    GraphicRebuildTracker.TrackGraphic(this);
+#endif
+    if (s_WhiteTexture == null)
+        s_WhiteTexture = Texture2D.whiteTexture;
+    SetAllDirty();
+}
+</pre>
+<p>OnDisable 时从图形列表中“禁用”自己、从重建队列里移除、清空 CanvasRenderer（原生层不再绘制它）、并标记布局重建（它不再占位置了）。换父物体时（OnTransformParentChanged）和 Canvas 层级变化时（OnCanvasHierarchyChanged，比如在中间插了一个子 Canvas），它会重新查找所属 Canvas、更新注册表、SetAllDirty。所以<b>频繁改父物体也是一种昂贵操作</b>：对象池回收时把元素挪到另一个父物体下，和 SetActive 一样会触发完整重建，第 18 章的循环列表因此尽量只改位置、不换父物体。</p>
+<p>编辑器下还有一个 GraphicRebuildTracker：当字体纹理等资源被重新导入时，它负责让所有图形重新生成，这只影响编辑器，不进发布版本。</p>
+<h3 class="sec">12.2 三种“脏”：谁会触发什么</h3>
+<p>Graphic 不会每帧重建。它维护两个标记 m_VertsDirty、m_MaterialDirty，只有被“标脏”时才登记到重建队列。标脏的入口是三个虚方法：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Graphic.cs
+public virtual void SetLayoutDirty()
+{
+    if (!IsActive())
+        return;
+    LayoutRebuilder.MarkLayoutForRebuild(rectTransform);
+    if (m_OnDirtyLayoutCallback != null)
+        m_OnDirtyLayoutCallback();
+}
+public virtual void SetVerticesDirty()
+{
+    if (!IsActive())
+        return;
+    m_VertsDirty = true;
+    CanvasUpdateRegistry.RegisterCanvasElementForGraphicRebuild(this);
+    if (m_OnDirtyVertsCallback != null)
+        m_OnDirtyVertsCallback();
+}
+public virtual void SetMaterialDirty()
+{
+    if (!IsActive())
+        return;
+    m_MaterialDirty = true;
+    CanvasUpdateRegistry.RegisterCanvasElementForGraphicRebuild(this);
+    if (m_OnDirtyMaterialCallback != null)
+        m_OnDirtyMaterialCallback();
+}
+</pre>
+<p>三者的去向不同：布局脏交给第 10 章的 LayoutRebuilder（向上找布局根，可能什么都不排）；顶点脏和材质脏都把 Graphic 自己登记进图形重建队列，区别只在设置哪个标记。<code>SetAllDirty</code> 三个都调（OnEnable、OnValidate、换父物体时）。末尾那三个回调 <code>m_OnDirty*Callback</code> 可以通过公开方法 <code>RegisterDirtyLayoutCallback</code> 等注册——这是一个官方留的“钩子”，本章的实验就是靠它在不改任何源码的情况下统计标脏次数的。</p>
+<p>常见属性分别会标哪种脏，读各个 setter 就知道。几个有代表性的：</p>
+<pre class="code" data-lang="csharp">// Graphic.cs：颜色只影响顶点色
+public virtual Color color { get { return m_Color; } set { if (SetPropertyUtility.SetColor(ref m_Color, value)) SetVerticesDirty(); } }
+
+// Graphic.cs：RectTransform 尺寸变化
+protected override void OnRectTransformDimensionsChange()
+{
+    if (gameObject.activeInHierarchy)
+    {
+        // prevent double dirtying...
+        if (CanvasUpdateRegistry.IsRebuildingLayout())
+            SetVerticesDirty();
+        else
+        {
+            SetVerticesDirty();
+            SetLayoutDirty();
+        }
+    }
+}
+
+// Image.cs：换 sprite 时的两个优化
+m_SkipLayoutUpdate = m_Sprite.rect.size.Equals(value ? value.rect.size : Vector2.zero);
+m_SkipMaterialUpdate = m_Sprite.texture == (value ? value.texture : null);
+m_Sprite = value;
+// ……
+SetAllDirty();
+
+// Text.cs：改文字
+else if (m_Text != value)
+{
+    m_Text = value;
+    SetVerticesDirty();
+    SetLayoutDirty();
+}
+</pre>
+<p>Image 换 sprite 的两行特别值得一看：新旧 sprite 尺寸相同就跳过布局脏，纹理相同就跳过材质脏（SetAllDirty 里检查这两个标记）。所以“同一图集里、同样大小的帧动画”换 sprite 只标顶点脏，这是 UGUI 专门为序列帧做的优化。而 <b>移动、旋转、缩放不会调用任何一个 SetXxxDirty</b>——它们只改变 Transform，由原生层的 Canvas 在合批时处理。12.7 节的实测会逐条验证这些结论。</p>
+
+<h3 class="sec">12.3 CanvasUpdateRegistry：两个队列与一次 PerformUpdate</h3>
+<p>所有重建都集中在单例 <code>CanvasUpdateRegistry</code> 里调度。它在构造时把自己挂到 <code>Canvas.willRenderCanvases</code> 上——这是原生 Canvas 在“本帧要渲染画布之前”发出的回调（位于 PostLateUpdate 阶段，在所有 LateUpdate 之后；没有任何画布需要更新时不会触发）：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/CanvasUpdateRegistry.cs
+private readonly IndexedSet&lt;ICanvasElement&gt; m_LayoutRebuildQueue = new IndexedSet&lt;ICanvasElement&gt;();
+private readonly IndexedSet&lt;ICanvasElement&gt; m_GraphicRebuildQueue = new IndexedSet&lt;ICanvasElement&gt;();
+protected CanvasUpdateRegistry()
+{
+    Canvas.willRenderCanvases += PerformUpdate;
+}
+</pre>
+<p>两个队列都是 IndexedSet（List + Dictionary，O(1) 去重和删除）。布局队列里放的是 LayoutRebuilder（每个布局根一个），图形队列里放的是 Graphic 本身。同一个元素一帧内登记多少次都只算一次。PerformUpdate 是整个 UGUI 每帧最核心的函数：</p>
+<pre class="code" data-lang="csharp">// 摘自 CanvasUpdateRegistry.cs（PerformUpdate，去掉了 Profiler 采样代码）
+CleanInvalidItems();
+m_PerformingLayoutUpdate = true;
+m_LayoutRebuildQueue.Sort(s_SortLayoutFunction);
+for (int i = 0; i &lt;= (int)CanvasUpdate.PostLayout; i++)
+{
+    for (int j = 0; j &lt; m_LayoutRebuildQueue.Count; j++)
+    {
+        var rebuild = m_LayoutRebuildQueue[j];
+        try
+        {
+            if (ObjectValidForUpdate(rebuild))
+                rebuild.Rebuild((CanvasUpdate)i);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e, rebuild.transform);
+        }
+    }
+}
+for (int i = 0; i &lt; m_LayoutRebuildQueue.Count; ++i)
+    m_LayoutRebuildQueue[i].LayoutComplete();
+m_LayoutRebuildQueue.Clear();
+m_PerformingLayoutUpdate = false;
+// now layout is complete do culling...
+ClipperRegistry.instance.Cull();
+m_PerformingGraphicUpdate = true;
+for (var i = (int)CanvasUpdate.PreRender; i &lt; (int)CanvasUpdate.MaxUpdateValue; i++)
+{
+    for (var k = 0; k &lt; m_GraphicRebuildQueue.Count; k++)
+    {
+        // ……try { element.Rebuild((CanvasUpdate)i); } catch ……
+    }
+}
+for (int i = 0; i &lt; m_GraphicRebuildQueue.Count; ++i)
+    m_GraphicRebuildQueue[i].GraphicUpdateComplete();
+m_GraphicRebuildQueue.Clear();
+m_PerformingGraphicUpdate = false;
+</pre>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="13">
+<defs><marker id="a12" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b4bd6"/></marker></defs>
+<rect x="10" y="10" width="580" height="40" rx="6" fill="#fff" stroke="#e0deef"/>
+<text x="20" y="35">Update → 协程 → LateUpdate</text><text x="250" y="35" fill="#7a8299">（你的代码在这里改属性 → 标脏、登记队列）</text>
+<line x1="300" y1="50" x2="300" y2="66" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a12)"/>
+<rect x="10" y="68" width="580" height="132" rx="8" fill="#f4f2fd" stroke="#5b4bd6"/>
+<text x="20" y="88" font-weight="bold" fill="#5b4bd6">Canvas.willRenderCanvases → CanvasUpdateRegistry.PerformUpdate</text>
+<rect x="24" y="98" width="170" height="90" rx="6" fill="#fff4ec" stroke="#ff8a3d"/><text x="109" y="118" text-anchor="middle" font-weight="bold" fill="#ff8a3d">① 布局队列</text><text x="109" y="138" text-anchor="middle" font-size="12">按层级深度排序</text><text x="109" y="156" text-anchor="middle" font-size="12">Prelayout → Layout</text><text x="109" y="174" text-anchor="middle" font-size="12">→ PostLayout</text>
+<rect x="214" y="98" width="150" height="90" rx="6" fill="#fff" stroke="#7a8299"/><text x="289" y="118" text-anchor="middle" font-weight="bold">② 裁剪</text><text x="289" y="140" text-anchor="middle" font-size="12">ClipperRegistry.Cull</text><text x="289" y="158" text-anchor="middle" font-size="12">RectMask2D</text><text x="289" y="174" text-anchor="middle" font-size="12">.PerformClipping</text>
+<rect x="384" y="98" width="192" height="90" rx="6" fill="#eef8f2" stroke="#2fb36a"/><text x="480" y="118" text-anchor="middle" font-weight="bold" fill="#2fb36a">③ 图形队列</text><text x="480" y="138" text-anchor="middle" font-size="12">PreRender → LatePreRender</text><text x="480" y="156" text-anchor="middle" font-size="12">UpdateGeometry</text><text x="480" y="174" text-anchor="middle" font-size="12">UpdateMaterial</text>
+<line x1="194" y1="143" x2="212" y2="143" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a12)"/><line x1="364" y1="143" x2="382" y2="143" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a12)"/>
+<line x1="300" y1="200" x2="300" y2="214" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a12)"/>
+<rect x="10" y="216" width="580" height="30" rx="6" fill="#fff" stroke="#e0deef"/><text x="20" y="236">原生 Canvas：收集 CanvasRenderer 数据 → 排序 → 合批（Canvas.BuildBatch）→ 提交绘制</text>
+</svg><figcaption><b>图 12-2</b> 一帧里的 UI 更新顺序。布局一定在图形之前，裁剪夹在中间</figcaption></figure>
+<p>几个由这段代码推出的规则：</p>
+<ul>
+<li><b>布局先于图形</b>：图形重建时 RectTransform 已经是最终尺寸，网格按最终尺寸生成。</li>
+<li><b>布局队列按层级深度排序</b>（SortLayoutList 比较 ParentCount），浅的布局根先重建。</li>
+<li><b>布局有三个阶段</b>：Prelayout、Layout、PostLayout，每个元素在每个阶段都会被调用一次 Rebuild。LayoutRebuilder 只响应 Layout；TextMeshProUGUI 在 Prelayout 处理 autoSizeTextContainer；Scrollbar、ScrollRect 也实现了 ICanvasElement，在 PostLayout 阶段更新。</li>
+<li><b>图形重建期间禁止再登记</b>：<code>InternalRegisterCanvasElementForGraphicRebuild</code> 发现 m_PerformingGraphicUpdate 为真时会打印错误“Trying to add ... for graphic rebuild while we are already inside a graphic rebuild loop”。在 OnPopulateMesh 里修改别的 Graphic 的属性就会触发它。</li>
+<li>一个元素抛出异常不会影响其他元素（每次调用都有 try/catch），但会在控制台留下一条异常——看到异常的对象被高亮，通常就是它自己的网格生成出了问题。</li>
+</ul>
+<h4>CanvasUpdate 枚举与 ICanvasElement</h4>
+<p>能进入这两个队列的对象只需要实现 ICanvasElement：Rebuild(CanvasUpdate)、transform、LayoutComplete、GraphicUpdateComplete、IsDestroyed 五个成员。CanvasUpdate 枚举定义了五个阶段：Prelayout、Layout、PostLayout 属于布局队列，PreRender、LatePreRender 属于图形队列（MaxUpdateValue 只是循环上限）。除了 Graphic 和 LayoutRebuilder，UGUI 里实现了 ICanvasElement 的还有 ScrollRect（在 PostLayout 阶段根据最终的 Content 尺寸更新滚动条和位置）、Scrollbar、Slider、Toggle（编辑器下用于在 OnValidate 之后延迟刷新）、InputField 等。这给了我们一个扩展点：如果你的组件需要“在布局全部算完之后、渲染之前”做点事（比如根据最终尺寸摆放一个装饰物），可以实现 ICanvasElement，并用 CanvasUpdateRegistry.RegisterCanvasElementForLayoutRebuild 把自己登记进去，在 PostLayout 阶段处理——这比在 LateUpdate 里读尺寸可靠，因为 LateUpdate 时布局还没算。</p>
+<p>第 10 章的“一帧延迟”在这里得到了最终解释：你在 Update 里改了文字，文字只是登记了队列；直到本帧末尾 willRenderCanvases 触发 PerformUpdate，布局才被计算。<code>Canvas.ForceUpdateCanvases()</code> 的作用就是立刻触发一次这个回调。</p>
+
+<h3 class="sec">12.4 Graphic.Rebuild：网格与材质是怎么生成的</h3>
+<p>图形队列里的每个 Graphic 在 PreRender 阶段被调用 Rebuild：</p>
+<pre class="code" data-lang="csharp">// 摘自 Graphic.cs
+public virtual void Rebuild(CanvasUpdate update)
+{
+    if (canvasRenderer == null || canvasRenderer.cull)
+        return;
+    switch (update)
+    {
+        case CanvasUpdate.PreRender:
+            if (m_VertsDirty)
+            {
+                UpdateGeometry();
+                m_VertsDirty = false;
+            }
+            if (m_MaterialDirty)
+            {
+                UpdateMaterial();
+                m_MaterialDirty = false;
+            }
+            break;
+    }
+}
+</pre>
+<p>注意第一行：<b>被裁剪（cull）的图形直接返回，脏标记保留</b>。ScrollRect 里滚出视口、被 RectMask2D 剔除的列表项，即使数据变了也不会生成网格，等它重新进入视口时（MaskableGraphic.OnCullingChanged 会重新登记）再补做。这是 RectMask2D 比 Mask 省的原因之一。</p>
+<h4>UpdateGeometry：OnPopulateMesh → IMeshModifier → CanvasRenderer</h4>
+<pre class="code" data-lang="csharp">// 摘自 Graphic.cs（DoMeshGeneration）
+private void DoMeshGeneration()
+{
+    if (rectTransform != null &amp;&amp; rectTransform.rect.width &gt;= 0 &amp;&amp; rectTransform.rect.height &gt;= 0)
+        OnPopulateMesh(s_VertexHelper);
+    else
+        s_VertexHelper.Clear(); // clear the vertex helper so invalid graphics dont draw.
+    var components = ListPool&lt;Component&gt;.Get();
+    GetComponents(typeof(IMeshModifier), components);
+    for (var i = 0; i &lt; components.Count; i++)
+        ((IMeshModifier)components[i]).ModifyMesh(s_VertexHelper);
+    ListPool&lt;Component&gt;.Release(components);
+    s_VertexHelper.FillMesh(workerMesh);
+    canvasRenderer.SetMesh(workerMesh);
+}
+</pre>
+<p>流程只有四步：子类在 <code>OnPopulateMesh</code> 里往 VertexHelper 写顶点和三角形 → 同物体上所有 IMeshModifier（Shadow、Outline、你的顶点特效）依次修改 → 写进一个<b>所有 Graphic 共享的</b> workerMesh → 交给 CanvasRenderer。共享的 s_VertexHelper 和 workerMesh 意味着网格生成不产生 GC，但也意味着你不能在 OnPopulateMesh 之外持有它们。Graphic 基类默认 <code>useLegacyMeshGeneration = true</code>，走的是 Mesh 版本的旧流程（DoLegacyMeshGeneration），Image、RawImage、Text 都在构造函数里改成了 false；自己写 Graphic 时建议也改成 false。</p>
+<p>VertexHelper 内部是一组 List：位置、颜色（Color32）、uv0~uv3、法线、切线和索引。<code>AddVert</code> 加顶点，<code>AddTriangle</code> 加三角形，<code>AddUIVertexQuad</code> 一次加一个四边形；UIVertex 是一个顶点所有属性的结构体，<code>PopulateUIVertex / SetUIVertex</code> 用于读改单个顶点，<code>GetUIVertexStream</code> 把共享顶点展开成三角形列表（每 3 个一组），Shadow/Outline 这类效果就是基于展开后的列表复制顶点。FillMesh 里有一个硬限制：顶点数达到 65000 会抛异常——一个 Text 写入超长文字时会遇到。</p>
+<div class="kv"><span>position</span><span>Vector3，本地坐标。UI 一般只用 x、y，z 保持 0。</span>
+<span>color</span><span>Color32 顶点色，Shader 里与纹理颜色相乘；Graphic.color 就是写到这里。</span>
+<span>uv0</span><span>主纹理坐标（Vector4，常用 xy）。Image 用 sprite 的外框 UV 填写。</span>
+<span>uv1 ~ uv3</span><span>额外的数据通道。要让 Shader 收到它们，Canvas 的 Additional Shader Channels 必须勾选对应的 TexCoord1~3（第 2 章），否则原生层会把它们丢掉。TMP 用 uv1 传 SDF 相关参数。</span>
+<span>normal / tangent</span><span>法线与切线，默认 (0,0,-1) 与 (1,0,0,-1)；同样需要勾选 Additional Shader Channels 才会传给 Shader。</span></div>
+<p>Additional Shader Channels 这一项经常被忽略：自定义 UI Shader 读不到 uv1 的数据、法线全是默认值，多半是 Canvas 上没勾对应的通道。多传一个通道意味着每个顶点多占一份内存和带宽，所以只勾真正需要的。</p>
+<p>每种 Image 到底生成了什么网格？在配套工程里写一个只“旁观”的 IMeshModifier，把最终三角形记下来，再用一个自定义 Graphic 画成线框：</p>
+<pre class="code" data-file="Ch12/MeshStats.cs" data-region="stats"></pre>
+<figure class="shot"><img src="img/ch12-mesh.jpg"><figcaption><b>图 12-3</b> 实拍网格：Simple 4 顶点；Sliced 九宫格 36 顶点；不填中心少一个四边形；Tiled 每个平铺单元一个四边形；Radial360 按象限切分；旧版 Text 每个字一个四边形</figcaption></figure>
+<p>从图里能读出不少实用信息：Sliced 是 9 个独立四边形（36 个顶点，不共享顶点）；Tiled 的顶点数随平铺次数增长，铺一张很小的图在很大的区域上，顶点数会非常可观（UGUI 对 Tiled 有上限保护，超过时会改变平铺方式，以实际版本为准）；旧版 Text 每个字符 4 个顶点。TextMeshPro 不走 Graphic 的 DoMeshGeneration，它自己生成网格并直接调用 canvasRenderer.SetMesh，所以 IMeshModifier 对 TMP 无效——TMP 的顶点特效要用它自己的 API（第 13 章）。</p>
+<h4>自己写一个 OnPopulateMesh</h4>
+<p>图 12-3 的红色线框本身就是一个自定义 Graphic，它的 OnPopulateMesh 很短：读出 MeshStats 记下的三角形，把每条边画成一个细长的四边形。</p>
+<pre class="code" data-file="Ch12/WireOverlay.cs" data-region="populate"></pre>
+<p>这段代码体现了写自定义 Graphic 的几个基本功：第一行 <code>vh.Clear()</code> 不能省，VertexHelper 是所有 Graphic 共享的，里面可能残留着上一个图形的数据；顶点坐标是<b>本物体 RectTransform 的本地坐标</b>（pivot 为原点），所以要用 TransformPoint / InverseTransformPoint 在不同物体之间换算；顶点色用 Graphic 的 color（Color32），这样 Inspector 里改颜色、CanvasGroup 淡出、Selectable 的颜色过渡都能自然生效；索引是相对于整个 VertexHelper 的，加四边形前先记下 currentVertCount。另外要注意，WireOverlay 的线框依赖另一个物体的网格数据，而 Graphic 只在自己被标脏时才重建——源数据变了，要有人调用 WireOverlay 的 SetVerticesDirty（配图代码里在截图前手动调用了一次）。圆角矩形、扇形进度、雷达图等更完整的例子在第 13 章。</p>
+<h4>UpdateMaterial：IMaterialModifier 链</h4>
+<pre class="code" data-lang="csharp">// 摘自 Graphic.cs
+protected virtual void UpdateMaterial()
+{
+    if (!IsActive())
+        return;
+    canvasRenderer.materialCount = 1;
+    canvasRenderer.SetMaterial(materialForRendering, 0);
+    canvasRenderer.SetTexture(mainTexture);
+}
+public virtual Material materialForRendering
+{
+    get
+    {
+        var components = ListPool&lt;IMaterialModifier&gt;.Get();
+        GetComponents&lt;IMaterialModifier&gt;(components);
+        var currentMat = material;
+        for (var i = 0; i &lt; components.Count; i++)
+            currentMat = (components[i] as IMaterialModifier).GetModifiedMaterial(currentMat);
+        ListPool&lt;IMaterialModifier&gt;.Release(components);
+        return currentMat;
+    }
+}
+</pre>
+<p>material 没有指定时用 <code>Canvas.GetDefaultCanvasMaterial()</code>（UI/Default）。同物体上所有 IMaterialModifier 依次“加工”材质：MaskableGraphic 自己就是一个，它在父级有 Mask 时用 StencilMaterial.Add 生成带模板测试的材质（第 14 章）；Mask 组件也是一个，给遮罩图形生成写模板的材质。你也可以写自己的：</p>
+<pre class="code" data-file="Ch12/MaterialSwap.cs" data-region="swap"></pre>
+<p>要点是：IMaterialModifier 自己的状态变了，要主动调用 <code>graphic.SetMaterialDirty()</code>，否则 Graphic 不知道需要重新取材质。纹理（mainTexture）和材质是分开设置的：Image 的 mainTexture 是 sprite 的纹理，所以“同一个材质、不同纹理”在合批时也算不同（12.6 节）。</p>
+
+<h4>TextMeshPro 的重建有什么不同</h4>
+<p>TextMeshProUGUI 继承自 MaskableGraphic，接入的是同一套标脏与队列机制，但重写了关键方法。它的 SetVerticesDirty 只登记队列、不设 m_VertsDirty（真正的“是否需要重新生成”由 TMP 内部的 m_havePropertiesChanged 判断），并且在图形重建进行中时直接返回，避免触发前面提到的“重建中登记”错误；它的 SetLayoutDirty 额外把首选宽高的缓存标记为失效；它的 Rebuild 在 Prelayout 阶段处理“文本框自动适应大小”，在 PreRender 阶段调用 OnPreRenderCanvas 完成排版和网格生成：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.textmeshpro 3.0.7 Scripts/Runtime/TextMeshProUGUI.cs
+public override void Rebuild(CanvasUpdate update)
+{
+    if (this == null) return;
+    if (update == CanvasUpdate.Prelayout)
+    {
+        if (m_autoSizeTextContainer)
+        {
+            m_rectTransform.sizeDelta = GetPreferredValues(Mathf.Infinity, Mathf.Infinity);
+        }
+    }
+    else if (update == CanvasUpdate.PreRender)
+    {
+        OnPreRenderCanvas();
+        if (!m_isMaterialDirty) return;
+        UpdateMaterial();
+        m_isMaterialDirty = false;
+    }
+}
+</pre>
+<p>TMP 的排版（解析富文本、查字形、换行、对齐）比旧版 Text 复杂，生成的网格也可能分成多个子网格（每用到一张字体图集纹理或一个 Sprite Asset 就多一个 TMP_SubMeshUI 子物体），所以它的单次重建比 Image 贵得多——12.7 节里 40 个 TMP 改颜色的 Render 耗时（约 0.8 ms）就和 400 个 Image 改颜色的一半相当。好消息是 实测数据还告诉我们一件事：40 个 TMP 改颜色的 Render 耗时（0.809 ms）和改文字（0.827 ms）几乎一样——TMP 的 color setter 会把 m_havePropertiesChanged 置为 true，图形重建时走的是和改文字相同的完整网格生成流程。所以对 TMP 做颜色闪烁动画并不比改文字便宜，想做淡入淡出请用 CanvasGroup.alpha。</p>
+<h3 class="sec">12.5 裁剪：IClipper 与 IClippable</h3>
+<p>PerformUpdate 在布局和图形之间调用 <code>ClipperRegistry.instance.Cull()</code>，它只是依次调用所有登记过的 IClipper 的 PerformClipping。UGUI 内置的 IClipper 只有 RectMask2D（OnEnable 时登记）：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/Culling/IClipRegion.cs
+public interface IClipper
+{
+    void PerformClipping();
+}
+public interface IClippable
+{
+    GameObject gameObject { get; }
+    void RecalculateClipping();
+    RectTransform rectTransform { get; }
+    void Cull(Rect clipRect, bool validRect);
+    void SetClipRect(Rect value, bool validRect);
+    void SetClipSoftness(Vector2 clipSoftness);
+}
+</pre>
+<p>RectMask2D.PerformClipping 先求出自己（以及所有上级 RectMask2D）的交集矩形，转换到根画布空间；如果裁剪矩形和上一帧相同、也没有强制刷新，就只对每个子图形做一次 Cull 判断：</p>
+<pre class="code" data-lang="csharp">// 摘自 MaskableGraphic.cs
+public virtual void Cull(Rect clipRect, bool validRect)
+{
+    var cull = !validRect || !clipRect.Overlaps(rootCanvasRect, true);
+    UpdateCull(cull);
+}
+public virtual void SetClipRect(Rect clipRect, bool validRect)
+{
+    if (validRect)
+        canvasRenderer.EnableRectClipping(clipRect);
+    else
+        canvasRenderer.DisableRectClipping();
+}
+</pre>
+<p>完全在裁剪矩形之外的图形被标记为 cull：不重建（12.4 节）、不参与射线检测（第 11 章）、原生层也不绘制；部分在内的图形通过 <code>canvasRenderer.EnableRectClipping</code> 把矩形交给原生层，由 Shader 里的 UNITY_UI_CLIP_RECT 逐像素裁掉（第 14 章）。这里有一个性能上的细节：每个 RectMask2D 每帧都要遍历它所有的子图形做 Cull 判断（矩形求交，开销很小），但只有在裁剪矩形变化时才逐个调用 SetClipRect。Mask 组件则完全不同，它不是 IClipper，而是通过 IMaterialModifier 改材质、用模板缓冲裁剪，不做剔除。两者的完整对比见第 14 章。</p>
+
+<p>顺带看一下 Mask 是怎么挂进这条流水线的。MaskableGraphic 本身就实现了 IMaterialModifier，它的 GetModifiedMaterial 会先算出自己处在第几层 Mask 之下（m_StencilValue），大于 0 时用 StencilMaterial.Add 生成一个“模板值等于这一层才绘制”的材质副本；Mask 组件给遮罩图形自己生成“写入模板值”的材质，并在子物体之后再画一次用来清除。这些材质副本由 StencilMaterial 统一缓存和引用计数，相同参数的副本是共享的，所以同一层 Mask 下的元素仍然可以互相合批，但它们与 Mask 外面的元素材质不同、不能合批，再加上 Mask 自己写入和清除模板的两次绘制，每个 Mask 通常至少带来额外的批次。模板缓冲的细节和 RectMask2D 的对比在第 14 章。</p>
+<h3 class="sec">12.6 Canvas 的合批：什么会打断它</h3>
+<p>重建结束后，原生 Canvas 拿到所有 CanvasRenderer 的网格、材质、纹理、裁剪信息，在 <code>Canvas.BuildBatch</code>（Profiler 里能看到这个采样，部分工作在工作线程执行）中把它们合并成尽量少的绘制批次。这部分代码不开源，Unity 官方文档和优化指南描述过它的基本思路，结合本节的实测，可以归纳出一个足够实用的模型（以实际版本为准）：</p>
+<ol>
+<li><b>按层级顺序计算每个元素的“深度”</b>：一个元素如果不和下面任何元素重叠，深度为 0；如果和下面某些元素重叠，就要排在它们之后——若能与重叠的那个元素合批（材质、纹理相同），深度相同，否则深度 +1。</li>
+<li><b>按（深度、材质、纹理、层级顺序）排序</b>：同一深度内，材质和纹理相同的元素被排到一起。</li>
+<li><b>相邻且材质、纹理相同的合成一批</b>。</li>
+</ol>
+<p>这个模型的关键推论是：<b>不重叠的元素，层级顺序无关紧要</b>——两种纹理交替摆放，只要互不重叠，仍然各自合成一批；<b>重叠才是合批的敌人</b>——一旦不同纹理的元素交替叠放，深度一层层累加，每一层都是一个新批次。</p>
+<figure><svg viewBox="0 0 600 220" width="600" font-family="PingFang SC" font-size="13">
+<text x="10" y="22" font-weight="bold" fill="#1f2436">A：两种纹理交替，互不重叠</text>
+<g transform="translate(10 34)"><rect x="0" y="0" width="40" height="40" rx="6" fill="#5b4bd6"/><circle cx="80" cy="20" r="20" fill="#ff8a3d"/><rect x="120" y="0" width="40" height="40" rx="6" fill="#5b4bd6"/><circle cx="200" cy="20" r="20" fill="#ff8a3d"/><rect x="240" y="0" width="40" height="40" rx="6" fill="#5b4bd6"/></g>
+<text x="300" y="50" fill="#1f2436">深度全是 0 → 按纹理排序</text><text x="300" y="70" fill="#2fb36a" font-weight="bold">方块 1 批 + 圆 1 批 = 2 批</text>
+<text x="10" y="118" font-weight="bold" fill="#1f2436">B：两种纹理交替，依次重叠</text>
+<g transform="translate(10 130)"><rect x="0" y="0" width="40" height="40" rx="6" fill="#5b4bd6"/><circle cx="45" cy="20" r="20" fill="#ff8a3d"/><rect x="50" y="0" width="40" height="40" rx="6" fill="#5b4bd6"/><circle cx="95" cy="20" r="20" fill="#ff8a3d"/><rect x="100" y="0" width="40" height="40" rx="6" fill="#5b4bd6"/>
+<text x="20" y="62" text-anchor="middle" fill="#7a8299" font-size="12">0</text><text x="45" y="62" text-anchor="middle" fill="#7a8299" font-size="12">1</text><text x="70" y="62" text-anchor="middle" fill="#7a8299" font-size="12">2</text><text x="95" y="62" text-anchor="middle" fill="#7a8299" font-size="12">3</text><text x="120" y="62" text-anchor="middle" fill="#7a8299" font-size="12">4</text></g>
+<text x="300" y="146" fill="#1f2436">每张都压在不同纹理的上一张上面</text><text x="300" y="166" fill="#1f2436">深度 0,1,2,3,4 → 每层只有一张</text><text x="300" y="186" fill="#e5484d" font-weight="bold">5 张 = 5 批</text>
+</svg><figcaption><b>图 12-6</b> 合批的“深度”模型示意：同样的元素，重叠与否决定了批次数（下方数字为深度）</figcaption></figure>
+<p>用这个模型可以精确解释 12.6 节实测表里“两种纹理交替，依次重叠”的 +9：每行 10 张链式重叠，深度从 0 到 9，每层一张；上下两行互不重叠，相同深度的两张纹理也相同（两行的交替规律一致），于是跨行合并，共 10 批；深度 0 的那一批方块纹理又和实验台按钮的底图合并了，所以只比基线多 9 批。模型能预测实测，说明它在这个版本上是可靠的。</p>
+<h4>实验台</h4>
+<p>配套场景 Ch12_BatchLab 里准备了 13 种摆法，每次只显示一种，右上角实时显示 ProfilerRecorder 读出的 Batches / SetPass / Draw Calls（和 Game 视图 Stats 窗口是同一份渲染统计）。“测量全部”按钮依次切换每种摆法，各取 10 帧的中位数：</p>
+<pre class="code" data-file="Ch12/BatchLab.cs" data-region="measure"></pre>
+<figure class="shot"><img src="img/ch12-batchlab.jpg"><figcaption><b>图 12-4</b> 合批实验台的四种摆法，标注的是实测 Batches（含界面自身的基线 6 批）</figcaption></figure>
+<p>实测结果如下。作者环境：Apple M5 / macOS 26.5.1 / Unity 2022.3.62f3 / 内置管线 / Screen Space - Camera 画布，编辑器 Play 模式（batchmode，相机渲染到 1920×1080 的 RenderTexture）。空画布时的 6 批来自实验台自身的标题、HUD 文字和三个按钮；“增加”一列是减去这 6 批后的值。</p>
+<table>
+<tr><th>摆法</th><th>Batches</th><th>SetPass</th><th>增加</th><th>解读</th></tr>
+<tr><td>空画布（基线）</td><td>6</td><td>6</td><td>0</td><td>实验台自身的 UI</td></tr>
+<tr><td>20 张同一精灵，不重叠</td><td>6</td><td>6</td><td>0</td><td>和按钮底图（同一张 round_16）合进了同一批</td></tr>
+<tr><td>两种纹理交替，不重叠</td><td>7</td><td>6</td><td>1</td><td>不重叠时层级交替无所谓：两种纹理各一批（其中一种与按钮合并）</td></tr>
+<tr><td>两种纹理交替，依次重叠</td><td>15</td><td>9</td><td>9</td><td>每行 10 张链式重叠，深度 0~9 各一批；两行深度相同、纹理相同，跨行合并</td></tr>
+<tr><td>同精灵，中间一张换了材质</td><td>7</td><td>7</td><td>1</td><td>不同材质单独一批，SetPass 也 +1</td></tr>
+<tr><td>同精灵，中间一张 z = -10</td><td>6</td><td>6</td><td>0</td><td>本例中 z 偏移没有打断合批</td></tr>
+<tr><td>列表 10 项：底图+图标+文字（图标同一张）</td><td>9</td><td>9</td><td>3</td><td>底图与按钮合并；图标 1 批；文字 2 批（见下文）</td></tr>
+<tr><td>列表 10 项：图标 10 张不同纹理</td><td>18</td><td>9</td><td>12</td><td>每张图标纹理不同，各占一批——这就是需要图集的原因</td></tr>
+<tr><td>两组图标之间夹一张全屏透明 Image（cull 关）</td><td>8</td><td>8</td><td>2</td><td>透明 Image 仍然被绘制，它把上下两组图标隔成两层</td></tr>
+<tr><td>同上，cullTransparentMesh 开</td><td>6</td><td>6</td><td>0</td><td>alpha 为 0 的网格被剔除，不再打断</td></tr>
+<tr><td>20 张同一精灵，分到 2 个子 Canvas</td><td>8</td><td>6</td><td>2</td><td>子 Canvas 各自独立合批，彼此之间不能合并</td></tr>
+<tr><td>6 张卡牌叠放（盖住上一张的字）</td><td>35</td><td>25</td><td>29</td><td>每张卡的底图、描边、图标、文字都压在上一张上面，每张卡新增约 5 批</td></tr>
+<tr><td>6 张卡牌错开（不重叠）</td><td>10</td><td>10</td><td>4</td><td>同样的元素，不重叠时只多 4 批</td></tr>
+</table>
+<p><b>Batches、SetPass、Draw Calls 有什么区别</b>：Draw Calls 是提交给图形 API 的绘制命令数；Batches 是 Unity 合并后的批次数，UI 的每一批通常对应一个 Draw Call，所以表里两列相同；SetPass 是切换着色器通道（材质/渲染状态）的次数，切换 SetPass 比单纯多一个 Draw Call 更贵。注意“10 张不同纹理的图标”那一行：Batches 涨了 12，SetPass 却没变（9）——它们用的是同一个材质（UI/Default），只是纹理不同，换纹理不需要切换着色器通道；而“中间一张换了材质”那一行 SetPass 跟着 +1。这说明“不同纹理”和“不同材质”虽然都打断合批，代价并不相同。移动端 GPU 驱动对 Draw Call 数量更敏感，所以图集仍然是第一优先级的优化（第 20 章）。</p>
+<p>实验用的是 Screen Space - Camera 画布。Overlay 画布的合批规则相同，区别在于它由 Canvas.RenderOverlays 在所有相机之后单独绘制，不经过相机；Camera 和 World Space 画布则作为相机渲染的一部分，与场景里的半透明物体一起排序。无论哪种模式，一个画布内部的批次数只取决于本节讨论的材质、纹理和重叠关系。</p>
+<p>几个需要展开说明的地方：</p>
+<ul>
+<li><b>为什么一段文字占 2 批</b>：作者用 TMP 的 textInfo 检查过，本书的中文字体是动态 SDF 字体，图集已经扩展到 4 张纹理，即使是“Batches”这样的纯英文，生成网格时也用到了 2 个材质（主网格 + 一个 TMP_SubMeshUI 子网格），每个材质对应一张图集纹理，于是一段文字至少 2 批。动态字体的字形分散在多张图集里时，文字的批次数会随用到的图集数量增加——静态字体资产、控制图集尺寸和数量能减少这种情况（第 5 章、第 20 章）。</li>
+<li><b>卡牌的对比最有说服力</b>：元素完全一样，只是叠放与错开，Batches 从 10 涨到 35。手牌、叠放的头像、堆叠的通知卡片都是这个模式。优化方向是让同一层的东西使用同一张图集（底图、描边、图标都打进一个图集，它们就能在同一深度合并），或者减少重叠。</li>
+<li><b>透明 Image</b>：2022.3 中新建的 CanvasRenderer 默认 cullTransparentMesh = true（作者在搭景代码里打印确认过），所以 alpha 为 0 的遮罩默认不会被绘制，也不会打断合批；但老项目升级上来的、或手动关掉了这个选项的 Image，仍然会被完整绘制——全屏透明遮罩还会带来一整屏的 Overdraw。注意 cullTransparentMesh 只看顶点色的 alpha，用 CanvasGroup 淡出到 0 的元素不受它影响。</li>
+<li><b>子 Canvas</b>：每个 Canvas（包括勾了 Override Sorting 和没勾的嵌套 Canvas）都是一个独立的合批单元，彼此之间不合并。这既是代价（批次增加），也是工具（12.8 节的动静分离）。</li>
+</ul>
+<div class="scene">Ch12/Scenes/Ch12_BatchLab.unity</div>
+<h4>嵌套 Canvas 与 Override Sorting</h4>
+<p>在某个子物体上添加 Canvas 组件，它就成了嵌套 Canvas（sub-canvas）。对重建而言，嵌套 Canvas 是一道“隔离墙”：子 Canvas 内的元素变化只会让子 Canvas 重新合批，父 Canvas 的批次缓存不受影响；反之亦然。对合批而言，子 Canvas 内的元素和外面的元素永远不会合并（实测表中分到两个子 Canvas 的 20 张图多出 2 批）。勾选 Override Sorting 后，子 Canvas 还可以有自己的 Sorting Layer 和 Order in Layer，脱离父级的绘制顺序——常用来让某个特效或弹出层盖在别的画布上面。需要注意的是，Override Sorting 也会改变事件系统的行为：Graphic.Raycast 沿父链检查过滤器时，遇到 overrideSorting 的 Canvas 就停止向上（第 11 章 11.4 节），父物体上的 CanvasGroup 对它就不再生效了。另外，GraphicRegistry 是按“图形最近的那个 Canvas”登记可射线图形的（RegisterRaycastGraphicForCanvas 的参数就是 graphic.canvas），而每个 GraphicRaycaster 只查询自己所在 Canvas 的列表——所以<b>嵌套 Canvas 里的元素要响应点击，嵌套 Canvas 上也必须挂一个 GraphicRaycaster</b>，父 Canvas 的检测器看不到它们。这是给界面拆分子 Canvas 之后“按钮突然点不动了”的常见原因。</p>
+
+<div class="note tip"><b>自己验证</b>打开场景运行，用“上一个/下一个”切换摆法，同时打开 <span class="menu">Window › Analysis › Frame Debugger</span>，点 Enable，展开 Canvas 相关的条目，能逐批看到每一批画了哪些元素。Frame Debugger 里每一项旁边还会显示“为什么没能和上一批合并”的原因提示（Unity 新版本才有这个功能，以实际版本为准）。</div>
+
+<h3 class="sec">12.7 实验：每种修改到底触发了什么</h3>
+<p>12.2 节从源码推出了一张“属性 → 脏标记”的对照，现在用实验验证，并测出它们的开销。实验台 Ch12_RebuildLab 里有 400 个 Image（ProbeImage）、40 个旧版 Text、40 个放在 VerticalLayoutGroup 里的 TextMeshPro。每种操作连续 60 帧作用于对应的全部元素（相邻两帧在两个值之间来回切换，保证每帧都“真的改了”），统计每帧的平均值。</p>
+<h4>测量工具</h4>
+<p>标脏次数用 12.2 节提到的官方钩子统计：</p>
+<pre class="code" data-file="Ch12/RebuildCounter.cs" data-region="counter"></pre>
+<p>“真正干了多少活”用一个重写了 UpdateGeometry / UpdateMaterial 的 Image 子类统计——标脏只是登记，被裁剪的图形即使标脏了也不会执行：</p>
+<pre class="code" data-file="Ch12/ProbeImage.cs" data-region="probe"></pre>
+<p>队列长度用反射读 CanvasUpdateRegistry 的两个私有字段（只用于学习，正式代码不要这样做）：</p>
+<pre class="code" data-file="Ch12/RebuildCounter.cs" data-region="spy"></pre>
+<p>耗时用 ProfilerRecorder 录制三个 Profiler 采样点：<code>Layout</code> 和 <code>Render</code>（UI Layout / UI Render 分类，对应 PerformUpdate 里 UISystemProfilerApi 包住的布局部分和图形部分）以及原生的 <code>Canvas.BuildBatch</code>，每帧把同名采样的耗时加总：</p>
+<pre class="code" data-file="Ch12/RebuildLab.cs" data-region="recorder"></pre>
+<p>一帧内的时间线很关键：Update 里改数据 → LateUpdate 里读队列长度（此时还没执行 PerformUpdate）→ 帧末执行重建与合批 → 下一帧 Update 开头读出上一帧的执行次数与耗时：</p>
+<pre class="code" data-file="Ch12/RebuildLab.cs" data-region="frame"></pre>
+<p>选择 ProfilerRecorder 而不是 Stopwatch，是因为重建发生在 Unity 引擎回调里（willRenderCanvases），我们的脚本没法在它前后插入计时代码；而 Profiler 采样点是引擎自己埋的，录制它们几乎没有额外开销，在 Development Build 的真机上同样可用。写这种实验有两个坑值得说一下。第一是“观察者效应”：实验台右侧显示数值的 TMP 文字如果每帧更新，它自己也会进入图形重建队列、贡献 Render 耗时，污染测量结果。所以基准运行期间不刷新显示，平时也只每 20 帧刷新一次。第二是“改了等于没改”：Graphic 的属性 setter 大多先比较新旧值，相同就直接返回（SetPropertyUtility），所以每帧把颜色设成同一个值是测不出任何东西的——Apply 方法用 odd 参数让相邻两帧的值来回切换。基准由一个协程驱动：每种操作先预热 10 帧（让首次执行的分配、JIT 等一次性开销过去），再采样 60 帧：</p>
+<pre class="code" data-file="Ch12/RebuildLab.cs" data-region="apply"></pre>
+<h4>实测结果</h4>
+<p>作者环境同 12.6 节（Apple M5 / macOS 26.5.1 / Unity 2022.3.62f3 / 编辑器 Play 模式 batchmode）。表头含义：脏L / 脏V / 脏M 是每帧布局、顶点、材质标脏次数；队L / 队G 是布局队列、图形队列的长度；几何 / 材质是实际执行 UpdateGeometry / UpdateMaterial 的次数（只统计 400 个 ProbeImage，文字行记为“—”）；Layout、Render、Batch 是对应 Profiler 采样点 Layout、Render、Canvas.BuildBatch 的耗时（60 帧中位数，单位毫秒）。</p>
+<table>
+<tr><th>操作（作用对象）</th><th>脏L</th><th>脏V</th><th>脏M</th><th>队L</th><th>队G</th><th>几何</th><th>材质</th><th>Layout</th><th>Render</th><th>Batch</th></tr>
+<tr><td>无操作（基线）</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>Image.color（400）</td><td>0</td><td>400</td><td>0</td><td>0</td><td>400</td><td>400</td><td>0</td><td>0.008</td><td>1.643</td><td>0.013</td></tr>
+<tr><td>移动 anchoredPosition（400）</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0.000</td><td>0.000</td><td>0.011</td></tr>
+<tr><td>改 sizeDelta（400）</td><td>400</td><td>400</td><td>0</td><td>0</td><td>400</td><td>400</td><td>0</td><td>0.008</td><td>1.640</td><td>0.013</td></tr>
+<tr><td>改 localScale（400）</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0.000</td><td>0.000</td><td>0.012</td></tr>
+<tr><td>换 sprite：同纹理同尺寸</td><td>0</td><td>400</td><td>0</td><td>0</td><td>400</td><td>400</td><td>0</td><td>0.008</td><td>1.646</td><td>0.016</td></tr>
+<tr><td>换 sprite：不同纹理同尺寸</td><td>0</td><td>400</td><td>400</td><td>0</td><td>400</td><td>400</td><td>400</td><td>0.008</td><td>1.923</td><td>0.016</td></tr>
+<tr><td>换 sprite：尺寸不同</td><td>400</td><td>400</td><td>0</td><td>0</td><td>400</td><td>400</td><td>0</td><td>0.008</td><td>1.655</td><td>0.016</td></tr>
+<tr><td>换 material（400）</td><td>0</td><td>0</td><td>400</td><td>0</td><td>400</td><td>0</td><td>400</td><td>0.008</td><td>0.290</td><td>0.014</td></tr>
+<tr><td>CanvasGroup.alpha</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0.000</td><td>0.000</td><td>0.012</td></tr>
+<tr><td>Text.text（旧版 40）</td><td>40</td><td>40</td><td>0</td><td>0</td><td>40</td><td>—</td><td>—</td><td>0.001</td><td>0.314</td><td>0.013</td></tr>
+<tr><td>TMP.text（VLG 里 40）</td><td>40</td><td>40</td><td>0</td><td>1</td><td>40</td><td>—</td><td>—</td><td>0.978</td><td>0.827</td><td>0.018</td></tr>
+<tr><td>TMP.color（40）</td><td>0</td><td>40</td><td>0</td><td>0</td><td>40</td><td>—</td><td>—</td><td>0.001</td><td>0.809</td><td>0.013</td></tr>
+<tr><td>SetActive 关/开（400，隔帧切换）</td><td>200</td><td>200</td><td>400</td><td>0</td><td>200</td><td>200</td><td>200</td><td>0.008</td><td>2.244</td><td>0.036</td></tr>
+</table>
+<p>作者把基准完整跑了两遍，标脏、队列、执行次数两次完全一致；耗时中较小的数值在两次之间有明显波动（例如旧版 Text 的 Render 一次 0.153 ms、一次 0.314 ms，BuildBatch 一次在 0.04 ms 左右、一次在 0.013 ms 左右），表中是第二次的结果。<b>这些毫秒数是编辑器下的绝对值，只适合横向比较量级，不能代表手机上的耗时</b>；真机上请用 Development Build + Profiler 自己测（第 20 章）。原始数据由编辑器脚本 Ch12LabRunner 写入工程的 <code>Assets/UGUIBook/Ch12/Data/rebuild_results.txt</code> 和 <code>batch_results.txt</code>。</p>
+<div class="scene">Ch12/Scenes/Ch12_RebuildLab.unity</div>
+<h4>读者自测：在你的机器上重跑</h4>
+<ol class="steps">
+<li>打开 <code>Ch12/Scenes/Ch12_RebuildLab.unity</code>，进入 Play 模式。</li>
+<li>点任意一个操作按钮执行一次修改，右下角会在 20 帧内刷新数值；勾选“每帧持续执行”可以看到稳定的每帧数值。</li>
+<li>点“跑一遍基准”，等待约 15 秒（14 种操作 × 70 帧），结果表会显示在右侧，同时可以在代码里通过 lastReport 取到制表符分隔的文本。</li>
+<li>想在真机上测：把场景加入 Build Settings，勾选 Development Build 打包运行，点“跑一遍基准”。ProfilerRecorder 的采样点在 Development Build 中可用，数字会比编辑器更接近真实情况。</li>
+<li>Ch12_BatchLab 同理，点“测量全部”；也可以打开 Game 视图右上角的 Stats 窗口对照 Batches 数。</li>
+</ol>
+
+<figure class="shot"><img src="img/ch12-rebuildlab.jpg"><figcaption><b>图 12-5</b> 重建实验台：点按钮执行一次修改，勾选“每帧持续执行”看稳定数值，“跑一遍基准”生成上面的表</figcaption></figure>
+<h4>从数据里读出的结论</h4>
+<ol>
+<li><b>移动、缩放、改 CanvasGroup.alpha 不触发任何 C# 重建</b>：标脏、队列、执行全为 0，Layout 和 Render 都是 0。它们只让原生层重新合批（BuildBatch 从 0 变成约 0.01 ms 量级）。所以 UI 动画优先动 Transform 和 CanvasGroup.alpha，而不是动颜色或尺寸。</li>
+<li><b>改颜色 = 重建网格</b>：Image.color 让 400 个图形全部重新生成网格（UpdateGeometry 400 次），Render 约 1.6 ms。颜色是写在顶点里的，改颜色必须重新生成顶点。只想改透明度时，<code>CanvasRenderer.SetAlpha</code> 或 CanvasGroup.alpha 都不需要重建（Selectable 的 Color Tint 过渡用的 CrossFadeColor 就是直接改 CanvasRenderer 的颜色，不走重建）。</li>
+<li><b>改 sizeDelta 同时标了布局脏，但布局队列是 0</b>：这些 Image 不在任何布局组里，MarkLayoutForRebuild 找不到布局根就直接返回了（第 10 章 10.3 节）。改尺寸的主要开销仍是网格重建。</li>
+<li><b>Image 换 sprite 的两个优化被验证了</b>：同纹理同尺寸只有顶点脏；不同纹理多了材质脏和 400 次 UpdateMaterial；尺寸不同多了布局脏。</li>
+<li><b>换材质只重建材质</b>：UpdateMaterial 400 次、UpdateGeometry 0 次，Render 只有 0.29 ms，比改颜色便宜得多——但换了材质会打断合批（12.6 节），代价转移到了渲染上。</li>
+<li><b>文字放进布局组，布局开销立刻出现</b>：40 个 TMP 改文字，布局队列里只有 1 个元素（整个 VLG 是一个布局根，一帧只重建一次），但 Layout 耗时接近 1 ms，比 400 个 Image 改颜色的 Layout 部分高两个数量级。原因是 TMP 计算 preferred 尺寸要重新排版文字，布局的四趟遍历里会多次读取。不在布局组里的旧版 Text 改文字，Layout 几乎为 0。</li>
+<li><b>SetActive 最贵</b>：重新激活时 OnEnable 调用 SetAllDirty，布局、顶点、材质全部标脏，MaskableGraphic.OnEnable 还会再标一次材质脏（所以材质标脏是 400 而不是 200）；关闭时 Graphic.OnDisable 会清掉 CanvasRenderer 并标记布局重建。频繁开关的 UI 用 CanvasGroup.alpha + blocksRaycasts，或者把它放到单独的 Canvas 上开关 Canvas.enabled（第 20 章会对比几种隐藏方式）。</li>
+</ol>
+
+<h3 class="sec">12.8 用数据做决定：一个每帧变化的血条</h3>
+<p>把实测结论用到一个具体问题上：Boss 血条每帧都在变化，有三种常见做法：</p>
+<table>
+<tr><th>做法</th><th>每帧触发</th><th>依据（12.7 节）</th></tr>
+<tr><td>Image Type = Filled，每帧改 fillAmount</td><td>顶点脏 → 重建这个 Image 的网格</td><td>fillAmount 的 setter 调用 SetVerticesDirty，与改颜色同类</td></tr>
+<tr><td>Image 锚点左对齐，每帧改 sizeDelta.x</td><td>顶点脏 + 布局脏</td><td>与“改 sizeDelta”一行相同；如果血条在布局组里，还会触发整个布局根重建</td></tr>
+<tr><td>Image 的 pivot 在左边，每帧改 localScale.x</td><td>不触发 C# 重建，只需要重新合批</td><td>与“改 localScale”一行相同</td></tr>
+</table>
+<p>单个血条的话，三种做法的差别在毫秒级以下，怎么写都行；但如果是 MMO 里同屏上百个头顶血条，第三种做法明显更省——前提是你接受缩放带来的视觉差异（九宫格圆角会被拉伸，此时可以让底图不缩放、只缩放纯色的填充条）。同时，频繁变化的血条最好放进单独的子 Canvas，这样它每帧触发的重新合批不会波及整个 HUD。这就是“先理解机制，再用数据验证”的价值：优化不是背清单，而是知道每一行代码在 UGUI 内部触发了什么。</p>
+<h4>在 Profiler 里认出这些开销</h4>
+<p>真机分析时，打开 Profiler 的 CPU 模块，在 PostLateUpdate.PlayerUpdateCanvases 下面能找到本章讲的全部采样：CanvasUpdate.Prelayout / Layout / PostLayout（布局队列的三个阶段）、ClipperRegistry.Cull（裁剪）、CanvasUpdate.PreRender / LatePreRender（图形队列）——这些名字直接来自 CanvasUpdateRegistry 源码里的 m_CanvasUpdateProfilerStrings。原生部分在 Canvas.SendWillRenderCanvases、Canvas.BuildBatch 以及渲染线程的 Canvas.RenderOverlays 等采样里。Profiler 的 UI 与 UI Details 模块会按 Canvas 列出批次数、顶点数和“为什么不能合批”的原因，配合本章的模型就能定位问题。具体操作见第 20 章。</p>
+
+<h3 class="sec">12.9 把原理变成习惯</h3>
+<p>理解了重建与合批，第 20 章的大部分优化建议都能自己推导出来：</p>
+<ul>
+<li><b>动静分离</b>：Canvas 是合批的单位，也是 BuildBatch 的单位——画布里任何一个元素变化（哪怕只是移动），整个画布都要重新合批。把每帧变化的元素（倒计时、血条、飘字）放到单独的子 Canvas 里，静态的大面板就不必跟着重新合批。代价是子 Canvas 之间不能合批，所以不要拆得太碎。</li>
+<li><b>动画动 Transform 和 alpha</b>：位置、旋转、缩放、CanvasGroup.alpha 都不触发 C# 重建。Animator 驱动 UI 时，即使属性值没变，OnDidApplyAnimationProperties 也会调用 SetAllDirty，这是第 15 章不推荐用 Animator 做常驻 UI 动画的原因。</li>
+<li><b>减少重叠、统一图集</b>：合批的敌人是“不同材质/纹理的元素互相重叠”。同一个界面的图标、底图、边框打进同一个图集；文字尽量少压在图片上，或者同一层的文字放在一起。</li>
+<li><b>文字慎入布局组</b>：频繁变化的文字（数字）放在布局组里会每帧触发布局重建；给它固定尺寸，或者移出布局组。</li>
+<li><b>用 RectMask2D 剔除看不见的内容</b>：被剔除的图形不重建、不参与射线、不绘制。</li>
+<li><b>自定义 Graphic 的三条规矩</b>：声明 RequireComponent(CanvasRenderer)；只在属性真的变化时才 SetVerticesDirty（像 Graphic.color 那样用 SetPropertyUtility 比较）；不要在 OnPopulateMesh 里修改其他 Graphic 的属性。</li>
+</ul>
+
+<h3 class="sec">12.10 几个流传很广的误区</h3>
+<p>结合本章的源码和实测，逐条澄清几个常见说法：</p>
+<ul>
+<li><b>“层级顺序决定批次，相同图集的元素要放在一起”</b>——只对了一半。互不重叠的元素，层级怎么交替都不影响批次（实测“两种纹理交替，不重叠”只多 1 批）；真正起作用的是“不同材质/纹理的元素是否互相重叠”。调整层级顺序之所以有时有效，是因为它改变了谁压在谁上面。</li>
+<li><b>“Canvas 越少越好”</b>——不对。Canvas 是合批单位，也是重新合批的单位，把所有东西塞进一个巨大的 Canvas，意味着任何一个小数字的变化都要让整个界面重新合批。合理的拆分（静态面板一个、频繁变化的 HUD 一个、弹窗一个）通常更快。</li>
+<li><b>“UI 元素的 z 不为 0 会打断合批”</b>——在本章的实测条件下（Screen Space - Camera，单个元素 z = -10）没有打断。网上的说法可能来自别的版本或别的渲染模式，遇到疑问请用 BatchLab 的方法在你的项目里实测，不要凭印象。</li>
+<li><b>“SetActive(false) 是隐藏 UI 最省的办法”</b>——隐藏的那一刻确实省，但重新显示时会 SetAllDirty，整棵子树完整重建，实测 400 个 Image 的“关/开”是所有操作里 Render 耗时最高的。频繁切换的界面用 CanvasGroup（alpha = 0、blocksRaycasts = false）或单独 Canvas 的 enabled 更合适，第 20 章有完整对比。</li>
+<li><b>“alpha 为 0 就不会被绘制”</b>——取决于 CanvasRenderer.cullTransparentMesh。2022.3 新建的 Image 默认开启，旧项目里的不一定；CanvasGroup.alpha = 0 不会触发这项剔除，整组元素照样提交绘制，只是看不见。</li>
+<li><b>“改颜色很便宜”</b>——对 Image 来说改颜色要重建网格，400 个图形约 1.6 ms（编辑器）；对 TMP 来说和改文字差不多贵。只改透明度时，用 CanvasGroup 或 CanvasRenderer.SetAlpha。</li>
+<li><b>“布局组只在初始化时有开销”</b>——只要子元素标了布局脏，整个布局根每帧都会重建。放在布局组里的跳动数字，每帧都在付布局的钱。</li>
+</ul>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>Graphic 负责生成网格和材质，CanvasRenderer 把它们交给原生 Canvas；C# 层的开销是重建，原生层的开销是合批。</li>
+<li>三种脏：布局脏交给 LayoutRebuilder，顶点脏和材质脏把 Graphic 登记进图形重建队列；移动、旋转、缩放、CanvasGroup.alpha 不标任何脏。</li>
+<li>Canvas.willRenderCanvases 触发 PerformUpdate：布局队列（Prelayout/Layout/PostLayout）→ ClipperRegistry.Cull → 图形队列（PreRender/LatePreRender）。被裁剪的图形不重建。</li>
+<li>UpdateGeometry = OnPopulateMesh → IMeshModifier → FillMesh → SetMesh；UpdateMaterial = material 经 IMaterialModifier 链加工后 SetMaterial，纹理单独 SetTexture。</li>
+<li>RectMask2D 是唯一内置的 IClipper，做矩形剔除与 Shader 裁剪；Mask 走模板缓冲，靠 IMaterialModifier 实现。</li>
+<li>合批：不重叠的元素层级顺序无关紧要；不同材质/纹理的元素互相重叠会让深度层层累加。实测叠放的 6 张卡牌 35 批、错开 10 批；10 张不同纹理的图标多出 10 批；cullTransparentMesh 关闭的全屏透明 Image 会把上下两层隔开。</li>
+<li>实测：改颜色、改尺寸、换 sprite 都会重建网格，换材质只重建材质，SetActive 最贵；TMP 文字放进布局组会带来明显的布局开销。</li>
+<li>TMP 接入同一套队列，但自己完成排版与网格生成，IMeshModifier 对它无效；改 TMP 的颜色与改文字的图形重建开销相当；本书的动态字体使一段文字占用 2 个材质（主网格 + 子网格）。</li>
+<li>嵌套 Canvas 是重建与合批的隔离单位，也需要自己的 GraphicRaycaster 才能响应点击。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>在 Ch12_RebuildLab 里给图片的父物体加一个 RectMask2D，把它缩小到只露出一半图片，再运行“Image.color”操作，观察 UpdateGeometry 的次数变化，并用 12.4 节的源码解释。</li>
+<li>给实验台增加两种操作：<code>Image.CrossFadeColor</code> 和 <code>canvasRenderer.SetAlpha</code>，预测并验证它们会不会触发重建。</li>
+<li>在 Ch12_BatchLab 里新增一种摆法：把“卡牌叠放”里每张卡的底图、描边、图标换成同一张纹理上的不同 sprite（可以用 Sprite.Create 从同一张 Texture2D 切出），测量 Batches 能降到多少。</li>
+<li>在 BatchLab 里新增一种摆法：一个 Mask 组件下面放 10 张同一精灵的图片，外面再放 10 张同一精灵的图片，测量 Batches 增加了多少，并结合 12.5 节末尾对 Mask 的说明解释每一批分别画了什么（可以用 Frame Debugger 逐批确认）。再把 Mask 换成 RectMask2D 对比。</li>
+<li>写一个 IMeshModifier，把 Image 四个角的顶点颜色改成不同的颜色（四角渐变）。思考：为什么它对 Sliced 类型的 Image 只能改到九宫格的外角？（提示：看图 12-3 的顶点结构）</li>
+<li>实现一个 ICanvasElement 组件，在 PostLayout 阶段读取某个文字的最终尺寸，把一个“NEW”角标贴在文字末尾的右上角。对比在 LateUpdate 里做同样的事情，文字刚改变的那一帧角标位置是否正确。</li>
+<li>阅读 RectMask2D.PerformClipping 的完整源码，回答：当 ScrollRect 滚动时，RectMask2D 的裁剪矩形没有变，但内容移动了，为什么滚进视口的列表项仍然能被正确“取消剔除”？</li>
+</ol></div>
+</section>

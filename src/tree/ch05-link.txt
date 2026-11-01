@@ -1,0 +1,10 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,LinkDemo
+1|ChatPanel|Image
+2|Messages|TextMeshProUGUI,LinkHandler
+1|ItemTip|
+2|Shadow|Image
+2|Bg|Image
+2|TipText|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

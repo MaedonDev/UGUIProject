@@ -1,0 +1,24 @@
+0|Main Camera|Camera,AudioListener,OrbitCamera
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Hint|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|Directional Light|Light
+0|Ground|MeshFilter,MeshCollider,MeshRenderer
+0|Hero_麦冬|MeshFilter,CapsuleCollider,MeshRenderer
+1|NamePlate|Canvas,GraphicRaycaster,Billboard
+2|NameBg|Image
+3|Name|TextMeshProUGUI
+2|HpBar|Image
+3|Fill|Image
+0|Hero_白芷|MeshFilter,CapsuleCollider,MeshRenderer
+1|NamePlate|Canvas,GraphicRaycaster,Billboard
+2|NameBg|Image
+3|Name|TextMeshProUGUI
+2|HpBar|Image
+3|Fill|Image
+0|Hero_当归|MeshFilter,CapsuleCollider,MeshRenderer
+1|NamePlate|Canvas,GraphicRaycaster,Billboard
+2|NameBg|Image
+3|Name|TextMeshProUGUI
+2|HpBar|Image
+3|Fill|Image

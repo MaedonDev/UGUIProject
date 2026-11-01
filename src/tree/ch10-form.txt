@@ -1,0 +1,53 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Form|Image,VerticalLayoutGroup,ContentSizeFitter
+2|Title|TextMeshProUGUI
+2|Row_昵称|HorizontalLayoutGroup
+3|Label|TextMeshProUGUI,LayoutElement
+3|InputField|Image,TMP_InputField,LayoutElement
+4|Outline|Image
+4|Text Area|RectMask2D
+5|Placeholder|TextMeshProUGUI,LayoutElement
+6|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+5|Text|TextMeshProUGUI
+2|Row_职业|HorizontalLayoutGroup
+3|Label|TextMeshProUGUI,LayoutElement
+4|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+3|Dropdown|Image,TMP_Dropdown,LayoutElement
+4|Outline|Image
+4|Label|TextMeshProUGUI
+5|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Arrow|Image
+4|!Template|Image,ScrollRect
+5|Viewport|Mask,Image
+6|Content|
+7|Item|Toggle
+8|Item Background|Image
+8|Item Checkmark|Image
+8|Item Label|TextMeshProUGUI
+5|Scrollbar|Image,Scrollbar
+6|Sliding Area|
+7|Handle|Image
+2|Row_签名|HorizontalLayoutGroup
+3|Label|TextMeshProUGUI,LayoutElement
+4|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+3|InputField|Image,TMP_InputField,LayoutElement
+4|Outline|Image
+4|Text Area|RectMask2D
+5|Placeholder|TextMeshProUGUI,LayoutElement
+6|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+5|Text|TextMeshProUGUI
+2|Row_|HorizontalLayoutGroup
+3|Label|TextMeshProUGUI,LayoutElement
+3|Toggle_同意用户协议|Toggle,LayoutElement
+4|Background|Image
+5|Checkmark|Image
+4|Label|TextMeshProUGUI
+2|Buttons|HorizontalLayoutGroup
+3|Spacer|LayoutElement
+3|Button_取消|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+3|Button_创建|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

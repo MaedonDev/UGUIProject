@@ -1,0 +1,384 @@
+<section class="chapter" id="c01" data-title="认识 UGUI：做出第一个界面" data-sub="三套 UI 的取舍、Canvas 三件套、绘制顺序与第一批交互">
+<div class="chap-head"><div class="num">CHAPTER 01<b>第 1 章</b></div><h2>认识 UGUI：做出第一个界面</h2><p class="lead">这一章从零开始：先弄清 Unity 里为什么有三套 UI、本书为什么选 UGUI，然后打开配套工程，在编辑器里亲手搭出一个主菜单，让按钮真的能点、页面真的能切换。最后把新手最容易踩的五个坑一次讲清楚。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>UGUI、UI Toolkit、IMGUI 各自是什么、用在哪</div><div>配套工程的打开方式、目录结构与 UIKit 辅助类</div><div>新建 Canvas 时自动生成的四个组件各管什么</div><div>Scene 视图 2D 模式、Rect Tool、Game 视图分辨率</div><div>层级顺序就是绘制顺序；SetActive 与 activeInHierarchy</div><div>Inspector 绑定 OnClick 与代码 AddListener 两种写法</div><div>页面切换、退出确认框、点击置顶等第一批交互</div><div>“按钮点了没反应”的五个常见原因与排查方法</div></div>
+
+<h3 class="sec">1.1 Unity 里的三套 UI</h3>
+<p>第一次在 Unity 里找“做界面”的功能，很多人会被搞糊涂：菜单里有 <span class="menu">GameObject › UI</span>，又有 <span class="menu">Window › UI Toolkit</span>，网上的老教程里还在写 <code>OnGUI()</code>。它们其实是 Unity 在不同年代推出的三套 UI 系统，到今天三套都还在，各有各的位置。</p>
+<p><b>IMGUI（Immediate Mode GUI，立即模式 GUI）</b>是最早的一套。它没有“控件对象”的概念，每一帧在 <code>OnGUI()</code> 里调用 <code>GUILayout.Button("确定")</code>，函数返回 <code>true</code> 就表示这一帧按钮被点了。界面完全由代码每帧重新“画”一遍，写调试面板、编辑器小工具非常顺手，但做游戏界面就很吃力：没法所见即所得地摆位置，美术无从下手，性能也不适合复杂界面。今天它主要活在 Unity 编辑器扩展里（老式的 Inspector 和 EditorWindow），游戏运行时基本只用来画调试信息。</p>
+<p><b>UGUI（Unity GUI，也常写作 uGUI）</b>是 Unity 4.6（2014 年）推出的那套，也就是本书的主角。它的思路和 Unity 的场景一致：界面是由一个个 GameObject 组成的，每个元素挂着 <code>Image</code>、<code>Text</code>、<code>Button</code> 之类的组件，在 Scene 视图里拖拽摆放，在 Inspector 里调参数，用预制体（Prefab）复用。UI 元素和 3D 物体可以放在同一个场景、同一套层级里，可以挂自己写的 MonoBehaviour，可以用 Animator 做动画——你会的 Unity 知识几乎全部能用上。</p>
+<p><b>UI Toolkit</b> 是 Unity 2019 之后主推的新一代 UI，写法借鉴了网页：用 UXML 描述结构（类似 HTML）、USS 描述样式（类似 CSS）、Flexbox 做布局。Unity 编辑器自身的界面正逐步迁到它上面；从 2021 版起它也能用于游戏运行时。它在“大量数据驱动的工具界面”上很有优势，但在游戏运行时界面方面，截至本书锁定的 2022.3 版本，它还缺一些 UGUI 早已成熟的能力（例如与 3D 场景、粒子、Shader 的自由混排，World Space 界面的支持也有限），社区积累的方案和插件也远没有 UGUI 多。</p>
+<table>
+<tr><th>对比项</th><th>UGUI</th><th>UI Toolkit</th><th>IMGUI</th></tr>
+<tr><td class="k">界面由什么组成</td><td>GameObject + 组件</td><td>VisualElement 树（UXML）</td><td>每帧调用的绘制函数</td></tr>
+<tr><td class="k">怎么摆位置</td><td>RectTransform + 锚点，Scene 视图里拖</td><td>Flexbox 布局 + USS 样式</td><td>代码里写坐标或 GUILayout 自动排</td></tr>
+<tr><td class="k">主要用途</td><td>游戏运行时界面（主流）</td><td>编辑器工具、数据型运行时界面</td><td>编辑器扩展、调试面板</td></tr>
+<tr><td class="k">和 3D/粒子混排</td><td>容易（三种渲染模式）</td><td>受限</td><td>只能盖在最上层</td></tr>
+<tr><td class="k">源码</td><td>C# 源码随包提供，可直接读</td><td>大部分在引擎内部</td><td>引擎内部</td></tr>
+</table>
+<p>本书选择 UGUI，理由很实际：绝大多数线上手游、独立游戏的运行时界面都是 UGUI 做的，招聘要求里写的“熟悉 UGUI”指的就是它；它的 C# 源码完整地随包分发，读得懂源码就能真正理解“为什么会这样”，这也是本书第三部分的重点。第 21 章会再回头讨论 UGUI 与 UI Toolkit 怎么取舍、怎么迁移。</p>
+
+<h4>com.unity.ugui 包与源码位置</h4>
+<p>UGUI 的代码不在引擎内核里，而是以一个 Package（包）的形式提供，包名 <code>com.unity.ugui</code>。本书锁定 Unity 2022.3.62f3，对应的 ugui 包版本是 1.0.0。打开 <span class="menu">Window › Package Manager</span>，在 “Packages: In Project” 列表里能看到 “Unity UI”，那就是它。</p>
+<p>包被导入工程后，源码会被解压到工程目录下的 <code>Library/PackageCache/com.unity.ugui@1.0.0/</code>。其中 <code>Runtime/UI/Core/</code> 是各种控件和图形（<code>Image.cs</code>、<code>Button.cs</code>、<code>Graphic.cs</code>……），<code>Runtime/EventSystem/</code> 是事件系统，<code>Editor/</code> 是编辑器部分（比如菜单 <span class="menu">GameObject › UI › Canvas</span> 的实现就在 <code>Editor/UI/MenuOptions.cs</code>）。在 IDE 里对任意 UGUI 类按“转到定义”也能直接跳进这些文件。文字组件 TextMeshPro 是另一个包 <code>com.unity.textmeshpro</code>（本书用 3.0.7），第 5 章细讲。</p>
+<div class="note"><b>注意</b>UGUI 底下还有一层在引擎 C++ 里：<code>Canvas</code>、<code>CanvasRenderer</code>、<code>RectTransform</code> 这三个类是引擎原生组件，看不到源码。包里的 C# 代码负责“算出要画什么”，原生层负责“合批并真正画出来”。第 12 章会把这条分界线讲清楚。</div>
+
+<h3 class="sec">1.2 配套工程怎么用</h3>
+<p>本书每一张截图都是在配套工程里实拍的，每一个有交互的案例都有一个可以直接运行的场景。建议你一边读一边打开对应场景点一点、改一改参数，比只看书有效得多。</p>
+<ol class="steps">
+<li>安装 Unity Hub，并通过 Hub 安装 <b>Unity 2022.3</b>（本书用 2022.3.62f3；2022.3 的其他小版本一般也能打开，以实际版本为准）。</li>
+<li>把配套工程压缩包解压到一个路径里没有中文和空格的位置，例如 <code>D:\UnityProjects\UGUIBook</code>。解压后的文件夹里应当能看到 <code>Assets</code>、<code>Packages</code>、<code>ProjectSettings</code> 三个目录。</li>
+<li>打开 Unity Hub，点 <span class="menu">Projects › Add › Add project from disk</span>，选中上面那个文件夹（选包含 <code>Assets</code> 的那一层）。在列表里确认编辑器版本是 2022.3，然后点击打开。第一次打开要导入资源、编译脚本，几分钟是正常的。</li>
+<li>打开后，点菜单 <span class="menu">UGUIBook › Setup Project</span>。它会导入 TextMeshPro 的基础资源、生成中文字体资源并设为默认字体、生成全书共用的皮肤资源。执行一次即可，重复执行也没有副作用。</li>
+<li>在 Project 窗口进入 <code>Assets/UGUIBook/Ch01/Scenes/</code>，双击任意场景打开，点 Play 运行。</li>
+</ol>
+<figure><svg viewBox="0 0 600 270" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="10" width="580" height="250" rx="8" fill="#f7f6fd" stroke="#e0deef"/>
+<g fill="#1f2436">
+<text x="30" y="40" font-weight="bold">Assets/UGUIBook/</text>
+<text x="50" y="66">_Core/</text><text x="200" y="66" fill="#7a8299">全书公用：UIKit、UISkin、字体、精灵、截图工具</text>
+<text x="70" y="90" font-size="12">Runtime/UIKit.cs</text><text x="200" y="90" font-size="12" fill="#7a8299">用代码搭 UI 的辅助类（配套场景都用它搭）</text>
+<text x="70" y="112" font-size="12">Resources/UISkin.asset</text><text x="226" y="112" font-size="12" fill="#7a8299">精灵、字体、配色；UISkin.Sprite("名字") 取图</text>
+<text x="50" y="140">Ch01/</text><text x="200" y="140" fill="#7a8299">第 1 章的运行时代码（命名空间 UGUIBook.Ch01）</text>
+<text x="70" y="164" font-size="12">Scenes/Ch01_MainMenu.unity …</text><text x="260" y="164" font-size="12" fill="#5b4bd6">配套场景：双击打开、点 Play</text>
+<text x="70" y="186" font-size="12">Editor/Shots.cs</text><text x="260" y="186" font-size="12" fill="#7a8299">搭场景、拍配图的代码（读者可以不看）</text>
+<text x="50" y="214">Ch02/ Ch03/ … Ch21/</text><text x="200" y="214" fill="#7a8299">每章一个文件夹，结构相同</text>
+</g>
+<rect x="24" y="226" width="552" height="26" rx="4" fill="#fff4ec" stroke="#ff8a3d"/>
+<text x="36" y="244" font-size="12" fill="#1f2436">菜单 UGUIBook › Setup Project：首次打开后执行一次（导入 TMP、生成中文字体与皮肤）</text>
+</svg><figcaption><b>图 1-1</b>配套工程的目录结构（示意）</figcaption></figure>
+<p>每章的代码都在 <code>Assets/UGUIBook/ChNN/</code>（NN 是两位章号），书里代码块标题上写的路径就是它在工程里的位置，比如“Assets/UGUIBook/Ch01/ClickCounter.cs”。场景都在 <code>ChNN/Scenes/</code>，正文里用“配套场景”标签标出来。场景里一般会有一行灰色提示文字，告诉你该怎么操作。</p>
+<p><code>_Core/Runtime/UIKit.cs</code> 是本书写的一个小工具类，作用是<b>用代码搭 UI</b>：<code>UIKit.Button(parent, "开始游戏")</code> 创建一个按钮、<code>UIKit.Text(parent, "标题", 48)</code> 创建一段文字、<code>rt.Place(x, y, w, h)</code> 设置位置和尺寸。它内部调用的是 Unity 自己的 <code>DefaultControls</code> / <code>TMP_DefaultControls</code>——也就是编辑器菜单 <span class="menu">GameObject › UI</span> 背后的同一套代码——所以它搭出来的控件，层级结构和你在编辑器里手动创建的完全一样。配套场景都是它搭的，你在书里看到“步骤”时，按步骤在编辑器里手动搭，得到的结果是一样的。读完第 3 章之后，回头读一读 <code>UIKit.cs</code>，会是很好的练习。</p>
+<div class="note tip"><b>提示</b>配套场景是“搭好之后存盘”的结果，你可以随便改。改坏了也不要紧，重新解压一份工程即可。建议把自己的练习放在 <code>Assets/</code> 下另建的文件夹里，别和 <code>UGUIBook</code> 混在一起。</div>
+
+<h3 class="sec">1.3 编辑器准备：Scene 视图、Rect Tool 与 Game 视图分辨率</h3>
+<p>做 UI 时最常打交道的是四块面板：Hierarchy（层级）、Scene（场景视图）、Game（游戏视图）和 Inspector（检视器）。图 1-2 标出了做 UI 时要特别留意的几个按钮。</p>
+<figure><svg viewBox="0 0 600 320" width="600" font-family="PingFang SC" font-size="13">
+<rect x="6" y="6" width="588" height="308" rx="6" fill="#ffffff" stroke="#e0deef"/>
+<rect x="6" y="6" width="588" height="26" rx="6" fill="#e9e8f3"/>
+<g transform="translate(14,10)">
+<rect x="0" y="0" width="22" height="18" rx="3" fill="#fff" stroke="#7a8299"/><text x="5" y="14" font-size="11">✋</text>
+<rect x="26" y="0" width="22" height="18" rx="3" fill="#fff" stroke="#7a8299"/><text x="31" y="14" font-size="11">✥</text>
+<rect x="52" y="0" width="22" height="18" rx="3" fill="#fff" stroke="#7a8299"/><text x="57" y="14" font-size="11">⟳</text>
+<rect x="78" y="0" width="22" height="18" rx="3" fill="#fff" stroke="#7a8299"/><text x="83" y="14" font-size="11">⤢</text>
+<rect x="104" y="0" width="22" height="18" rx="3" fill="#ffe3cf" stroke="#ff8a3d" stroke-width="2"/><rect x="109" y="4" width="12" height="10" fill="none" stroke="#1f2436"/>
+</g>
+<text x="160" y="24" font-size="12" fill="#ff8a3d" font-weight="bold">← Rect Tool（快捷键 T）</text>
+<rect x="6" y="32" width="130" height="282" fill="#f7f6fd" stroke="#e0deef"/>
+<text x="16" y="52" font-weight="bold" fill="#1f2436">Hierarchy</text>
+<g font-size="12" fill="#1f2436"><text x="16" y="76">Main Camera</text><text x="16" y="98">▾ Canvas</text><text x="30" y="120">Text (TMP)</text><text x="30" y="142">▸ Button</text><text x="16" y="164">EventSystem</text></g>
+<rect x="140" y="32" width="300" height="160" fill="#fdfdff" stroke="#e0deef"/>
+<rect x="140" y="32" width="300" height="22" fill="#eeedf7"/><text x="148" y="48" font-size="12" font-weight="bold" fill="#1f2436">Scene</text>
+<rect x="378" y="35" width="26" height="16" rx="3" fill="#ffe3cf" stroke="#ff8a3d" stroke-width="2"/><text x="383" y="48" font-size="11" font-weight="bold" fill="#1f2436">2D</text>
+<rect x="190" y="74" width="200" height="104" fill="none" stroke="#7a8299" stroke-dasharray="4 3"/>
+<rect x="240" y="96" width="100" height="26" rx="4" fill="#5b4bd6"/><text x="264" y="114" font-size="12" fill="#fff">Button</text>
+<g fill="#1e88e5"><circle cx="240" cy="96" r="3"/><circle cx="340" cy="96" r="3"/><circle cx="240" cy="122" r="3"/><circle cx="340" cy="122" r="3"/></g>
+<circle cx="290" cy="109" r="4" fill="none" stroke="#1e88e5" stroke-width="1.5"/>
+<text x="196" y="170" font-size="11" fill="#7a8299">虚线框 = Canvas（画布范围）</text>
+<rect x="140" y="196" width="300" height="118" fill="#fdfdff" stroke="#e0deef"/>
+<rect x="140" y="196" width="300" height="22" fill="#eeedf7"/><text x="148" y="212" font-size="12" font-weight="bold" fill="#1f2436">Game</text>
+<rect x="190" y="199" width="110" height="16" rx="3" fill="#ffe3cf" stroke="#ff8a3d" stroke-width="2"/><text x="196" y="211" font-size="11" fill="#1f2436">1920x1080 ▾</text>
+<rect x="190" y="228" width="200" height="78" fill="#eef0f6"/><rect x="250" y="258" width="80" height="20" rx="4" fill="#5b4bd6"/>
+<rect x="444" y="32" width="150" height="282" fill="#f7f6fd" stroke="#e0deef"/>
+<text x="454" y="52" font-weight="bold" fill="#1f2436">Inspector</text>
+<g font-size="12" fill="#1f2436"><text x="454" y="78">▾ Rect Transform</text><text x="454" y="102">▾ Image</text><text x="454" y="126">▾ Button</text><text x="466" y="148" font-size="11" fill="#7a8299">On Click ()</text></g>
+<text x="310" y="211" font-size="12" fill="#ff8a3d" font-weight="bold">← 分辨率下拉框</text>
+</svg><figcaption><b>图 1-2</b>做 UI 时编辑器里要留意的地方（示意）：Rect Tool、Scene 视图的 2D 开关、Game 视图分辨率</figcaption></figure>
+<h4>Scene 视图切到 2D 模式</h4>
+<p>UI 是平面的，在 3D 透视视角下摆 UI 很别扭。点 Scene 视图工具栏上的 <b>2D</b> 按钮，视角会变成正对 XY 平面的正交视图。选中 Canvas 后，把鼠标移到 Scene 视图里按 <kbd>F</kbd>（Frame Selected），视图会缩放到正好框住整个画布。滚轮缩放、按住鼠标中键（或右键）拖动平移。</p>
+<p>刚开始你会发现 Canvas 在 Scene 视图里<b>大得离谱</b>：默认的 Overlay 画布里 1 个 UI 单位等于 1 个屏幕像素，1920×1080 的画布在场景里就是 1920×1080 个单位宽，而一个默认 Cube 只有 1 个单位。这是正常的，Overlay 画布根本不经过相机，它在场景里的位置和大小只是给你编辑用的，和 3D 物体没有空间关系。第 2 章讲渲染模式时会细说。</p>
+<h4>Rect Tool：拖 UI 的专用工具</h4>
+<p>工具栏上第五个工具（快捷键 <kbd>T</kbd>）叫 Rect Tool。选中一个 UI 元素后，它会在元素四周画出蓝色的角点和边，拖动角点改尺寸、拖动内部移动位置、把鼠标放在角点外侧一点会变成旋转光标。中间那个小圆圈是<b>轴心（Pivot）</b>，四个小三角是<b>锚点（Anchor）</b>——这两样东西第 3 章会专门讲。做 UI 时请始终用 Rect Tool，而不是 Move/Scale Tool：用 Scale Tool 拉大一个按钮，改的是 <code>localScale</code> 而不是尺寸，文字会跟着被拉伸变形，子元素的布局也会乱，这是新手常见的错误。</p>
+<div class="note tip"><b>提示</b>拖动 Rect Tool 的角点时按住 <kbd>Shift</kbd> 会保持宽高比；按住 <kbd>Alt</kbd>（macOS 为 <kbd>Option</kbd>）会以轴心为中心对称缩放。</div>
+<h4>Game 视图分辨率</h4>
+<p>Game 视图左上角有一个分辨率下拉框，默认是 “Free Aspect”——Game 窗口多大，屏幕就多大。做 UI 时<b>一定要把它固定成目标设备的分辨率或宽高比</b>，否则你拖拽窗口大小时界面会一直变，很难判断布局到底对不对。点下拉框底部的 <b>+</b>，Type 选 Fixed Resolution，填入 1920×1080（横屏）或 1080×1920（竖屏），起个名字保存。也可以选 Aspect Ratio 类型只固定宽高比。平时至少准备 16:9、4:3、21:9 和一个竖屏四档，频繁切换着看，第 2 章会用到。</p>
+<p>如果你要做手机游戏，Game 视图标题栏左边还有一个 <b>Game / Simulator</b> 切换。切到 Simulator 后可以选择具体机型，它会模拟真机的分辨率、刘海和安全区，第 3 章的安全区案例会用到它。</p>
+
+<h3 class="sec">1.4 做出第一个界面：新建 Canvas 时发生了什么</h3>
+<p>我们先不做任何复杂的事，只放一行字和一个按钮，看看 Unity 到底帮我们创建了什么。</p>
+<ol class="steps">
+<li>新建一个空场景：<span class="menu">File › New Scene</span>，选 Basic (Built-in) 模板。</li>
+<li>在 Hierarchy 空白处右键，选 <span class="menu">UI › Text - TextMeshPro</span>。第一次在工程里使用 TextMeshPro 时会弹出 “TMP Importer” 窗口，点 <b>Import TMP Essentials</b>（配套工程已经执行过 Setup Project，不会再弹）。</li>
+<li>观察 Hierarchy：除了你要的 <code>Text (TMP)</code>，Unity 还自动创建了一个 <code>Canvas</code> 把它包在里面，并且在根部多了一个 <code>EventSystem</code>。</li>
+<li>选中 Text (TMP)，在 Inspector 里把文字改成 “Hello, UGUI!”，字号改成 110。</li>
+<li>在 Canvas 上右键，选 <span class="menu">UI › Button - TextMeshPro</span>，把按钮里的文字改成“点我”。用 Rect Tool 把按钮拖到文字下方。</li>
+<li>点 Play，把鼠标移到按钮上，按钮会变暗一点；按下会更暗——它已经是一个“活”的按钮了，只是还没告诉它被点了要干什么。</li>
+</ol>
+<figure class="shot"><img src="img/ch01-hello.jpg"><figcaption><b>图 1-3</b>第一个界面：一段 TMP 文字和一个按钮</figcaption></figure>
+<div class="scene">Ch01/Scenes/Ch01_Hello.unity</div>
+<p>这个场景的层级如下。注意按钮本身是 <code>Image + Button</code>，它下面还有一个子物体专门显示文字——UGUI 的控件大多是“几个简单组件拼起来”的，这一点后面每一章都会反复看到。</p>
+<div class="two">
+<div class="tree" data-tree="ch01-hello" data-root="Canvas" data-depth="3"></div>
+<div class="tree" data-tree="ch01-hello" data-root="EventSystem" data-depth="1"></div>
+</div>
+<p>新建第一个 UI 元素时自动生成的这几样东西，每一个都有明确的分工：</p>
+<div class="kv">
+<span>Canvas</span><span>画布。所有 UI 元素必须放在某个 Canvas 下面才会被画出来。它决定这批 UI 用什么方式渲染（盖在屏幕最上层、放在相机前面、还是放在 3D 世界里），并负责把子元素的网格合并成尽量少的绘制调用（Draw Call）。</span>
+<span>Canvas Scaler</span><span>画布缩放器。决定 UI 在不同分辨率的屏幕上怎样缩放。编辑器新建的 Canvas 默认是 Constant Pixel Size（1 个 UI 单位 = 1 个像素，不缩放），实际项目几乎都要改成 Scale With Screen Size，第 2 章细讲。</span>
+<span>Graphic Raycaster</span><span>图形射线检测器。鼠标点下时，由它找出这块画布上“鼠标下面有哪些图形”。没有它，这块画布上的按钮就点不动。</span>
+<span>EventSystem</span><span>事件系统，整个场景只需要一个。它每帧驱动输入模块读取鼠标/触摸/键盘，询问所有 Raycaster 鼠标下是谁，再把“按下、抬起、点击、拖拽”等事件发给对应的物体。</span>
+<span>Standalone Input Module</span><span>输入模块，挂在 EventSystem 上，负责把 Unity 旧输入系统（Input Manager）的鼠标、触摸、键盘、手柄输入翻译成 UI 事件。用新 Input System 包时要换成 Input System UI Input Module（第 11 章）。</span>
+</div>
+<p>把这几个角色串起来，就是一次点击从硬件到你的代码的完整旅程（图 1-4）。现在只需要有个整体印象，第 11 章会对着源码把每一步拆开讲。</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="13">
+<defs><marker id="c1a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+<g stroke="#1f2436" stroke-width="1">
+<rect x="10" y="30" width="100" height="56" rx="6" fill="#fff"/>
+<rect x="135" y="30" width="130" height="56" rx="6" fill="#e9e6fb" stroke="#5b4bd6"/>
+<rect x="290" y="30" width="140" height="56" rx="6" fill="#e9e6fb" stroke="#5b4bd6"/>
+<rect x="455" y="30" width="135" height="56" rx="6" fill="#e9e6fb" stroke="#5b4bd6"/>
+<rect x="290" y="140" width="140" height="56" rx="6" fill="#fff4ec" stroke="#ff8a3d"/>
+<rect x="455" y="140" width="135" height="56" rx="6" fill="#fff4ec" stroke="#ff8a3d"/>
+</g>
+<g text-anchor="middle" fill="#1f2436">
+<text x="60" y="54" font-weight="bold">鼠标 / 手指</text><text x="60" y="74" font-size="12" fill="#7a8299">按下、抬起</text>
+<text x="200" y="54" font-weight="bold">Input Module</text><text x="200" y="74" font-size="12" fill="#7a8299">读输入，生成指针数据</text>
+<text x="360" y="54" font-weight="bold">EventSystem</text><text x="360" y="74" font-size="12" fill="#7a8299">问所有 Raycaster</text>
+<text x="522" y="54" font-weight="bold">Graphic Raycaster</text><text x="522" y="74" font-size="12" fill="#7a8299">鼠标下有哪些图形</text>
+<text x="522" y="164" font-weight="bold">最上面的 Image</text><text x="522" y="184" font-size="12" fill="#7a8299">开着 Raycast Target</text>
+<text x="360" y="164" font-weight="bold">Button.onClick</text><text x="360" y="184" font-size="12" fill="#7a8299">执行你绑定的方法</text>
+</g>
+<g stroke="#7a8299" stroke-width="1.6" fill="none" marker-end="url(#c1a)">
+<path d="M110,58 L131,58"/><path d="M265,58 L286,58"/><path d="M430,58 L451,58"/><path d="M522,86 L522,136"/><path d="M455,168 L434,168"/>
+</g>
+<text x="300" y="222" text-anchor="middle" font-size="11" fill="#7a8299">任何一环缺失（没有 EventSystem / Raycaster、Raycast Target 被关、被别的图挡住），点击都到不了按钮</text>
+</svg><figcaption><b>图 1-4</b>一次点击的旅程（简化）</figcaption></figure>
+<div class="note"><b>注意</b>Canvas 物体的 Layer 会被自动设为 <code>UI</code>，它的 Transform 也变成了 <b>RectTransform</b>——UGUI 里所有元素都用 RectTransform 而不是普通 Transform，因为它们需要“矩形”的概念（宽、高、锚点）。另外，Overlay 模式画布的 RectTransform 是被 Canvas 接管的：位置和尺寸灰掉不能改，大小永远等于屏幕（除以缩放系数）。</div>
+
+<h4>每个 UI 元素身上都有什么</h4>
+<p>选中 Text (TMP) 或按钮，看看 Inspector：最上面是 <b>Rect Transform</b>，然后是一个没有任何参数的 <b>Canvas Renderer</b>，再往下才是 Image、TextMeshPro - Text (UI)、Button 这些“真正干活”的组件。它们的关系是这样的：</p>
+<div class="kv">
+<span>Rect Transform</span><span>描述这个元素在父矩形中的位置、尺寸、锚点和轴心。所有 UI 元素都有，空物体也有。第 3 章整章讲它。</span>
+<span>Canvas Renderer</span><span>把这个元素生成的网格和材质交给所在的 Canvas 去画。它是引擎原生组件，自己没有可调参数；凡是要“画出东西”的 UI 组件都依赖它，添加 Image 时会被自动加上。</span>
+<span>Graphic 子类</span><span>Image、RawImage、Text、TextMeshProUGUI 都继承自 <code>Graphic</code>，负责“画什么”：生成顶点、指定颜色和材质。Raycast Target 开关也定义在 Graphic 上。</span>
+<span>交互组件</span><span>Button、Toggle、Slider 等继承自 <code>Selectable</code>，负责“怎么响应”：状态切换、导航、事件回调。它们本身不画任何东西，通过 Target Graphic 字段去改某个 Graphic 的颜色或精灵。</span>
+</div>
+<p>理解了这个分工，很多现象就说得通了：按钮能被点到，靠的不是 Button 组件，而是同一物体（或子物体）上开着 Raycast Target 的 Image；把 Button 组件删掉，图片还在；把 Image 删掉，按钮就“隐身”且点不到了。一个空物体加一个 Button 组件，是点不到的。</p>
+<div class="note"><b>注意</b>菜单 <span class="menu">GameObject › UI</span> 下面有两套文字和按钮：<span class="menu">Text - TextMeshPro</span> / <span class="menu">Button - TextMeshPro</span> 用的是 TextMeshPro，<span class="menu">Legacy › Text</span> / <span class="menu">Legacy › Button</span> 用的是旧版 Text 组件。旧版 Text 在放大、描边、中文排版上都明显不如 TMP，Unity 自己也把它归到了 Legacy（遗留）菜单下。本书除了做对比，一律使用 TMP 版本，第 5 章详细对比两者。</div>
+
+<h3 class="sec">1.5 层级顺序就是绘制顺序</h3>
+<p>UGUI 没有“Z 轴前后”或“图层编号”这样的属性来决定谁盖住谁（同一画布内）。规则只有一条：<b>按 Hierarchy 里从上到下的顺序依次绘制，后画的盖住先画的</b>。父物体总是先于它的子物体绘制，同一父物体下的子物体按排列顺序绘制，整棵树就是一次深度优先遍历。</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="14" width="200" height="200" rx="6" fill="#2b2b2e"/>
+<text x="22" y="36" font-size="12" fill="#9a9aa3">Hierarchy</text>
+<g font-size="13" fill="#d4d4d4">
+<text x="22" y="62">▾ Canvas</text>
+<text x="38" y="88">Background</text><text x="150" y="88" fill="#ff8a3d">①</text>
+<text x="38" y="114">▾ Panel</text><text x="150" y="114" fill="#ff8a3d">②</text>
+<text x="56" y="140">Title</text><text x="150" y="140" fill="#ff8a3d">③</text>
+<text x="56" y="166">Button</text><text x="150" y="166" fill="#ff8a3d">④</text>
+<text x="38" y="192">Popup</text><text x="150" y="192" fill="#ff8a3d">⑤</text>
+</g>
+<path d="M222,114 L262,114" stroke="#7a8299" stroke-width="1.6" marker-end="url(#c1a)"/>
+<g transform="translate(280,20) skewY(-8)">
+<rect x="0" y="40" width="280" height="160" fill="#dfe3f2" stroke="#7a8299"/>
+<rect x="30" y="60" width="200" height="120" rx="6" fill="#ffffff" stroke="#7a8299"/>
+<rect x="60" y="72" width="140" height="22" rx="3" fill="#e9e6fb"/>
+<rect x="80" y="136" width="100" height="28" rx="5" fill="#5b4bd6"/>
+<rect x="150" y="104" width="110" height="80" rx="6" fill="#ff8a3d" opacity="0.92"/>
+</g>
+<g font-size="12" fill="#1f2436">
+<text x="286" y="216">① 先画背景</text><text x="368" y="216">②③④ 面板及其内容</text><text x="500" y="216">⑤ 最后画</text>
+</g>
+</svg><figcaption><b>图 1-5</b>层级顺序（左）决定绘制顺序（右）：像画油画一样，后画的盖住先画的</figcaption></figure>
+<p>这条规则带来几个直接的推论：</p>
+<ul>
+<li><b>背景要放在最上面（最先）</b>，弹窗、提示要放在最下面（最后）。新建元素时 Unity 会把它加到同级末尾，所以后建的默认在最上层。</li>
+<li><b>子物体永远盖住父物体</b>。想做“按钮背后有一圈阴影”，阴影不能作为按钮的子物体（那样会盖在按钮上面），而要做成按钮的前一个兄弟节点，或者像配套工程的 <code>UIKit.Card</code> 那样建一个空父节点，把阴影和底图都放进去、阴影在前。</li>
+<li><b>点击检测也遵循同样的顺序</b>：Graphic Raycaster 会把鼠标下的所有图形按绘制深度排序，最上面的那个先收到事件。看起来在最上面的，就是会被点到的——除非它是透明的，而你忘了这一点（1.7 节）。</li>
+<li>在 Hierarchy 里直接拖动可以调整顺序；代码里用 <code>transform.SetAsLastSibling()</code>（移到同级最后，即最上层）、<code>SetAsFirstSibling()</code>（移到最前，即最底层）、<code>SetSiblingIndex(i)</code> 和 <code>GetSiblingIndex()</code>。</li>
+</ul>
+<div class="note deep"><b>深入</b>“按层级顺序绘制”说的是<b>视觉结果</b>。实际上 Canvas 会在不改变视觉结果的前提下，把能合并的元素合并成一个批次（Batch）一起画，所以 Frame Debugger 里看到的 Draw Call 顺序并不一定和层级一一对应。这也是为什么层级顺序会影响性能：两张用同一图集的图中间插了一张别的图集的图，就可能被迫多一次 Draw Call。第 12、20 章细讲。不同 Canvas 之间的先后则由 Sort Order 等属性决定，见第 2 章。</div>
+
+<h4>GameObject 的激活：SetActive</h4>
+<p>界面里大量的“显示/隐藏”是靠 <code>gameObject.SetActive(bool)</code> 完成的：设置页、弹窗、提示，不用时关掉，要用时打开。关于激活状态，有两个属性一定要分清：</p>
+<div class="kv">
+<span>activeSelf</span><span>这个物体<b>自己</b>的开关，也就是 Inspector 名字左边那个勾选框。<code>SetActive</code> 改的就是它。</span>
+<span>activeInHierarchy</span><span>这个物体<b>实际上</b>是否处于激活状态：它自己开着，并且所有祖先也都开着，才是 <code>true</code>。父物体被关掉时，子物体的 activeSelf 不变，但 activeInHierarchy 变成 <code>false</code>，在 Hierarchy 里显示成灰色。</span>
+</div>
+<p><code>SetActive(false)</code> 之后，物体上的所有组件都会收到 <code>OnDisable</code>，Update 不再执行，UI 不再绘制，也不再响应点击；再 <code>SetActive(true)</code> 时会收到 <code>OnEnable</code>。对 UI 来说，激活和关闭不是免费的：重新激活时，Canvas 需要重新计算这批元素的布局和网格。对于频繁开关的界面（比如每秒闪烁几次的提示），第 20 章会对比 <code>SetActive</code>、<code>CanvasGroup.alpha</code>、关闭 <code>Canvas</code> 组件等几种隐藏方式的开销。入门阶段，用 <code>SetActive</code> 就对了。</p>
+
+<h3 class="case"><span class="no">案例 1.1</span>主菜单：背景、标题和三个按钮<span class="lv">入门</span></h3>
+<p><b>目标</b>：做出一个游戏主菜单：全屏背景图、大标题、竖排的“开始游戏 / 设置 / 退出”三个按钮，左下角显示版本号。这一节只关心“摆出来”，交互在后面几个案例里加。</p>
+<figure class="shot"><img src="img/ch01-mainmenu.jpg"><figcaption><b>图 1-6</b>主菜单最终效果。①背景 ②标题 ③按钮组 ④版本号</figcaption></figure>
+<div class="scene">Ch01/Scenes/Ch01_MainMenu.unity</div>
+<p><b>思路</b>：按“从后往前”的顺序搭：先放背景（最先画），再放标题和按钮，最后放版本号。背景铺满全屏，其余元素各自靠在屏幕的某个位置。“靠在某个位置”靠的是锚点，第 3 章才会细讲，这里先照着步骤用锚点预设面板点一下即可。</p>
+<ol class="steps">
+<li>新建场景。在 Hierarchy 右键 <span class="menu">UI › Canvas</span>。选中 Canvas，在 Canvas Scaler 组件里把 UI Scale Mode 改成 <b>Scale With Screen Size</b>，Reference Resolution 填 1920 × 1080，Match 填 0.5（第 2 章解释为什么）。Game 视图分辨率选 1920×1080。</li>
+<li><b>① 背景</b>：在 Canvas 上右键 <span class="menu">UI › Image</span>，改名 Background。在 Image 组件的 Source Image 里选一张背景图（配套工程里是 <code>bg_landscape</code>），把 Raycast Target 的勾去掉（背景不需要接收点击，1.7 节会解释为什么要关）。在 Rect Transform 左上角点开锚点预设面板，<b>按住 Alt</b> 点右下角那个“四向拉伸”的图标，背景就铺满了整个画布。</li>
+<li>再加一张 Image 叫 Shade，同样铺满，颜色设为深蓝、Alpha 约 0.45，作为压暗遮罩，让上面的白字更清楚。</li>
+<li><b>② 标题</b>：右键 <span class="menu">UI › Text - TextMeshPro</span>，改名 TitleText，文字“星辰远征”，字号 150，粗体，白色，对齐方式选居中。在锚点预设面板里按住 <kbd>Alt</kbd>+<kbd>Shift</kbd> 点“上中”（top-center），再把 Pos Y 改成 −150，标题就固定在屏幕上方居中的位置。再建一个小号的英文副标题放在它下面。</li>
+<li><b>③ 按钮组</b>：建一个空物体（右键 <span class="menu">Create Empty</span>）叫 Buttons，宽 480 高 400，放在屏幕中间偏下。在它下面建三个 <span class="menu">UI › Button - TextMeshPro</span>，分别改名、改文字。为了让三个按钮自动等距竖排，给 Buttons 加 <span class="menu">Add Component › Layout › Vertical Layout Group</span>，Spacing 填 30，Child Alignment 选 Middle Center（自动布局第 10 章细讲，这里先用）。</li>
+<li>选中“开始游戏”按钮，把它 Image 组件的 Color 改成主色；“设置”保持白色；“退出”改成深色，同时把按钮文字颜色改成白色。</li>
+<li><b>④ 版本号</b>：再建一个 TMP 文字，按住 <kbd>Alt</kbd>+<kbd>Shift</kbd> 点锚点预设的“左下”（bottom-left），Pos X/Y 填 40/30，字号 30，左对齐。</li>
+<li>点 Play。把 Game 视图分辨率换成 2560×1080、1024×768 试试：背景始终铺满、标题始终在上方居中、版本号始终在左下角——这就是锚点的作用。</li>
+</ol>
+<p>搭好后的层级是这样的（配套场景里多了一个 AspectRatioFitter，用来让背景图保持 2:1 的比例铺满屏幕而不被拉扁，第 10 章介绍它）：</p>
+<div class="tree" data-tree="ch01-mainmenu" data-root="Canvas" data-depth="3" data-hide="Text (TMP)"></div>
+<div class="note tip"><b>提示</b>按钮上的小图标是作为按钮的子物体加上去的 Image（<span class="menu">UI › Image</span>，Source Image 选图标，勾选 Preserve Aspect）。图标和文字都是按钮的子物体，所以它们画在按钮底图之上——这正是 1.5 节讲的“子物体盖住父物体”。</div>
+<p><b>常见坑</b>：一是忘了换 Canvas Scaler 模式，在 1920×1080 下看着正好，换到高分屏上按钮突然变得很小；二是用 Scale Tool（<kbd>R</kbd>）去拉按钮，结果文字被拉变形；三是背景放到了按钮后面（层级下方），把按钮整个盖住。遇到“东西不见了”，先看 Hierarchy 顺序。</p>
+
+<h3 class="case"><span class="no">案例 1.2</span>点击计数器：两种绑定 OnClick 的方式<span class="lv">入门</span></h3>
+<p><b>目标</b>：点按钮让数字加一。用两种方式实现：左边在 Inspector 里绑定，右边用代码 <code>AddListener</code>。效果完全一样，但适用场合不同。</p>
+<figure class="shot"><img src="img/ch01-counter.jpg"><figcaption><b>图 1-7</b>点击计数器：左边在 Inspector 里绑定，右边在代码里 AddListener</figcaption></figure>
+<div class="scene">Ch01/Scenes/Ch01_ClickCounter.unity</div>
+<h4>方式一：在 Inspector 里绑定</h4>
+<p><code>Button</code> 组件最下面有一个 <b>On Click ()</b> 列表，它的类型是 <code>UnityEvent</code>——一种可以在 Inspector 里配置“要调用谁的哪个方法”的事件。先写一个脚本，提供一个 <code>public</code> 方法：</p>
+<pre class="code" data-file="Ch01/ClickCounter.cs"></pre>
+<ol class="steps">
+<li>把 <code>ClickCounter</code> 脚本挂到左边卡片（Card_Inspector）上，把显示数字的 TMP 文字拖到它的 Label 字段。</li>
+<li>选中 “+1” 按钮，在 Button 组件的 On Click () 列表底部点 <b>+</b>，列表里出现一行。</li>
+<li>把挂着 ClickCounter 的 Card_Inspector 从 Hierarchy 拖到这一行左下方的对象框里。</li>
+<li>点右边的函数下拉框（默认显示 No Function），选 <span class="menu">ClickCounter › Increment ()</span>。</li>
+<li>选中 “+5” 按钮，同样添加一行，这次选 <span class="menu">ClickCounter › Add (int)</span>，下方会出现一个数字框，填 5。</li>
+</ol>
+<figure><svg viewBox="0 0 600 200" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="10" width="560" height="180" rx="6" fill="#f7f6fd" stroke="#e0deef"/>
+<text x="36" y="34" font-weight="bold" fill="#1f2436">▾ Button</text>
+<text x="36" y="58" fill="#7a8299" font-size="12">Interactable ☑   Transition: Color Tint …</text>
+<rect x="36" y="70" width="528" height="104" rx="4" fill="#fff" stroke="#c9cde0"/>
+<text x="48" y="90" fill="#1f2436">On Click ()</text>
+<rect x="48" y="100" width="150" height="24" rx="3" fill="#eef0f6" stroke="#c9cde0"/><text x="56" y="117" font-size="12" fill="#1f2436">Runtime Only ▾</text>
+<rect x="210" y="100" width="340" height="24" rx="3" fill="#eef0f6" stroke="#5b4bd6" stroke-width="1.5"/><text x="218" y="117" font-size="12" fill="#1f2436">ClickCounter.Add ▾</text>
+<rect x="48" y="132" width="150" height="24" rx="3" fill="#eef0f6" stroke="#5b4bd6" stroke-width="1.5"/><text x="56" y="149" font-size="12" fill="#1f2436">▣ Card_Inspector</text>
+<rect x="210" y="132" width="340" height="24" rx="3" fill="#fff" stroke="#c9cde0"/><text x="218" y="149" font-size="12" fill="#1f2436">5</text>
+<text x="520" y="90" fill="#7a8299">+  −</text>
+<g font-size="12" fill="#ff8a3d" font-weight="bold"><text x="62" y="186">① 调用时机</text><text x="200" y="186">② 目标对象（拖进来）</text><text x="360" y="186">③ 方法 ④ 参数（方法有一个参数时出现）</text></g>
+</svg><figcaption><b>图 1-8</b>Button 的 On Click () 列表（示意）。“Runtime Only”表示只在运行时调用；选 “Editor And Runtime” 则在编辑器里不运行时也会触发</figcaption></figure>
+<p>能出现在下拉框里的方法有限制：必须是 <code>public</code>、返回 <code>void</code>，参数最多一个，且类型只能是 <code>int</code>、<code>float</code>、<code>string</code>、<code>bool</code> 或某种 <code>UnityEngine.Object</code>。所以 <code>Add(int)</code> 能选、能填参数，而一个需要两个参数的方法就选不了。</p>
+<h4>方式二：在代码里 AddListener</h4>
+<pre class="code" data-file="Ch01/ClickCounterByCode.cs" data-region="code"></pre>
+<p><code>onClick</code> 本身就是一个 <code>UnityEvent</code>，<code>AddListener</code> 往里面加一个回调，<code>RemoveListener</code> 移除。几个要点：</p>
+<ul>
+<li><b>在 Awake（或 Start）里加监听</b>。代码加的监听叫“运行时监听”（non-persistent），它只存在于内存中，不会显示在 Inspector 的列表里，也不会被保存进场景。所以它必须在每次运行时由代码重新加上。</li>
+<li><b>按钮引用用 <code>[SerializeField]</code> 字段</b>在 Inspector 里拖进来，而不是用 <code>GameObject.Find("Button")</code> 按名字找。按名字找既慢又脆弱，改个名字就断了。</li>
+<li><b>Lambda 很方便，但移除不掉</b>：<code>AddListener(() =&gt; SetCount(0))</code> 每次写都会生成一个新的委托对象，之后无法用 <code>RemoveListener</code> 精确移除它，只能 <code>RemoveAllListeners()</code>（这只会清掉运行时监听，Inspector 里配的那些不受影响）。需要单独移除的回调，请写成具名方法，比如 <code>OnAddClicked</code>。</li>
+</ul>
+<table>
+<tr><th>对比</th><th>Inspector 绑定</th><th>代码 AddListener</th></tr>
+<tr><td class="k">谁能改</td><td>策划、美术在编辑器里就能改</td><td>只有程序员改代码</td></tr>
+<tr><td class="k">可见性</td><td>一眼看到按钮会调用什么</td><td>要读代码才知道</td></tr>
+<tr><td class="k">重构安全</td><td>方法改名后绑定会静默失效（Missing）</td><td>改名时编译器会报错</td></tr>
+<tr><td class="k">参数</td><td>最多一个简单参数</td><td>任意，可以用 Lambda 捕获变量</td></tr>
+<tr><td class="k">适合</td><td>简单、固定的跳转和开关</td><td>大多数正式项目的界面逻辑</td></tr>
+</table>
+<p>实际项目里，代码绑定更常见：界面逻辑集中在一个脚本里，查找、调试、重构都方便。Inspector 绑定适合原型阶段和简单的场景跳转。两种可以混用——Button 被点击时，先调用 Inspector 里配置的（persistent）监听，再调用代码加的监听。第 6 章还会讲循环里 AddListener 的闭包陷阱。</p>
+<div class="note warn"><b>注意</b>方式一绑定的是 Card_Inspector <b>这个场景对象上的</b>组件。如果你把 Card 做成了预制体、按钮在预制体外面，或者把绑定指向了 Project 窗口里的预制体资源而不是场景实例，运行时就会调用到错误的对象，甚至什么也不发生。绑定时一定从 Hierarchy 里拖。</div>
+
+<h3 class="case"><span class="no">案例 1.3</span>面板切换：主菜单 ↔ 设置页<span class="lv">入门</span></h3>
+<p><b>目标</b>：点“设置”进入设置页，点左上角返回按钮回到主菜单；按 <kbd>Esc</kbd>（安卓手机的返回键）也能返回。</p>
+<figure class="shot"><img src="img/ch01-menuflow.jpg"><figcaption><b>图 1-9</b>主菜单、设置页、退出确认框三种状态（同一个场景）</figcaption></figure>
+<div class="scene">Ch01/Scenes/Ch01_MenuFlow.unity</div>
+<p><b>思路</b>：最朴素也最可靠的做法是把每个“页面”做成 Canvas 下的一个铺满全屏的空物体，页面的内容都放在它下面；切换页面就是对这些页面根节点 <code>SetActive</code>。层级如下，灰色表示当前未激活：</p>
+<div class="tree" data-tree="ch01-menuflow" data-root="Canvas" data-depth="2"></div>
+<p>页面根节点用空物体（只有 RectTransform）而不是 Image，是因为它只是一个“容器”，自己不需要显示任何东西；它铺满全屏（锚点四向拉伸），子元素就能以整个屏幕为参照摆放。所有逻辑放在一个 <code>MenuController</code> 里：</p>
+<pre class="code" data-file="Ch01/MenuController.cs" data-region="awake"></pre>
+<pre class="code" data-file="Ch01/MenuController.cs" data-region="pages"></pre>
+<p><code>ShowPage</code> 的写法是“要显示的那个打开，其余都关掉”，而不是“打开 A、关掉 B”。好处是不用关心当前在哪一页，调用多少次结果都正确。页面多起来以后，可以把页面放进数组循环处理；再复杂一些（需要返回栈、弹窗层级、预制体加载），就需要第 16 章的 UI 框架了。</p>
+<p>注意 <code>Awake</code> 最后两行：运行时的初始状态由代码决定，而不是依赖场景保存时“恰好”是什么样。编辑界面时你经常会把设置页打开来调，保存时忘了关——有了这两行，运行时总是从主菜单开始。</p>
+<div class="note deep"><b>深入</b>除了 SetActive，还可以给每个页面根节点加一个 <code>CanvasGroup</code> 组件，用 <code>alpha</code> 控制整页透明度、用 <code>interactable</code> 和 <code>blocksRaycasts</code> 控制整页能否交互。它的好处是可以做淡入淡出动画（第 15 章），隐藏时也不会触发 OnDisable/OnEnable；代价是隐藏的页面仍然参与布局计算和部分绘制流程。两者的开销对比放在第 20 章，入门阶段先用 SetActive。</div>
+<h4>返回键</h4>
+<pre class="code" data-file="Ch01/MenuController.cs" data-region="back"></pre>
+<p>安卓手机的系统返回键在 Unity 里被映射为 <code>KeyCode.Escape</code>，所以这段代码在 PC 上按 <kbd>Esc</kbd>、在安卓上按返回键效果相同。处理顺序是“先关最上层的东西”：有弹窗先关弹窗，在子页面就回主页面，已经在主页面就询问是否退出。这是手机游戏非常重要的体验细节，审核时也常被检查。</p>
+<div class="note"><b>注意</b>这段代码用的是旧输入系统的 <code>Input.GetKeyDown</code>。配套工程的 Active Input Handling 设置为 Both（新旧输入系统同时启用），所以能用。如果你的项目只启用了新 Input System，需要改用 <code>Keyboard.current.escapeKey.wasPressedThisFrame</code> 等写法，详见第 11 章。</div>
+
+<h3 class="case"><span class="no">案例 1.4</span>退出按钮与确认框<span class="lv">入门</span></h3>
+<p><b>目标</b>：点“退出”弹出确认框，点“取消”关闭确认框，点“退出”真正退出游戏；在编辑器里点退出则停止 Play 模式。</p>
+<h4>确认框的结构</h4>
+<p>确认框（QuitDialog）由两部分组成：一张<b>铺满全屏的半透明黑色 Image</b>（Mask），和它上面居中的卡片（文字 + 两个按钮）。这张黑色遮罩有两个作用：视觉上把后面的菜单压暗，让人注意力集中在对话框上；更重要的是它开着 Raycast Target，<b>挡住了后面所有按钮的点击</b>——确认框开着的时候，你点不到后面的“开始游戏”。这就是“模态对话框”的最简单实现。QuitDialog 放在层级的最后面，保证它画在最上层、也最先被射线命中。</p>
+<h4>退出代码</h4>
+<pre class="code" data-file="Ch01/QuitGame.cs" data-region="quit"></pre>
+<p><code>Application.Quit()</code> 在编辑器的 Play 模式下会被忽略，所以测试时点了没反应，很多人以为代码写错了。上面用条件编译区分平台：<code>UNITY_EDITOR</code> 在编辑器里为真，此时把 <code>EditorApplication.isPlaying</code> 设为 <code>false</code> 来停止运行。注意 <code>UnityEditor</code> 命名空间只在编辑器里存在，运行时代码引用它必须用 <code>#if UNITY_EDITOR</code> 包起来，否则打包时会编译失败。</p>
+<p>不同平台的“退出”还有讲究：</p>
+<ul>
+<li><b>iOS</b>：苹果的设计规范不建议应用自己退出，iOS 上 <code>Application.Quit</code> 的行为也和其他平台不同。iOS 版本的游戏通常直接不显示退出按钮。</li>
+<li><b>Android</b>：可以退出，按返回键弹出“确定退出吗”是很常见的做法（案例 1.3 的 Esc 处理）。</li>
+<li><b>WebGL</b>：网页没法“退出”，通常隐藏按钮或改成返回首页。</li>
+<li><b>PC</b>：正常退出。如果有存档，请在退出前保存（可以放在 <code>OnApplicationQuit</code> 里，它在真正退出前会被调用）。</li>
+</ul>
+<p>在 MenuController 里，“退出”按钮只负责打开确认框，确认框里的“退出”才调用 <code>QuitGame.Quit</code>——直接把静态方法作为回调传给 <code>AddListener</code>，签名匹配（无参、返回 void）即可。</p>
+
+<h3 class="case"><span class="no">案例 1.5</span>点谁谁置顶：亲手验证绘制顺序<span class="lv">入门</span></h3>
+<p><b>目标</b>：三张互相重叠的卡片，点哪张，哪张就跑到最上面。</p>
+<figure class="shot"><img src="img/ch01-draworder.jpg"><figcaption><b>图 1-10</b>左：默认按 A、B、C 的顺序绘制；右：对 A 调用 SetAsLastSibling 后，A 变成最后绘制</figcaption></figure>
+<div class="scene">Ch01/Scenes/Ch01_DrawOrder.unity</div>
+<pre class="code" data-file="Ch01/BringToFront.cs" data-region="front"></pre>
+<p>这个脚本实现了 <code>IPointerDownHandler</code> 接口：只要物体（或它的子物体）上有能接收射线的图形，按下时 EventSystem 就会调用它的 <code>OnPointerDown</code>。它不需要 Button 组件——Button 本身也只是实现了几个类似的接口而已（第 6、11 章）。</p>
+<p>脚本挂在卡片根节点 Card_A 上，而真正被射线打中的是它下面的 Bg 图片。事件会从被打中的物体开始<b>沿着父链向上找</b>，找到第一个实现了该接口的组件就交给它处理。所以把交互脚本挂在一组 UI 的根节点上，点到这一组里的任何图形都能触发。</p>
+<p>运行场景，点 A，再观察 Hierarchy：Card_A 跑到了 Cards 节点的最后。注意 <code>SetAsLastSibling</code> 只在<b>同一个父节点</b>的兄弟之间调整顺序：如果三张卡片分属不同的父节点，只调卡片本身是不够的，要调整的是它们父节点之间的顺序。</p>
+<div class="note tip"><b>提示</b>置顶也会影响点击：现在 A 在最上面，点 A 和 B 重叠的区域，收到事件的是 A。顺序就是“看到谁就点到谁”，这条规则在 UGUI 里非常一致。</div>
+
+<h3 class="sec">1.6 新手最常见的五个坑</h3>
+<p>“按钮点了没反应”大概是 UGUI 问得最多的问题。原因五花八门，但最常见的就是下面五个，按出现频率排列。遇到问题时从第一个查起。</p>
+<h4>坑一：场景里没有 EventSystem</h4>
+<p>通过菜单创建第一个 UI 元素时 Unity 会自动建 EventSystem，但下面这些情况会让它“消失”：手动删掉了；从别的场景拷贝 Canvas 时没拷 EventSystem；用代码 <code>new GameObject</code> 搭界面；以预制体形式加载 UI。没有 EventSystem，所有 UI 都不会有任何反应——按钮连鼠标悬停变色都没有。这是一个很好的判断依据：<b>悬停都不变色，先查 EventSystem</b>。</p>
+<p>反过来，场景里有两个 EventSystem 也不行（常见于叠加加载多个场景时），Unity 会在 Console 里报警告，只有一个会生效。正确的做法是在常驻场景里只放一个，或者像 <code>UIKit.EnsureEventSystem()</code> 那样“没有才建”。</p>
+<h4>坑二：被透明图片挡住了</h4>
+<p>这是最隐蔽的一个。一张 Alpha 为 0 的 Image 你看不见它，但它<b>照样参与射线检测</b>：Graphic Raycaster 判断的是“鼠标是否落在这个图形的矩形内”，并不关心像素是否透明（除非专门设置了 <code>alphaHitTestMinimumThreshold</code>，第 4 章）。常见的元凶有：一个铺满全屏、颜色透明的 Panel；文本框的矩形比文字本身大很多，盖到了旁边的按钮；隐藏界面时只把 Alpha 设成了 0 而没有关掉射线。</p>
+<h4>坑三：Raycast Target 开关</h4>
+<p>每个 Graphic（Image、RawImage、Text、TMP 文字）的 Inspector 里都有一个 <b>Raycast Target</b> 勾选框，默认开启。它决定这个图形能不能“接住”射线。和坑二相关的两个方向都可能出问题：</p>
+<ul>
+<li>该开的没开：按钮的底图 Raycast Target 被关了，按钮自己就收不到点击（按钮靠它的 Target Graphic 或子物体上的图形接住射线）。</li>
+<li>不该开的开着：纯装饰的背景、图标、文字都开着，既可能挡住下面的东西，也白白增加射线检测的开销。好习惯是：<b>只有需要交互的图形才开 Raycast Target</b>。配套工程的 <code>UIKit.Text</code> 和 <code>UIKit.Icon</code> 默认就是关闭的，第 21 章还有一个一键清理的编辑器工具。</li>
+</ul>
+<h4>坑四：Canvas 在相机后面（或看不到）</h4>
+<p>这个坑只出现在 Screen Space - Camera 和 World Space 模式（第 2 章）。Camera 模式下画布放在相机前方 Plane Distance 的位置，如果这个距离超出了相机的远裁剪面（Far Clipping Plane），或者小于近裁剪面，整个界面就消失了；没给 Render Camera 赋值时，Camera 模式的画布会退化成 Overlay 的行为。World Space 模式下画布就是 3D 世界里的一块板，转到相机背后、离得太远、缩放不对（从 Overlay 切过来时画布还保持着屏幕像素大小，1 个单位 1 米，一千多米宽），都会“看不见”或“点不到”；而且 World Space 画布需要设置 Event Camera 才能正确接收点击。</p>
+<h4>坑五：按钮在 Scene 视图里看不到</h4>
+<p>“Game 视图里有，Scene 视图里找不到”通常是这几种情况：一是 1.3 节说的尺寸问题，Overlay 画布在 Scene 视图里有一千多个单位大，你还在看那个 1 单位大的 Cube，选中 Canvas 按 <kbd>F</kbd> 就行；二是 Scene 视图右上角的 Layers 下拉里把 UI 层隐藏了；三是 Hierarchy 里点了物体左侧的“眼睛”图标把它在 Scene 视图里隐藏了（这只影响 Scene 视图，不影响游戏）；四是 Scene 视图不在 2D 模式，你正从侧面看着一块薄片。</p>
+
+<h3 class="case"><span class="no">案例 1.6</span>“鼠标下面是谁”：用探针找出挡住点击的元凶<span class="lv">入门</span></h3>
+<p><b>目标</b>：做一个小工具，实时列出鼠标下面所有能接收射线的 UI 元素，从上到下排列，第一个就是会收到点击的那个。用它来复现并解决坑二。</p>
+<figure class="shot"><img src="img/ch01-blocker.jpg"><figcaption><b>图 1-11</b>一个完全透明的 Blocker 盖住了按钮。探针显示鼠标下最上面的是 Blocker，所以按钮点不到</figcaption></figure>
+<div class="scene">Ch01/Scenes/Ch01_Pitfalls.unity</div>
+<p>场景左边有一个“领取奖励”按钮，上面盖着一张看不见的图片 Blocker（颜色 Alpha 为 0、Raycast Target 开着）。运行后点按钮，没有任何反应，按钮连悬停高亮都没有。把鼠标移到按钮上，右侧列表告诉你：最上面的是 Blocker。取消勾选下方的 “Blocker 的 Raycast Target”，再点按钮，就能点到了。</p>
+<pre class="code" data-file="Ch01/PointerProbe.cs" data-region="probe"></pre>
+<p>核心就一行 <code>es.RaycastAll(data, results)</code>：EventSystem 用给定的指针位置询问场景里所有的 Raycaster，把命中结果<b>按“谁在最上面”排好序</b>放进列表，排序规则综合了相机深度、Canvas 的排序层级和元素的绘制深度（第 11 章读源码）。输入模块处理点击时用的正是同一个方法，取第 0 个结果作为点击目标，所以这个列表的第一项一定就是会收到点击的那个物体。</p>
+<p>细心的话你会看到列表里还有 <code>Text (TMP)</code>：按钮里的文字也开着 Raycast Target——用菜单创建的 TMP 按钮默认如此。它在按钮之上，鼠标点在文字上时射线先命中文字，但文字本身不处理点击，事件沿父链向上交给了 Button，所以并不影响使用。不过它确实是多余的射线目标，养成习惯把它关掉。</p>
+<div class="note tip"><b>提示</b>不写代码也能看：运行时在 Hierarchy 里选中 EventSystem，Inspector 底部的预览区会显示当前指针的详细信息，其中 <code>pointerEnter</code> 就是鼠标下最上层的物体（Inspector 底部预览区默认可能是折叠的，拖出来即可）。第 21 章会做一个更完整的调试工具。</div>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="13">
+<defs><marker id="c1b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+<g stroke="#1f2436" stroke-width="1">
+<rect x="200" y="8" width="200" height="34" rx="17" fill="#1f2436"/>
+<rect x="170" y="62" width="260" height="34" rx="5" fill="#fff"/>
+<rect x="170" y="116" width="260" height="34" rx="5" fill="#fff"/>
+<rect x="170" y="170" width="260" height="34" rx="5" fill="#fff"/>
+<rect x="460" y="62" width="130" height="34" rx="5" fill="#fff4ec" stroke="#ff8a3d"/>
+<rect x="460" y="116" width="130" height="34" rx="5" fill="#fff4ec" stroke="#ff8a3d"/>
+<rect x="460" y="170" width="130" height="34" rx="5" fill="#fff4ec" stroke="#ff8a3d"/>
+<rect x="10" y="170" width="130" height="34" rx="5" fill="#e8f6ee" stroke="#2fb36a"/>
+</g>
+<g text-anchor="middle">
+<text x="300" y="30" fill="#fff" font-weight="bold">按钮点了没反应</text>
+<text x="300" y="84" fill="#1f2436">悬停时按钮会变色吗？</text>
+<text x="300" y="138" fill="#1f2436">探针里最上面的是按钮吗？</text>
+<text x="300" y="192" fill="#1f2436">按钮 Interactable 开着？代码绑定了？</text>
+<text x="525" y="84" fill="#1f2436" font-size="12">不变色：查 EventSystem</text>
+<text x="525" y="138" fill="#1f2436" font-size="12">不是：查挡住的那个</text>
+<text x="525" y="192" fill="#1f2436" font-size="12">查绑定与 Console 报错</text>
+<text x="75" y="192" fill="#1f2436" font-size="12">都正常：看第 21 章</text>
+</g>
+<g stroke="#7a8299" stroke-width="1.5" fill="none" marker-end="url(#c1b)">
+<path d="M300,42 L300,58"/><path d="M300,96 L300,112"/><path d="M300,150 L300,166"/>
+<path d="M430,79 L456,79"/><path d="M430,133 L456,133"/><path d="M430,187 L456,187"/><path d="M170,187 L144,187"/>
+</g>
+<g font-size="11" fill="#7a8299"><text x="306" y="108">会</text><text x="306" y="162">是</text><text x="436" y="74">不会</text><text x="436" y="128">不是</text><text x="436" y="182">否</text><text x="146" y="182">是</text></g>
+<text x="300" y="234" text-anchor="middle" font-size="12" fill="#7a8299">“挡住的那个”常见于：透明 Image、文本框矩形过大、Alpha 为 0 的面板、隐藏不彻底的界面</text>
+</svg><figcaption><b>图 1-12</b>“点了没反应”的快速排查顺序（简版，第 21 章有完整版）</figcaption></figure>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>Unity 有三套 UI：IMGUI 用于编辑器和调试，UI Toolkit 是新一代、偏工具与数据型界面，UGUI 是目前游戏运行时界面的主流，源码在 <code>Library/PackageCache/com.unity.ugui@1.0.0/</code>。</li>
+<li>配套工程用 Unity 2022.3 打开，首次执行 <span class="menu">UGUIBook › Setup Project</span>；每章代码在 <code>Assets/UGUIBook/ChNN</code>，场景在 <code>ChNN/Scenes</code>；UIKit 是用代码搭 UI 的辅助类。</li>
+<li>做 UI 时：Scene 视图开 2D、用 Rect Tool（T）而不是 Scale Tool、Game 视图固定分辨率。</li>
+<li>Canvas 负责渲染与合批，Canvas Scaler 负责缩放，Graphic Raycaster 负责射线检测，EventSystem + Input Module 负责把输入变成事件。</li>
+<li>同一画布内，层级从上到下就是绘制顺序，后画的盖住先画的，点击也遵循同样的顺序；SetAsLastSibling 可以把元素提到最上层。</li>
+<li>OnClick 可以在 Inspector 里绑定（直观、但改名会静默失效），也可以在 Awake 里 AddListener（正式项目更常用）。</li>
+<li>页面切换用 SetActive；模态对话框靠一张开着 Raycast Target 的全屏遮罩挡住背后的点击；Application.Quit 在编辑器里无效。</li>
+<li>点了没反应，先查 EventSystem，再用 RaycastAll 看鼠标下最上面是谁；只给需要交互的图形开 Raycast Target。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>在案例 1.1 的主菜单里加一个“排行榜”按钮，点它打开一个新页面（复制设置页改一改），并让 Esc 能从排行榜返回主菜单。</li>
+<li>把案例 1.2 左边的 “+5” 改成 “−1”，只允许在 Inspector 里改，不许改代码。</li>
+<li>在案例 1.5 的场景里，把三张卡片分别放到三个不同的空父节点下，再点卡片试试，置顶还有效吗？修改 <code>BringToFront</code> 让它在这种结构下也能工作。</li>
+<li>打开 Ch01_Pitfalls 场景，不改 Blocker 的 Raycast Target，想出另外两种办法让按钮能被点到。</li>
+<li>阅读 <code>Library/PackageCache/com.unity.ugui@1.0.0/Runtime/UI/Core/Button.cs</code>，找到按钮被点击时调用 <code>onClick.Invoke()</code> 的地方，看看它在调用之前检查了哪些条件。</li>
+</ol></div>
+</section>

@@ -1,0 +1,37 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|SettingsPage|
+2|Bg|Image
+2|Title|TextMeshProUGUI
+2|IconButton_close|Image,Button
+3|Icon_close|Image
+2|Icon|Image
+2|Label|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Icon|Image
+2|Label|TextMeshProUGUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+2|Icon|Image
+2|Label|TextMeshProUGUI
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Toggle_|Toggle
+3|Background|Image
+4|Checkmark|Image
+2|TipBox|Image
+3|TipText|TextMeshProUGUI
+2|Button_保存|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

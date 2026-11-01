@@ -1,0 +1,126 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Scroll_0|Image,ScrollRect
+2|Viewport|RectMask2D
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+4|Card_0|Image,LayoutElement
+5|Icon_star|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_1|Image,LayoutElement
+5|Icon_heart|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_2|Image,LayoutElement
+5|Icon_gift|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_3|Image,LayoutElement
+5|Icon_trophy|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_4|Image,LayoutElement
+5|Icon_music|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_5|Image,LayoutElement
+5|Icon_bell|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_6|Image,LayoutElement
+5|Icon_star|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_7|Image,LayoutElement
+5|Icon_heart|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_8|Image,LayoutElement
+5|Icon_gift|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Frame_0|Image
+1|LabelBg|Image
+1|Text|TextMeshProUGUI
+2|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|LabelBg|Image
+1|Text|TextMeshProUGUI
+2|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Scroll_1|Image,ScrollRect
+2|Viewport|Image,Mask
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+4|Card_0|Image,LayoutElement
+5|Icon_star|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_1|Image,LayoutElement
+5|Icon_heart|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_2|Image,LayoutElement
+5|Icon_gift|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_3|Image,LayoutElement
+5|Icon_trophy|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_4|Image,LayoutElement
+5|Icon_music|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_5|Image,LayoutElement
+5|Icon_bell|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_6|Image,LayoutElement
+5|Icon_star|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_7|Image,LayoutElement
+5|Icon_heart|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+4|Card_8|Image,LayoutElement
+5|Icon_gift|Image
+5|Text|TextMeshProUGUI
+6|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Frame_1|Image
+1|Text|TextMeshProUGUI
+2|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Text|TextMeshProUGUI
+2|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Scroll_2|Image,ScrollRect
+2|Viewport|RectMask2D
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+4|Card_0|Image,LayoutElement
+5|Icon_star|Image
+5|Text|TextMeshProUGUI
+4|Card_1|Image,LayoutElement
+5|Icon_heart|Image
+5|Text|TextMeshProUGUI
+4|Card_2|Image,LayoutElement
+5|Icon_gift|Image
+5|Text|TextMeshProUGUI
+4|Card_3|Image,LayoutElement
+5|Icon_trophy|Image
+5|Text|TextMeshProUGUI
+4|Card_4|Image,LayoutElement
+5|Icon_music|Image
+5|Text|TextMeshProUGUI
+4|Card_5|Image,LayoutElement
+5|Icon_bell|Image
+5|Text|TextMeshProUGUI
+4|Card_6|Image,LayoutElement
+5|Icon_star|Image
+5|Text|TextMeshProUGUI
+4|Card_7|Image,LayoutElement
+5|Icon_heart|Image
+5|Text|TextMeshProUGUI
+4|Card_8|Image,LayoutElement
+5|Icon_gift|Image
+5|Text|TextMeshProUGUI
+1|Frame_2|Image
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

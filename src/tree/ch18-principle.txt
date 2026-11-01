@@ -1,0 +1,32 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,FixedListDemo
+1|ListCard|
+2|!Shadow|Image
+2|Bg|Image
+2|MailList|Image,ScrollRect,LoopListView
+3|Viewport|
+4|Content|
+4|ViewportFrame|Image
+3|Scrollbar Vertical|Image,Scrollbar
+4|Sliding Area|
+5|Handle|Image
+3|!MailItemTemplate|Image,MailItemView
+4|Highlight|Image
+4|IconBg|Image
+5|Icon|Image
+4|Title|TextMeshProUGUI
+4|Sub|TextMeshProUGUI
+4|Claim|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+1|Side|
+2|Title|TextMeshProUGUI
+2|Stats|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|Jump|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Hint|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

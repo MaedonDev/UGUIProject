@@ -1,0 +1,235 @@
+<section class="chapter" id="c17" data-title="游戏 HUD 实战" data-sub="血条跟随、伤害飘字、边缘指示、小地图、技能、Buff、对话与任务">
+<div class="chap-head"><div class="num">CHAPTER 17<b>第 17 章</b></div><h2>游戏 HUD 实战</h2><p class="lead">HUD（Heads-Up Display，抬头显示）是战斗中始终叠在 3D 画面上的那层界面：头顶血条、跳出来的伤害数字、指向屏幕外目标的箭头、小地图、技能按钮、Buff 图标、对话框和任务追踪。它们的共同难点是“UI 要和 3D 世界对上”，而且每帧都在变，性能稍不注意就会拖垮帧率。这一章用一个由基本几何体搭成的小战场，把这些 HUD 元素逐个做成可以复用的组件。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>世界坐标到 UI 坐标的完整换算链，以及“在相机背后”为什么会出现镜像</div><div>头顶血条的跟随、按距离缩放、按深度排序，统一在 LateUpdate 里刷新</div><div>伤害飘字的对象池与动画曲线；共享描边材质为什么重要</div><div>屏幕边缘指示箭头的射线与矩形求交；受击方向弧</div><div>小地图的两种做法：图标映射与 RenderTexture 俯视相机</div><div>技能按钮的冷却、多层充能、长按蓄力；Buff 栏；打字机对话框与任务追踪</div></div>
+
+<figure class="shot"><img src="img/ch17-overview.jpg"><figcaption><b>图 17-1</b> 本章完成后的战斗 HUD：左上角玩家状态与 Buff，右上角小地图与任务追踪，右下角技能，场景中是头顶血条、伤害飘字、受击方向弧和屏幕边缘的目标指示</figcaption></figure>
+<div class="scene">Ch17/Scenes/Ch17_HUD.unity</div>
+<p>配套场景可以直接运行：<kbd>W</kbd>/<kbd>S</kbd> 前进后退，<kbd>A</kbd>/<kbd>D</kbd> 转向，鼠标点击敌人攻击，<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> 放技能（3 号可以长按蓄力），靠近敌人会挨打。场景全部由 <code>GameObject.CreatePrimitive</code> 生成的胶囊、立方体、球体组成，HUD 画布是普通的 Screen Space - Overlay。本章的每个组件都是独立的：示例脚本 <code>HUDDemo</code> 只负责把“玩法事件”转成对 HUD 组件的调用，你可以只拷走需要的那一个。</p>
+
+<h3 class="sec">17.1 从世界坐标到 UI 坐标</h3>
+<p>几乎所有“跟着 3D 物体走”的 HUD 都要做同一件事：已知一个世界坐标，求它在 UI 上的位置。这个换算分两步，见图 17-2。</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="12">
+<defs><marker id="a17" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b4bd6"/></marker></defs>
+<rect x="10" y="40" width="150" height="110" rx="10" fill="#f6f5fd" stroke="#e0deef"/><text x="85" y="64" text-anchor="middle" font-size="14" fill="#1f2436">世界坐标</text><text x="85" y="88" text-anchor="middle" fill="#7a8299">target.position</text><text x="85" y="106" text-anchor="middle" fill="#7a8299">+ worldOffset</text><text x="85" y="130" text-anchor="middle" fill="#ff8a3d">(2.5, 2.45, 7)</text>
+<rect x="225" y="40" width="150" height="110" rx="10" fill="#f6f5fd" stroke="#e0deef"/><text x="300" y="64" text-anchor="middle" font-size="14" fill="#1f2436">屏幕坐标</text><text x="300" y="88" text-anchor="middle" fill="#7a8299">像素，左下角为原点</text><text x="300" y="106" text-anchor="middle" fill="#7a8299">z = 到相机的距离</text><text x="300" y="130" text-anchor="middle" fill="#ff8a3d">(1180, 610, 8.3)</text>
+<rect x="440" y="40" width="150" height="110" rx="10" fill="#f6f5fd" stroke="#e0deef"/><text x="515" y="64" text-anchor="middle" font-size="14" fill="#1f2436">UI 本地坐标</text><text x="515" y="88" text-anchor="middle" fill="#7a8299">某个 RectTransform</text><text x="515" y="106" text-anchor="middle" fill="#7a8299">里、以轴心为原点</text><text x="515" y="130" text-anchor="middle" fill="#ff8a3d">(220, 70)</text>
+<line x1="160" y1="95" x2="222" y2="95" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a17)"/>
+<line x1="375" y1="95" x2="437" y2="95" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a17)"/>
+<text x="192" y="180" text-anchor="middle" fill="#5b4bd6">Camera.</text><text x="192" y="196" text-anchor="middle" fill="#5b4bd6">WorldToScreenPoint</text>
+<text x="407" y="180" text-anchor="middle" fill="#5b4bd6">RectTransformUtility.ScreenPoint-</text><text x="407" y="196" text-anchor="middle" fill="#5b4bd6">ToLocalPointInRectangle</text>
+<text x="300" y="222" text-anchor="middle" fill="#7a8299">第二步的相机参数：Overlay 画布传 null，Camera / World Space 画布传 canvas.worldCamera</text>
+</svg><figcaption><b>图 17-2</b> 世界坐标 → 屏幕坐标 → UI 本地坐标（示意，数字为举例）</figcaption></figure>
+<pre class="code" data-file="Ch17/HUDFollower.cs" data-region="util"></pre>
+<p>第二步的相机参数是新手最容易填错的地方。<code>ScreenPointToLocalPointInRectangle</code> 需要知道“这块 UI 是用哪台相机画的”：Overlay 画布不经过任何相机，必须传 <code>null</code>；Screen Space - Camera 和 World Space 画布要传它的 <code>worldCamera</code>。如果给 Overlay 画布传了主相机，算出来的位置会整体偏掉，而且偏移量随分辨率变化，很难看出原因。<code>HUDUtil.UICamera</code> 根据画布模式自动选择，HUD 组件里都用它。</p>
+<p>注意这里有<b>两台</b>“相机”：第一步用的是拍 3D 世界的相机（通常是主相机），第二步用的是画 UI 的相机（Overlay 时为 null）。即使用 Camera 模式的 UI 画布、而且 UI 相机就是主相机本身，这两个参数在概念上也是分开的，代码里不要混用。</p>
+<h4>能不能自己算，不用 RectTransformUtility</h4>
+<p>对 Overlay 画布、而且跟随节点铺满画布、轴心在中心的情况，可以手算：<code>local = screenPos / canvas.scaleFactor - canvasSize / 2</code>。<code>scaleFactor</code> 来自 Canvas Scaler（第 2 章），表示“1 个画布单位等于多少屏幕像素”。手算省掉了一次射线与平面求交，但它对画布模式、节点锚点、节点是否旋转缩放都有假设，换了画布模式就会算错。<code>ScreenPointToLocalPointInRectangle</code> 内部是“从相机发一条射线，与矩形所在平面求交，再转到矩形的本地坐标”，对任何模式、任何嵌套都成立。几十个血条每帧调用它的开销很小，除非 Profiler 证明它是瓶颈，否则不要为了这点性能牺牲正确性。</p>
+<h4>屏幕尺寸从哪里来</h4>
+<p>另一个容易混淆的点是“屏幕”的尺寸。<code>WorldToScreenPoint</code> 用的是相机的 <code>pixelRect</code>：相机渲染到整个屏幕时就是 <code>Screen.width × Screen.height</code>，渲染到 RenderTexture 时就是贴图的尺寸，设置了视口矩形（分屏）时是那一块区域。只要第一步和第二步用的是同一套像素坐标，结果就是对的。真正出问题的通常是手写代码时把 <code>Screen.width</code> 和画布尺寸（画布单位）混用——例如判断“是否在屏幕内”时拿屏幕像素坐标去和画布的 <code>rect</code> 比较。本章的组件统一在画布单位下判断（HUDFollower 用跟随父节点的 rect，EdgeIndicator 用视口坐标），避免了这类混用。</p>
+<h4>在相机背后时的“镜像”</h4>
+<p><code>WorldToScreenPoint</code> 返回值的 z 分量是物体沿视线方向到相机的距离。当物体在相机<b>背后</b>时 z 为负，而 x、y 并不会变成屏幕外的值，反而会出现在屏幕上与真实方向“镜像”的位置——透视投影要除以深度，负深度让坐标翻了个面。结果就是：转过身去，身后那只怪的血条出现在你面前的屏幕上。所以跟随逻辑第一件事就是检查 z：</p>
+<figure><svg viewBox="0 0 600 190" width="600" font-family="PingFang SC" font-size="12">
+<polygon points="300,150 160,30 440,30" fill="#eceaf9" stroke="#5b4bd6"/>
+<circle cx="300" cy="150" r="9" fill="#1f2436"/><text x="318" y="160" fill="#1f2436">相机</text>
+<text x="300" y="22" text-anchor="middle" fill="#5b4bd6">视锥（z &gt; 0，可见）</text>
+<circle cx="380" cy="70" r="8" fill="#2fb36a"/><text x="395" y="74" fill="#2fb36a">前方目标：z=+8 → 正常</text>
+<circle cx="240" cy="178" r="8" fill="#e5484d"/><text x="40" y="182" fill="#e5484d">背后目标：z=-3</text>
+<line x1="240" y1="178" x2="370" y2="45" stroke="#e5484d" stroke-dasharray="4 3"/>
+<circle cx="370" cy="45" r="6" fill="none" stroke="#e5484d" stroke-width="2"/><text x="440" y="50" fill="#e5484d">投影出的“镜像”位置</text>
+</svg><figcaption><b>图 17-3</b> 背后的点投影到屏幕上会出现在相反方向，必须用 z &lt; 0 判断并隐藏（示意）</figcaption></figure>
+
+<h3 class="case"><span class="no">案例 17.1</span>头顶血条：跟随、缩放与排序<span class="lv">进阶</span></h3>
+<p><b>目标</b>：每个敌人头顶一条血条和名字，跟着敌人移动；在背后或太远时隐藏；远处的小、近处的大；近处的盖住远处的。</p>
+<p>实现分两个组件。<code>HUDFollower</code> 挂在每个血条的根节点上，负责“我跟谁、怎么跟”；<code>HUDFollowRoot</code> 挂在所有血条的父节点上，每帧统一刷新：</p>
+<pre class="code" data-file="Ch17/HUDFollower.cs" data-region="follower"></pre>
+<p>几个设计点：</p>
+<ul>
+<li><b>移动的是根节点，显示/隐藏的是子节点 Content</b>。如果对根节点自己 SetActive(false)，它的 OnDisable 会把自己从刷新列表里注销，再也回不来了。</li>
+<li><b>只在状态变化时 SetActive</b>。每次激活/隐藏都会让下面的 Graphic 标脏重建（第 12 章），每帧切换等于每帧重建。</li>
+<li>位置用 <code>localPosition</code> 赋值而不是 <code>anchoredPosition</code>：<code>ScreenPointToLocalPointInRectangle</code> 返回的是“以父节点轴心为原点”的坐标，正好对应 localPosition，与血条自己的锚点设置无关。</li>
+<li>可见范围比屏幕略大（<code>m_Margin</code>），血条在怪物刚走出屏幕边缘时不会突然消失。</li>
+</ul>
+<pre class="code" data-file="Ch17/HUDFollowRoot.cs" data-region="root"></pre>
+<p>为什么不让每个血条在自己的 Update 里算位置？第一是<b>时序</b>：Update 的执行顺序不确定，如果血条先于相机移动脚本执行，算出来的就是上一帧的相机位置，镜头一动血条就落后一帧“抖”一下。放在 LateUpdate 里，并且让相机脚本先执行（示例中 <code>HUDDemo</code> 标了 <code>[DefaultExecutionOrder(-100)]</code>），就保证了“先摆相机、再算 HUD”。第二是<b>开销</b>：几十个 MonoBehaviour 各自的 Update 有调用开销，集中在一个循环里，也方便以后加距离剔除、分帧更新。</p>
+<pre class="code" data-lang="csharp">// HUDDemo.cs：相机跟随脚本必须先于 HUD 刷新执行
+[DefaultExecutionOrder(-100)]
+public class HUDDemo : MonoBehaviour
+{
+    void LateUpdate() =&gt; PlaceCamera();
+}
+</pre>
+<p>按深度排序：UGUI 同一个父节点下按兄弟顺序绘制，血条重叠时谁盖住谁取决于创建顺序。<code>SortByDepth</code> 每帧按距离从远到近排序，并且只在顺序真的变化时才调用 <code>SetSiblingIndex</code>——改兄弟顺序会让整个 Canvas 重新合批，没变化就别动。</p>
+<figure class="shot"><img src="img/ch17-follow.jpg"><figcaption><b>图 17-4</b> 左：血条固定大小，远处的怪血条和近处一样大，画面拥挤且失去距离感；右：按距离缩放（6 米 1.1 倍 → 30 米 0.55 倍）</figcaption></figure>
+<p>血条本身带一个“延迟白条”：前景立即掉到新的血量，后面一条浅色的停顿 0.35 秒再追上去，让玩家看清这一下打掉了多少（第 4 章介绍过同样的思路）。回血时白条直接跟上，不做延迟：</p>
+<pre class="code" data-file="Ch17/HealthBar.cs" data-region="healthbar"></pre>
+<p>还要提醒一点：血条的数值来源。示例里怪物自己保存血量，受伤时直接调用血条的 <code>SetHealth</code>。真实项目中血量属于战斗数据（联网游戏里由服务器下发），HUD 应该订阅“血量变化”事件或者每帧读取数据层，而不是被战斗逻辑直接调用。这和第 16 章的数据绑定是同一个思路：数据层不引用任何界面，界面只负责把数据画出来。</p>
+<div class="note tip"><b>性能提示</b>血条每帧都在移动，它所在的 Canvas 每帧都要重新合批。把所有头顶血条放进一个<b>单独的子 Canvas</b>，就不会连累技能栏、小地图这些不怎么变的 HUD 一起重新合批（第 20 章“动静分离”）。场景里同时有上百个血条时，还可以把远处的血条按距离分帧更新，或者干脆超过一定距离就不显示。</div>
+<div class="note"><b>另一种做法</b>头顶血条也可以做成 World Space 画布直接挂在怪物身上，让它朝向相机（Billboard）。优点是天然有近大远小、天然被墙体遮挡；缺点是每个怪物一个 Canvas，数量多时合批批次暴涨，而且文字大小随距离变化可能看不清。第 19 章会比较两种做法。</div>
+
+<h3 class="case"><span class="no">案例 17.2</span>伤害飘字与对象池<span class="lv">进阶</span></h3>
+<p><b>目标</b>：命中时在敌人头上跳出数字：普通伤害白色，暴击橙色放大，治疗绿色，闪避灰色；先“砸”出来再上浮淡出；一秒钟冒几十个也不卡。</p>
+<p>飘字是 HUD 里创建销毁最频繁的东西。每次 <code>Instantiate</code> 一个带 TMP 的物体要分配内存、初始化组件、生成网格，<code>Destroy</code> 又会产生垃圾，团战时 GC 一来就是一次明显的卡顿。所以飘字必须用对象池：</p>
+<pre class="code" data-file="Ch17/DamageTextSpawner.cs" data-region="spawner"></pre>
+<p>池子的实现非常朴素：一个栈放空闲的，一个列表放活跃的。几个要点：启动时预热（<code>m_Prewarm</code>）一批，避免第一次战斗时现场创建；设置活跃上限（<code>m_MaxActive</code>），爆量时回收最老的那个，宁可少显示几个数字也不能让帧率崩掉；每个飘字记住的是<b>世界坐标</b>，每帧重新投影，所以镜头移动时数字仍然钉在命中点上。</p>
+<p>单个飘字只负责自己的动画曲线：0～12% 的时间从 1.8 倍缩小到 1 倍（“砸”的感觉），上升用 EaseOutCubic 先快后慢，最后 30% 的时间淡出。横向漂移是随机的，连续命中时数字不会叠成一团：</p>
+<pre class="code" data-file="Ch17/DamageText.cs" data-region="item"></pre>
+<figure class="shot"><img src="img/ch17-damage.jpg"><figcaption><b>图 17-5</b> 同一时刻不同年龄的飘字：刚出现的暴击最大最实，较老的普通伤害已经上浮并开始变淡；左上角是对象池的实时统计</figcaption></figure>
+<p>图 17-5 左上角的统计显示：预热了 16 个，此刻活跃 6 个、池中 10 个，累计只创建过 16 个对象。在配套场景里连续点怪，你会发现“累计创建”在打了很久之后仍然停在一个很小的数字上。</p>
+<h4>数字的格式与可读性</h4>
+<p>伤害数字看似简单，可读性却直接影响战斗手感。数值膨胀的游戏里，几百万的伤害要缩写成“1.2万”“356万”，否则一串数字横跨半个屏幕；缩写规则最好集中写在一个格式化函数里，HUD、战斗日志、结算界面共用。暴击、治疗、闪避之外，还常见“格挡”“免疫”“吸收”等文字类型，它们最好用不同的颜色和字号而不只是不同的文字，玩家在激烈的战斗中靠颜色和大小判断，几乎不会去读字。多个玩家同屏时，别人造成的伤害应该更小、更淡，甚至不显示，只突出自己的输出。</p>
+<p>飘字放在屏幕空间（本章做法）还是世界空间（每个数字一个 World Space 画布或 TextMeshPro 3D 文本），各有取舍：屏幕空间的数字大小不随距离变化，远处的怪也能看清伤害，而且所有数字在同一个 Canvas 里，可以合批；世界空间的数字有真实的透视和遮挡，但每个数字一个画布或网格，数量多时开销大。多数动作游戏选择屏幕空间。</p>
+<div class="box"><h4>原理：描边为什么要用共享材质</h4><p>TMP 的描边、阴影都是材质属性。如果在代码里对每个飘字设置 <code>text.outlineWidth = 0.2f</code>，TMP 会为这个文字复制一份材质实例（<code>fontMaterial</code>），于是每个飘字一份材质，彼此无法合批，几十个飘字就是几十个 Draw Call。正确做法是在项目里建一个带描边的<b>材质预设</b>资源（TMP 字体资源右键 Create › TextMeshPro › Material Preset，或者复制字体的默认材质再开启 Outline），所有飘字通过 <code>fontSharedMaterial</code> 共用它。配套工程的 <code>Ch17/Materials/HUD_TextOutline.mat</code> 就是这样生成的，血条名字、技能冷却数字也用它。第 5 章介绍了材质预设，第 20 章会用 Frame Debugger 看合批。</p></div>
+<div class="note warn"><b>常见坑</b>复用的飘字一定要把所有属性重新设一遍：文字、颜色、缩放、透明度、年龄。只要有一个属性只在某种情况下才设置（比如只在暴击时放大），被复用的普通伤害就会继承上一次暴击的大小。这条规则对所有对象池、所有循环列表都适用，第 18 章还会反复强调。</div>
+
+<h3 class="case"><span class="no">案例 17.3</span>屏幕边缘目标指示<span class="lv">进阶</span></h3>
+<p><b>目标</b>：任务目标在屏幕外时，在屏幕边缘显示一个指向它的箭头和距离；目标在身后也要指对方向；目标回到屏幕内时箭头消失。</p>
+<p>思路是：以屏幕中心为原点，求出目标方向；从中心沿这个方向发一条射线，和“内缩了一圈边距的屏幕矩形”求交，交点就是箭头的位置，方向角就是箭头的旋转。</p>
+<figure><svg viewBox="0 0 600 240" width="600" font-family="PingFang SC" font-size="12">
+<rect x="100" y="20" width="400" height="200" fill="#f6f5fd" stroke="#1f2436"/>
+<rect x="125" y="40" width="350" height="160" fill="none" stroke="#5b4bd6" stroke-dasharray="5 4"/>
+<text x="480" y="36" fill="#5b4bd6" text-anchor="end">内缩 EdgeMargin</text>
+<circle cx="300" cy="120" r="5" fill="#1f2436"/><text x="290" y="140" fill="#1f2436" text-anchor="end">屏幕中心</text>
+<line x1="300" y1="120" x2="575" y2="60" stroke="#ff8a3d" stroke-width="2" stroke-dasharray="6 4"/>
+<circle cx="575" cy="60" r="7" fill="#ff8a3d"/><text x="570" y="45" fill="#ff8a3d" text-anchor="middle">目标投影</text>
+<circle cx="475" cy="82" r="8" fill="#e5484d"/><text x="470" y="105" fill="#e5484d" text-anchor="end">交点 = 箭头位置</text>
+<text x="300" y="236" text-anchor="middle" fill="#7a8299">k = min( halfW / |dx| , halfH / |dy| )，位置 = dir × k</text>
+</svg><figcaption><b>图 17-6</b> 方向射线与内缩矩形求交：两个比例中较小的那个，对应射线先碰到的那条边（示意）</figcaption></figure>
+<pre class="code" data-file="Ch17/EdgeIndicator.cs" data-region="edge"></pre>
+<p>这段代码有三个细节。第一，用 <code>WorldToViewportPoint</code>（0～1 的视口坐标）判断是否在屏幕内，比用像素坐标少一次除法，而且和分辨率无关。第二，目标在身后（z &lt; 0）时，按 17.1 节的分析投影是反的，所以把方向取反——这样身后左边的宝箱，箭头会出现在屏幕左下方，而不是右上方。第三，方向向量先乘上画布的宽高再求角度，否则在 16:9 的屏幕上，视口坐标的“45°”实际上并不是 45°，箭头会指歪。</p>
+<p>指示器的结构是：根节点（只移动不旋转）→ 一个旋转的 <code>ArrowPivot</code>（箭头放在它的右侧 62 像素处），图标和距离文字放在根节点下保持正立。只让箭头转、不让图标文字转，是这类指示器好看的关键。</p>
+<figure class="shot"><img src="img/ch17-edge.jpg"><figcaption><b>图 17-7</b> 屏幕边缘指示：宝箱在左后方（先翻转方向再贴边），传送门在左前方屏幕外；画面中央两段红弧是受击方向指示（案例 17.5）</figcaption></figure>
+
+<h3 class="case"><span class="no">案例 17.4</span>小地图：图标方案与 RenderTexture 方案<span class="lv">进阶</span></h3>
+<p><b>目标</b>：右上角一个圆形小地图，显示玩家位置朝向、附近的敌人、任务目标；比较两种常见做法的效果和开销。</p>
+<figure class="shot"><img src="img/ch17-minimap.jpg"><figcaption><b>图 17-8</b> 左：图标方案，世界坐标按比例映射到 UI，任务目标超出范围时贴在圆边上；右：RenderTexture 方案，一台俯视正交相机把场景实时渲染到贴图上</figcaption></figure>
+<div class="scene">Ch17/Scenes/Ch17_Minimap.unity</div>
+<h4>方案一：坐标映射 + 图标</h4>
+<p>小地图的本质是一次坐标变换：取目标相对玩家的水平位移 (dx, dz)，乘以“每米多少像素”，世界的 X 轴对应地图的 x，世界的 Z 轴对应地图的 y。如果要“玩家永远朝上、地图跟着转”，就把所有相对位移绕原点反向旋转玩家的偏航角（yaw）：</p>
+<pre class="code" data-file="Ch17/MinimapIcons.cs" data-region="icons"></pre>
+<p>超出地图半径的标记分两种处理：普通敌人直接隐藏；任务目标、队友这类重要标记“贴边”显示（把向量长度截到半径），玩家一眼就知道该往哪走。旋转模式下底图也要跟着转，所以底图做得比圆形视口大一圈（1.5 倍），转起来四角不会露出来。</p>
+<p>地图底图可以是美术画的整张地图，也可以像示例一样只用网格纹理（雷达风格）。用整张地图时，需要把地图图片的像素坐标和世界坐标对齐：记下地图图片覆盖的世界范围（比如 X 从 -200 到 200 米），按比例换算即可，和图标的换算是同一个公式。</p>
+<p>举个例子：美术给了一张 1024×1024 的地图，覆盖世界坐标 X 从 -100 到 100 米、Z 从 -100 到 100 米，那么 1 米对应 5.12 个贴图像素。小地图要显示以玩家为中心、半径 30 米的范围，就把这张底图放进圆形遮罩里，底图的尺寸设为 200 米 × 每米像素数，位置设为“玩家坐标 × 每米像素数”的相反数——玩家走，底图反向移动，玩家图标永远在中心。图标的换算用同一个“每米像素数”，两者就严丝合缝了。</p>
+<h4>方案二：俯视相机 + RenderTexture</h4>
+<p>另一种做法是在玩家头顶放一台正交相机向下拍，<code>targetTexture</code> 设为一张 RenderTexture，UI 上用 RawImage 显示这张贴图，再用圆形的 Mask 裁成圆。地图上看到的就是真实的场景，建筑、地形、移动的怪物都自动出现：</p>
+<pre class="code" data-file="Ch17/MinimapCamera.cs" data-region="camera"></pre>
+<p>代价是<b>多渲染一次场景</b>。即使是简单的俯视图，CPU 也要再做一次剔除和 Draw Call 提交，GPU 要再画一遍。示例做了两个常见优化：关掉相机的自动渲染，改成每两帧手动 <code>Render()</code> 一次（小地图不需要 60 帧）；正式项目里还会用 Culling Mask 只渲染地形和建筑层，并在怪物头上放只有小地图相机能看到的彩色标记。</p>
+<table>
+<tr><th></th><th>图标方案</th><th>RenderTexture 方案</th></tr>
+<tr><td>开销</td><td>几十个图标的位置更新，很小</td><td>额外一次场景渲染 + 一张 RT 的显存</td></tr>
+<tr><td>表现</td><td>风格统一、信息清晰，可自由设计</td><td>所见即所得，地形变化自动体现</td></tr>
+<tr><td>美术工作</td><td>需要画地图底图或接受雷达风格</td><td>几乎为零，但细节多时看不清</td></tr>
+<tr><td>边缘</td><td>Mask 裁圆，图标可以贴边</td><td>Mask 是模板测试，圆边有锯齿；可改用第 14 章的软遮罩 Shader</td></tr>
+</table>
+<p>图 17-8 右边圆形的锯齿边缘就是 Mask 模板裁剪的特点（第 14 章）：模板测试只有“画”和“不画”两种结果，不会产生半透明的过渡像素。手机游戏多数采用图标方案或“预先烘焙一张俯视图 + 图标”，RenderTexture 方案更多见于 PC 和主机。</p>
+
+<h3 class="case"><span class="no">案例 17.5</span>受击方向指示<span class="lv">入门</span></h3>
+<p><b>目标</b>：被攻击时，在屏幕中心周围出现一段红色弧，指向攻击来源；玩家转身时弧跟着转；一秒多后淡出。</p>
+<p>弧形不需要专门的图片：用一张圆环精灵，Image 的 <code>Type</code> 设为 Filled、<code>Fill Method</code> 设为 Radial 360、<code>Fill Origin</code> 设为 Top，<code>fillAmount = 50/360</code> 就是一段 50° 的弧。Filled 从顶部顺时针填充，所以再把弧回转半个弧长，让弧的中点对准正上方；之后整个节点绕屏幕中心旋转到来源方向即可：</p>
+<pre class="code" data-file="Ch17/HitDirection.cs" data-region="hitdir"></pre>
+<p>角度用 <code>Vector3.SignedAngle</code> 在水平面上计算“镜头前方”与“指向来源的方向”的夹角：0° 是正前方，正值在右。世界里俯视顺时针为正，而 UI 的 z 轴旋转逆时针为正，所以赋值时取负。指示器记住的是来源的<b>世界位置</b>而不是角度，因此玩家挨打后转身，弧会实时转到新的相对方向上，这是很多游戏里“受击指示会跟着你转”的原理。同一方向 20° 以内的多次受击合并成一个指示，只刷新时间，避免叠出一圈。</p>
+
+<h3 class="case"><span class="no">案例 17.6</span>技能按钮：冷却、充能层数与长按蓄力<span class="lv">进阶</span></h3>
+<p><b>目标</b>：一个组件覆盖三种常见机制：普通冷却（转圈遮罩 + 倒计时）、多层充能（最多存 3 次，层数没满时外圈显示下一层的进度）、长按蓄力（按住时外圈涨满，松手按蓄力比例释放）；蓝不够时图标变灰。</p>
+<figure class="shot"><img src="img/ch17-skills.jpg"><figcaption><b>图 17-9</b> 技能按钮的五种状态，以及下方的 Buff 栏</figcaption></figure>
+<div class="scene">Ch17/Scenes/Ch17_Skills.unity</div>
+<pre class="code" data-file="Ch17/SkillButton.cs" data-region="skill"></pre>
+<p>冷却遮罩和受击弧是同一个技巧：一张圆形精灵设为 Filled / Radial 360 / 顶部起点 / 逆时针，<code>fillAmount</code> 从 1 降到 0，黑色半透明扇形就会逆时针“退开”。<code>fillAmount</code> 的 setter 内部用 <code>SetPropertyUtility.SetStruct</code> 比较新旧值，值没变不会标脏，所以每帧赋值是安全的；真正有开销的是改文字——倒计时只在数字变化时才产生新字符串（BuffIcon 里演示了这个优化）。</p>
+<p>Filled 类型的几个参数决定了遮罩怎么“转”，第 4 章介绍过，这里按 HUD 的常见用法再列一次：</p>
+<div class="kv">
+<span>Fill Method = Radial 360</span><span>以图片中心为圆心按角度填充。冷却遮罩、受击弧、蓄力环、Buff 的剩余时间扇形都用它。</span>
+<span>Fill Origin = Top</span><span>从 12 点钟方向开始。冷却从顶部开始退去最符合直觉。</span>
+<span>Clockwise</span><span>冷却遮罩通常取消勾选：fillAmount 从 1 减到 0 时，遮罩从 12 点钟位置开始逆时针缩回，露出的部分顺时针增长，看起来像“时钟在走”。蓄力环、充能环勾选，从顶部顺时针涨满。</span>
+<span>Fill Amount</span><span>0～1。冷却遮罩 = 剩余时间 / 总时间；充能环 = 已充时间 / 每层时间。</span>
+</div>
+<p>Filled 的扇形是由 Image 在 <code>OnPopulateMesh</code> 里按角度切出的多边形（源码 <code>Image.GenerateFilledSprite</code>），每次 fillAmount 改变都会重建这个 Image 的网格。一个按钮的网格只有几十个顶点，重建很便宜；但如果把一个包含大量元素的面板放在冷却遮罩所在的 Canvas 里，整块 Canvas 每帧都要重新合批，这就是要把技能栏放进单独 Canvas 的原因之一。</p>
+<p>多层充能的计时规则是：只要层数没满，就一直在充下一层；充满一层后，如果还没满，多出来的时间继续算进下一层（<code>m_Recharge - m_Cooldown</code>），不能直接清零，否则帧率低时会“吞掉”时间。层数为 0 时显示整块遮罩和倒计时；层数在 1 到上限之间时，按钮可用，外圈细环显示下一层的进度。</p>
+<p>长按蓄力用到了事件系统的三个接口（第 11 章）：<code>OnPointerDown</code> 开始蓄力，<code>OnPointerUp</code> 按蓄力比例释放，<code>OnPointerExit</code> 视为取消——手指滑出按钮时取消施法，这是手机游戏的常见手感。键盘快捷键走同一套 <code>Press</code> / <code>Release</code>，PC 和手机共用逻辑。</p>
+<div class="note warn"><b>常见坑</b>冷却到底由谁计时？示例把计时放在按钮里，是为了让组件能单独拿去用。真实项目里，技能冷却是战斗逻辑的一部分（服务器校验、Buff 加速冷却、切换场景后冷却继续），应该由技能系统计时，按钮只读取“剩余时间 / 总时间 / 当前层数”来显示。把 <code>Tick</code> 换成读数据、把 <code>SetState</code> 作为唯一入口，就是一个纯显示的组件。</div>
+<p>示例里技能和战斗的衔接写在 <code>HUDDemo.OnCast</code> 中：1 号快斩打最近的敌人，2 号旋风对 10 米内所有敌人造成伤害并添加攻击 Buff，3 号蓄力射击的伤害随蓄力比例增长，蓄满必暴击。按钮只发出 <code>Cast(skill, charge)</code> 事件，不关心技能做了什么。</p>
+
+<h3 class="case"><span class="no">案例 17.7</span>Buff 栏<span class="lv">入门</span></h3>
+<p><b>目标</b>：增益绿框、减益红框；扇形遮罩表示已经过去的时间；可叠层的 Buff 右下角显示层数；最后 3 秒闪烁提醒。</p>
+<pre class="code" data-file="Ch17/BuffBar.cs" data-region="buff"></pre>
+<pre class="code" data-file="Ch17/BuffIcon.cs" data-region="bufficon"></pre>
+<p>同一个 Buff 再次获得时不新建图标，而是刷新剩余时间、层数加一（不超过上限），这是绝大多数游戏的规则。图标也用了小对象池，Buff 频繁获得、消失时不会反复创建。剩余时间文字只在整秒变化时才更新——TMP 每次 <code>text</code> 被赋值不同的字符串都要重新排版生成网格，每帧改文字是 HUD 里最常见的隐形开销之一。闪烁用的是 CanvasGroup 的 alpha，不会触发重建。</p>
+
+<h3 class="case"><span class="no">案例 17.8</span>对话框：打字机效果与分支选项<span class="lv">进阶</span></h3>
+<p><b>目标</b>：NPC 对话逐字显示，遇到标点停顿一下；点击或空格：正在打字就立刻显示全句，已显示完就进入下一句；有选项的句子显示选项按钮，选择后跳到对应分支。</p>
+<figure class="shot"><img src="img/ch17-dialogue.jpg"><figcaption><b>图 17-10</b> 左：打字中，富文本颜色正常生效；右：一句说完后出现三个选项，右上角是任务追踪（案例 17.9）</figcaption></figure>
+<div class="scene">Ch17/Scenes/Ch17_Dialogue.unity</div>
+<p>对话数据用可序列化的类表示，可以直接在 Inspector 里编辑，也可以从表格、JSON 读进来：</p>
+<pre class="code" data-file="Ch17/DialogueBox.cs" data-region="data"></pre>
+<pre class="code" data-file="Ch17/DialogueBox.cs" data-region="dialogue"></pre>
+<p>打字机效果的核心是 TMP 的 <code>maxVisibleCharacters</code>：一次性把整句文本赋给 TMP，只是限制显示前 N 个字符。和“每帧拼接子字符串”相比，它有三个好处：文本只排版一次，不会每帧重新生成网格布局；换行位置从一开始就是确定的，不会出现字打到行尾才突然跳到下一行的现象；富文本标签（如 <code>&lt;color&gt;</code>）不会因为截断出半个标签而显示乱码。注意 <code>ShowLine</code> 里调用了 <code>ForceMeshUpdate()</code>：赋值文本后要立即解析，<code>textInfo.characterCount</code> 才是这句话的字符数（不含富文本标签）。</p>
+<p>标点停顿通过检查“刚刚显示出来的那个字符”实现，<code>textInfo.characterInfo[i].character</code> 给出第 i 个可见字符。选项按钮从隐藏的模板实例化并缓存复用；在循环里给按钮 AddListener 时要先把循环变量拷贝到局部变量（<code>captured</code>），否则所有按钮都会捕获同一个变量——这是第 6 章讲过的闭包陷阱，在这里又一次出现。</p>
+<p>打字速度要考虑语言差异：中文一个字的信息量大约相当于英文的两三个字母，示例的每秒 28 个字符对中文偏快、对英文偏慢。做多语言时，速度应该随语言配置，或者改成按“每秒多少个词”来算（第 19 章的本地化表里可以加一列打字速度）。另外，玩家对打字机的耐心很有限，“点击立即显示全句”和“快进”是必须提供的功能，不要让玩家被迫等待。</p>
+<div class="note tip"><b>扩展</b>对话系统通常还需要：头像表情切换（在 DialogueLine 里加表情字段）、语音（每句一个音频，打字速度与语音时长对齐）、自动播放模式、对话历史回看（用第 18 章的可变高度循环列表）。如果剧情量大，可以考虑 Ink、Yarn Spinner 等成熟的对话脚本工具，用它们处理分支逻辑，UI 部分仍然可以用这里的 DialogueBox。</div>
+
+<h3 class="case"><span class="no">案例 17.9</span>任务追踪<span class="lv">入门</span></h3>
+<p><b>目标</b>：屏幕右侧列出当前任务，每个目标显示进度，完成的打勾划掉；有目标点的任务显示方向箭头和距离；进度变化时这一条闪一下。</p>
+<pre class="code" data-file="Ch17/QuestTracker.cs" data-region="questdata"></pre>
+<pre class="code" data-file="Ch17/QuestTracker.cs" data-region="tracker"></pre>
+<pre class="code" data-file="Ch17/QuestEntryView.cs" data-region="entry"></pre>
+<p>任务条目的高度随目标数量变化，所以用 VerticalLayoutGroup + 文字的首选高度自动排版（第 10 章）。这是 HUD 里少数适合用自动布局的地方：任务列表很少变化，布局重建只在进度更新时发生一次。相反，每帧移动的血条、飘字绝对不要放进 LayoutGroup，否则每帧都会触发布局重建。</p>
+<p>目标列表拼成一段富文本：完成的用绿色方块加删除线 <code>&lt;s&gt;</code>，未完成的用灰色空心方块，计数加粗。用 <code>StringBuilder</code> 拼接避免产生一堆临时字符串。方向箭头的角度和受击指示一样，相对镜头朝向计算；距离同样只在整数米变化时才更新文字。示例的对话场景里，选择“交给我吧！”会通过 <code>OptionChosen</code> 事件推进支线任务的第一个目标，你可以看到那一条闪一下、划掉。</p>
+
+<p>任务追踪还有几个常见的产品需求：主线永远排在最前面；玩家可以手动“追踪/取消追踪”某个支线，被追踪的任务才显示在 HUD 上，其余只在任务界面里列出；任务完成时整条变成“可交付”并播放一个短暂的高亮，交付后从列表中移除。这些规则都属于任务系统的数据层：QuestTracker 只接收“当前要显示哪些任务”的列表，调用 <code>Rebuild()</code> 重新生成条目即可。追踪的任务多于三四条时，HUD 上会变得拥挤，可以只显示前几条，其余折叠成“还有 2 个任务”的一行。</p>
+<h4>点 UI 还是点 3D：输入的分流</h4>
+<p>HUD 叠在 3D 画面上，就要解决“这一下点击是给 UI 的还是给场景的”。示例的 HUDDemo 在处理点怪之前先调用 <code>EventSystem.current.IsPointerOverGameObject()</code>：鼠标或手指下面有能接收射线的 UI 元素时，就不再向场景发射线，否则点技能按钮的同时会打到按钮后面的怪。这也是为什么血条、飘字、指示器都必须关闭 Raycast Target——否则点怪物时鼠标正好在它头顶的血条上，点击就被 UI 吞掉了。触屏上 <code>IsPointerOverGameObject</code> 需要传入触摸的 fingerId，第 11 章有完整说明；用 Input System 包时则改为查询 UI 输入模块。</p>
+
+<h3 class="sec">17.10 HUD 性能清单</h3>
+<p>HUD 是每帧都在变的 UI，前面各案例里零散提到的性能要点汇总如下。它们大多可以用第 20 章的 Profiler 和 Frame Debugger 验证：</p>
+<ol>
+<li><b>动静分离</b>：血条、飘字、受击指示这些每帧移动的元素放进单独的子 Canvas；技能栏、小地图边框、任务追踪放在另一个 Canvas。移动的元素只让自己所在的 Canvas 重新合批。</li>
+<li><b>统一刷新</b>：跟随类组件由一个管理器在 LateUpdate 里集中更新，并保证相机先于 HUD 更新。</li>
+<li><b>状态变化才改</b>：SetActive、SetSiblingIndex、TMP 的 text 只在值变化时赋值；fillAmount、颜色这类属性 UGUI 内部会比较新旧值，可以放心每帧设。</li>
+<li><b>对象池</b>：飘字、Buff 图标、受击指示、选项按钮都复用；预热一批，设置活跃上限。</li>
+<li><b>共享材质</b>：描边、阴影用材质预设共享，不要在代码里改 outlineWidth 生成材质实例。</li>
+<li><b>关掉不需要的射线检测</b>：血条、飘字、指示器都不需要接收点击，Raycast Target 一律关闭（UIKit 默认关闭文字和图标的 Raycast Target）。否则它们会挡住点击 3D 敌人，还会增加射线检测的开销。</li>
+<li><b>不要把每帧变化的元素放进 LayoutGroup</b>：布局重建的代价远高于直接设置位置。</li>
+<li><b>远处的不画</b>：血条设置最大显示距离；数量多时按距离分帧更新。</li>
+</ol>
+<div class="note"><b>注意</b>本章的 HUD 画布是 Screen Space - Overlay。如果你的项目用 Screen Space - Camera（比如为了让粒子夹在 UI 之间，第 2、19 章），所有坐标换算的代码都不用改——<code>HUDUtil.UICamera</code> 会自动传入画布的相机。但要注意画布的 Plane Distance：它决定了 UI 平面离相机多远，3D 物体比它更近时会挡住 UI。</div>
+
+<h3 class="sec">17.11 HUD 布局与移动端适配</h3>
+<p>HUD 元素的位置不是随便摆的。图 17-1 的布局遵循了大多数动作游戏共同的约定，背后有明确的理由：</p>
+<div class="kv">
+<span>左上：自己的状态</span><span>头像、血量、蓝量、Buff。玩家的视线大部分时间在屏幕中央，余光扫向左上角即可确认自己的状态；从左往右阅读的习惯也让这里成为“第一眼”的位置。</span>
+<span>右上：地图与任务</span><span>导航信息。小地图放右上而不是右下，是因为右下要留给技能按钮，右手拇指在操作时会挡住它下方和附近的区域。</span>
+<span>右下：技能</span><span>手机横屏时右手拇指的自然落点。最常用的技能（或普通攻击）最大、离拇指最近，其余技能沿拇指活动的弧线排列。</span>
+<span>左下：移动摇杆</span><span>左手拇指的区域（第 11 章的虚拟摇杆）。本章示例用键盘移动，所以这里放了操作提示。</span>
+<span>中央：战斗反馈</span><span>受击方向、准星、伤害数字。只放瞬时出现的反馈，不放常驻信息，避免遮挡战斗画面。</span>
+</div>
+<p>移动端还要注意以下几点。<b>安全区</b>：四个角上的 HUD 元素要放进第 3 章的 SafeArea 组件管理的区域里，刘海和圆角会切掉屏幕边缘的内容，边缘指示器的内缩边距（EdgeMargin）也应该根据安全区调整。<b>触摸目标的尺寸</b>：技能按钮在实际设备上至少要有指尖大小（各平台的设计规范一般建议不小于 7～10 毫米），参考分辨率 1920×1080 下 150～190 个画布单位在常见手机上大致满足；不要因为画面好看把按钮做得太小。<b>可定制</b>：很多手游提供“自定义按键布局”，把每个按钮的位置和缩放存进本地配置，这要求按钮的锚点设计成相对于最近的角，而不是相对于屏幕中心，这样不同比例的屏幕上自定义的位置才不会跑偏。<b>左手模式</b>：把左右两组 HUD 镜像，本质上只是把锚点的 x 从 1 换成 0、位置的 x 取反。</p>
+<p>HUD 的缩放策略也值得单独考虑。Canvas Scaler 的 Match 设为 0.5（本书默认）时，屏幕越宽 HUD 相对越小；对于横屏游戏，很多团队会让 HUD 更偏向按高度匹配（Match 接近 1），保证不同宽高比的手机上按钮的物理大小接近。平板上屏幕大，同样的按钮会显得过大，可以根据屏幕的物理尺寸（<code>Screen.dpi</code> 和分辨率估算）额外乘一个缩放系数。第 19 章会系统讨论这些适配策略。</p>
+
+<h3 class="sec">17.12 再多一点战斗反馈</h3>
+<p>受击方向弧只是战斗反馈的一种。下面几个效果在动作游戏里也很常见，用本章已有的技巧都能做出来，留作扩展参考：</p>
+<ul>
+<li><b>低血量警示</b>：一张全屏的暗红色径向渐变图（可以用 <code>circle_soft</code> 精灵反相，或程序生成一张中心透明、四周红色的贴图），alpha 随血量降低而升高，血量低于 25% 时再叠加一个按正弦脉动的心跳效果。改的是 alpha，不会触发网格重建，但它是全屏半透明图，会增加填充率开销（第 20 章），不需要时一定要整个隐藏而不是 alpha 设 0。</li>
+<li><b>暴击时屏幕边缘闪白</b>：同样是全屏图，持续 0.1 秒。配合第 15 章的补间系统做淡出。</li>
+<li><b>击杀提示</b>：屏幕中上方滚动的“击败了 哥布林 ×3”，结构和第 16 章的 Toast 一样，可以直接复用 ToastPanel 的思路：对象池、最多显示 N 条、新的顶旧的。</li>
+<li><b>锁定目标框</b>：当前选中的敌人身上画四个角的方框，跟随方式与头顶血条相同，只是 worldOffset 取包围盒中心，并根据包围盒在屏幕上的投影大小调整方框尺寸（把包围盒 8 个角都投影到屏幕上，取最小、最大的 x、y）。</li>
+<li><b>浮动的交互提示</b>：靠近宝箱时出现“按 E 打开”，同样是 HUDFollower，加一个距离判断控制 Content 的显隐，再用 CanvasGroup 做淡入淡出。</li>
+</ul>
+<p>这些效果共同的原则是：反馈要短、要清楚，常驻信息要克制。HUD 的元素越多，玩家越难在混乱的战斗中看到真正重要的东西。每加一个 HUD 元素之前，问一问它是不是玩家此刻必须知道的信息。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>世界坐标 → 屏幕坐标用世界相机的 WorldToScreenPoint，屏幕坐标 → UI 本地坐标用 ScreenPointToLocalPointInRectangle，第二个相机参数 Overlay 传 null。</li>
+<li>z &lt; 0 表示在相机背后，投影会镜像，跟随要隐藏、边缘指示要翻转方向。</li>
+<li>跟随类 HUD 在 LateUpdate 中统一刷新，相机脚本先执行；只在状态变化时 SetActive、SetSiblingIndex。</li>
+<li>飘字用对象池，复用时重设全部属性；描边用共享材质，避免材质实例打断合批。</li>
+<li>边缘指示 = 方向射线与内缩矩形求交；受击弧、冷却遮罩都是 Filled / Radial 360 的圆形精灵。</li>
+<li>小地图：图标方案便宜灵活，RenderTexture 方案所见即所得但多一次场景渲染。</li>
+<li>技能按钮的计时应属于战斗逻辑，按钮只负责显示；多层充能的计时余量要保留。</li>
+<li>打字机用 maxVisibleCharacters，一次排版、换行稳定、富文本安全。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>给头顶血条加“被遮挡时变半透明”：从相机向怪物头顶发一条射线（Physics.Raycast），中途碰到别的物体时把血条 alpha 降到 0.4。</li>
+<li>把伤害飘字改成“同一目标 0.3 秒内的多次伤害合并成一个数字并跳动累加”（提示：池子里按目标查找活跃飘字）。</li>
+<li>给边缘指示加“距离越近箭头越大、越不透明”，并在目标进入屏幕时改为在目标头顶显示一个菱形标记。</li>
+<li>让小地图支持缩放：鼠标滚轮或双指捏合修改 WorldRadius，并限制在 15～60 米之间。</li>
+<li>给技能按钮加一个全局公共冷却（GCD）：任意技能释放后，所有技能 0.8 秒内不可用，遮罩显示为浅灰色细圈。</li>
+<li>给对话框加“自动播放”开关：每句显示完后等待（字数 × 0.05 + 1）秒自动进入下一句。</li>
+</ol></div>
+</section>

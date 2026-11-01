@@ -1,0 +1,20 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Cards|
+2|Card_A|BringToFront
+3|Shadow|Image
+3|Bg|Image
+3|Letter|TextMeshProUGUI
+3|Order|TextMeshProUGUI
+2|Card_B|BringToFront
+3|Shadow|Image
+3|Bg|Image
+3|Letter|TextMeshProUGUI
+3|Order|TextMeshProUGUI
+2|Card_C|BringToFront
+3|Shadow|Image
+3|Bg|Image
+3|Letter|TextMeshProUGUI
+3|Order|TextMeshProUGUI
+1|Hint|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

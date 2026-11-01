@@ -1,0 +1,268 @@
+<section class="chapter" id="ax" data-title="附录：速查手册" data-sub="API、事件、流程、FAQ 与术语">
+<div class="chap-head"><div class="num">APPENDIX<b>附录</b></div><h2>速查手册</h2><p class="lead">写代码时随手翻的几页：常用 API、事件接口与触发顺序、Canvas 重建流程、常见问题、术语表和快捷键。所有 API 名称都在本书锁定的版本（Unity 2022.3.62f3、com.unity.ugui 1.0.0、com.unity.textmeshpro 3.0.7）的源码或程序集中核对过。</p></div>
+
+<h3 class="sec">A.1 常用 API 速查</h3>
+<h4>RectTransform（第 3 章）</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>anchorMin</code> / <code>anchorMax</code></td><td>锚点，0～1，相对父节点矩形。两者相等 = 固定尺寸；不等 = 随父节点拉伸</td></tr>
+<tr><td><code>pivot</code></td><td>轴心，0～1，旋转缩放的中心，也是 anchoredPosition 的参考点</td></tr>
+<tr><td><code>anchoredPosition</code> / <code>anchoredPosition3D</code></td><td>轴心相对锚点（参考点）的偏移</td></tr>
+<tr><td><code>sizeDelta</code></td><td>自身尺寸减去锚点框尺寸；锚点重合时就是宽高</td></tr>
+<tr><td><code>offsetMin</code> / <code>offsetMax</code></td><td>左下角 / 右上角相对锚点框的偏移（拉伸时的四边留白）</td></tr>
+<tr><td><code>rect</code></td><td>本地坐标系下的实际矩形（只读）；布局刚改完时可能是旧值</td></tr>
+<tr><td><code>SetSizeWithCurrentAnchors(axis, size)</code></td><td>不改锚点，直接把某个方向的尺寸设成 size</td></tr>
+<tr><td><code>SetInsetAndSizeFromParentEdge(edge, inset, size)</code></td><td>贴着父节点某条边、留 inset、尺寸为 size（会改锚点）</td></tr>
+<tr><td><code>GetWorldCorners(Vector3[4])</code> / <code>GetLocalCorners</code></td><td>四个角的世界 / 本地坐标，顺序为左下、左上、右上、右下</td></tr>
+<tr><td><code>ForceUpdateRectTransforms()</code></td><td>立即刷新 rect（不触发布局组）</td></tr>
+</table>
+<h4>RectTransformUtility（第 3、11 章）</h4>
+<table>
+<tr><th>方法</th><th>说明</th></tr>
+<tr><td><code>ScreenPointToLocalPointInRectangle(rect, screen, cam, out local)</code></td><td>屏幕坐标 → 某个 RectTransform 的本地坐标。Overlay 画布 cam 传 null</td></tr>
+<tr><td><code>ScreenPointToWorldPointInRectangle(rect, screen, cam, out world)</code></td><td>屏幕坐标 → 该矩形平面上的世界坐标</td></tr>
+<tr><td><code>RectangleContainsScreenPoint(rect, screen, cam)</code></td><td>屏幕点是否落在矩形内（GraphicRaycaster 就用它）</td></tr>
+<tr><td><code>WorldToScreenPoint(cam, world)</code></td><td>世界坐标 → 屏幕坐标</td></tr>
+<tr><td><code>CalculateRelativeRectTransformBounds(root, child)</code></td><td>child 在 root 坐标系下的包围盒</td></tr>
+<tr><td><code>FlipLayoutOnAxis</code> / <code>PixelAdjustPoint</code></td><td>沿轴镜像布局 / 把点对齐到像素</td></tr>
+</table>
+<h4>Canvas、CanvasScaler、CanvasGroup、CanvasRenderer（第 2、12、20 章）</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>Canvas.renderMode</code> / <code>worldCamera</code> / <code>planeDistance</code></td><td>渲染模式；Camera / World 模式的相机（World 模式下即 Event Camera）；Camera 模式的平面距离</td></tr>
+<tr><td><code>Canvas.sortingLayerID</code> / <code>sortingOrder</code> / <code>overrideSorting</code></td><td>排序层、层内顺序；嵌套画布开启 overrideSorting 才使用自己的排序</td></tr>
+<tr><td><code>Canvas.isRootCanvas</code> / <code>rootCanvas</code> / <code>scaleFactor</code></td><td>是否根画布；所属根画布；缩放系数（rect 单位 × scaleFactor = 像素）</td></tr>
+<tr><td><code>Canvas.pixelPerfect</code> / <code>additionalShaderChannels</code> / <code>targetDisplay</code></td><td>像素对齐；额外顶点通道（法线、切线、UV1…）；目标显示器</td></tr>
+<tr><td><code>Canvas.ForceUpdateCanvases()</code></td><td>立即执行所有画布的布局与图形重建（静态方法）</td></tr>
+<tr><td><code>Canvas.willRenderCanvases</code> / <code>preWillRenderCanvases</code></td><td>渲染前事件，CanvasUpdateRegistry 在 willRenderCanvases 里执行重建</td></tr>
+<tr><td><code>CanvasScaler.uiScaleMode</code> / <code>referenceResolution</code> / <code>screenMatchMode</code> / <code>matchWidthOrHeight</code></td><td>缩放模式、参考分辨率、匹配模式、宽高匹配权重（0 = 按宽，1 = 按高）</td></tr>
+<tr><td><code>CanvasScaler.referencePixelsPerUnit</code> / <code>dynamicPixelsPerUnit</code></td><td>精灵 PPU 的参考值；旧版 Text 等动态生成内容的像素密度</td></tr>
+<tr><td><code>CanvasGroup.alpha</code> / <code>interactable</code> / <code>blocksRaycasts</code> / <code>ignoreParentGroups</code></td><td>整组透明度、可交互、是否挡射线、是否忽略上层 CanvasGroup</td></tr>
+<tr><td><code>CanvasRenderer.cull</code> / <code>cullTransparentMesh</code> / <code>hasMoved</code></td><td>是否被剔除；顶点全透明时是否跳过绘制；本帧是否移动过</td></tr>
+</table>
+<h4>Graphic、Image、RawImage（第 4、12、13 章）</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>color</code> / <code>material</code> / <code>materialForRendering</code> / <code>mainTexture</code></td><td>顶点色；材质（null 时用默认材质）；实际渲染用的材质（经过 IMaterialModifier 修改后）；主贴图</td></tr>
+<tr><td><code>raycastTarget</code> / <code>raycastPadding</code></td><td>是否接收射线；射线检测范围的内缩（负值向外扩），Vector4 = 左、下、右、上</td></tr>
+<tr><td><code>canvas</code> / <code>canvasRenderer</code> / <code>rectTransform</code> / <code>depth</code></td><td>所属画布、渲染器、变换、画布分配的深度（-1 = 尚未被画布处理）</td></tr>
+<tr><td><code>SetAllDirty()</code> / <code>SetVerticesDirty()</code> / <code>SetMaterialDirty()</code> / <code>SetLayoutDirty()</code></td><td>标脏，排进 CanvasUpdateRegistry 等待重建</td></tr>
+<tr><td><code>RegisterDirtyVerticesCallback</code> 等三个</td><td>被标脏时的回调（Layout / Vertices / Material），第 20 章用它统计标脏次数</td></tr>
+<tr><td><code>OnPopulateMesh(VertexHelper)</code></td><td>自定义 Graphic 的网格生成入口</td></tr>
+<tr><td><code>CrossFadeColor</code> / <code>CrossFadeAlpha</code> / <code>SetNativeSize</code></td><td>渐变颜色 / 透明度（作用在 CanvasRenderer 上，不标脏）；设为原始尺寸</td></tr>
+<tr><td><code>MaskableGraphic.maskable</code> / <code>onCullStateChanged</code></td><td>是否受 Mask / RectMask2D 影响；被裁剪剔除状态变化事件</td></tr>
+<tr><td><code>Image.sprite</code> / <code>overrideSprite</code> / <code>type</code></td><td>精灵；临时覆盖的精灵；Simple / Sliced / Tiled / Filled</td></tr>
+<tr><td><code>Image.fillMethod</code> / <code>fillAmount</code> / <code>fillOrigin</code> / <code>fillClockwise</code></td><td>Filled 类型的填充方式、比例、起点、方向</td></tr>
+<tr><td><code>Image.preserveAspect</code> / <code>useSpriteMesh</code> / <code>pixelsPerUnitMultiplier</code></td><td>保持比例；使用精灵的紧密网格；九宫格边框缩放倍率</td></tr>
+<tr><td><code>Image.alphaHitTestMinimumThreshold</code></td><td>透明度低于该值的像素不接收点击（需要贴图可读）</td></tr>
+<tr><td><code>RawImage.texture</code> / <code>uvRect</code></td><td>任意纹理（含 RenderTexture）；显示纹理的哪一部分</td></tr>
+</table>
+<h4>Selectable 与各控件（第 6～8 章）</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>Selectable.interactable</code> / <code>IsInteractable()</code></td><td>是否可交互；综合考虑父级 CanvasGroup 后的结果</td></tr>
+<tr><td><code>transition</code> / <code>colors</code> / <code>spriteState</code> / <code>animationTriggers</code> / <code>targetGraphic</code></td><td>状态过渡方式及其参数；过渡作用的图形</td></tr>
+<tr><td><code>navigation</code> / <code>FindSelectableOnUp()</code> 等 / <code>Select()</code></td><td>键盘手柄导航设置；查找相邻控件；选中自己</td></tr>
+<tr><td><code>Selectable.allSelectablesArray</code></td><td>当前所有启用的 Selectable</td></tr>
+<tr><td><code>Button.onClick</code></td><td>点击事件</td></tr>
+<tr><td><code>Toggle.isOn</code> / <code>group</code> / <code>onValueChanged</code> / <code>SetIsOnWithoutNotify</code></td><td>开关状态、所属组、变化事件、不触发事件地设置</td></tr>
+<tr><td><code>ToggleGroup.allowSwitchOff</code> / <code>AnyTogglesOn()</code> / <code>ActiveToggles()</code> / <code>GetFirstActiveToggle()</code> / <code>SetAllTogglesOff()</code></td><td>单选组相关</td></tr>
+<tr><td><code>Slider.value</code> / <code>minValue</code> / <code>maxValue</code> / <code>wholeNumbers</code> / <code>normalizedValue</code> / <code>direction</code> / <code>SetValueWithoutNotify</code></td><td>滑块相关</td></tr>
+<tr><td><code>Scrollbar.value</code> / <code>size</code> / <code>numberOfSteps</code></td><td>位置、滑块占比、分段数（0 = 连续）</td></tr>
+<tr><td><code>TMP_InputField.text</code> / <code>onValueChanged</code> / <code>onEndEdit</code> / <code>onSubmit</code> / <code>onSelect</code> / <code>onDeselect</code></td><td>输入框文字与事件</td></tr>
+<tr><td><code>TMP_InputField.contentType</code> / <code>lineType</code> / <code>characterLimit</code> / <code>ActivateInputField()</code> / <code>DeactivateInputField()</code> / <code>SetTextWithoutNotify</code></td><td>输入类型、换行方式、长度限制、获取 / 失去焦点</td></tr>
+<tr><td><code>TMP_Dropdown.options</code> / <code>value</code> / <code>AddOptions</code> / <code>ClearOptions</code> / <code>RefreshShownValue</code> / <code>SetValueWithoutNotify</code></td><td>下拉框选项与当前值</td></tr>
+</table>
+<h4>ScrollRect 与布局（第 9、10 章）</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>ScrollRect.content</code> / <code>viewport</code> / <code>horizontal</code> / <code>vertical</code></td><td>内容节点、视口、允许滚动的方向</td></tr>
+<tr><td><code>movementType</code> / <code>elasticity</code> / <code>inertia</code> / <code>decelerationRate</code> / <code>scrollSensitivity</code></td><td>边界行为（Unrestricted / Elastic / Clamped）、回弹系数、惯性、减速率、滚轮灵敏度</td></tr>
+<tr><td><code>normalizedPosition</code> / <code>horizontalNormalizedPosition</code> / <code>verticalNormalizedPosition</code></td><td>0～1 的滚动位置（垂直方向 1 = 顶部）；依赖 Content 尺寸，刚改完内容要先重建布局</td></tr>
+<tr><td><code>velocity</code> / <code>StopMovement()</code> / <code>onValueChanged</code></td><td>当前惯性速度、立即停止、滚动事件</td></tr>
+<tr><td><code>LayoutRebuilder.ForceRebuildLayoutImmediate(rt)</code></td><td>立即重建以 rt 为根的布局</td></tr>
+<tr><td><code>LayoutRebuilder.MarkLayoutForRebuild(rt)</code></td><td>标记布局在本帧稍后重建（会向上找布局根）</td></tr>
+<tr><td><code>LayoutUtility.GetPreferredWidth(rt)</code> / <code>GetPreferredHeight</code> / <code>GetMinWidth</code> / <code>GetFlexibleWidth</code></td><td>查询元素的布局尺寸</td></tr>
+</table>
+<h4>EventSystem 与事件（第 11 章）</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>EventSystem.current</code> / <code>currentSelectedGameObject</code> / <code>firstSelectedGameObject</code></td><td>当前事件系统、当前选中物体、启动时默认选中</td></tr>
+<tr><td><code>SetSelectedGameObject(go)</code> / <code>IsPointerOverGameObject(pointerId)</code></td><td>设置选中；指针是否在 UI 上（触摸时传 fingerId）</td></tr>
+<tr><td><code>RaycastAll(eventData, results)</code></td><td>用所有 Raycaster 检测并排序（第 21 章的调试器）</td></tr>
+<tr><td><code>pixelDragThreshold</code> / <code>sendNavigationEvents</code></td><td>拖拽阈值（像素）；是否发送键盘手柄导航事件</td></tr>
+<tr><td><code>ExecuteEvents.Execute</code> / <code>ExecuteHierarchy</code> / <code>GetEventHandler&lt;T&gt;</code> / <code>CanHandleEvent&lt;T&gt;</code></td><td>向物体发事件 / 沿父节点向上找第一个能处理的并发送 / 只查找 / 判断</td></tr>
+<tr><td><code>PointerEventData.position</code> / <code>delta</code> / <code>pressPosition</code> / <code>scrollDelta</code></td><td>当前位置、本帧位移、按下时位置、滚轮量</td></tr>
+<tr><td><code>pointerId</code> / <code>button</code> / <code>clickCount</code> / <code>clickTime</code> / <code>eligibleForClick</code> / <code>dragging</code> / <code>useDragThreshold</code></td><td>指针 ID（鼠标左键 -1，触摸为 fingerId）、按键、连击数、上次点击时间、是否还能算点击、是否在拖拽、是否使用拖拽阈值</td></tr>
+<tr><td><code>pointerEnter</code> / <code>pointerPress</code> / <code>pointerDrag</code> / <code>hovered</code></td><td>当前悬停、按下、拖拽的物体；悬停经过的物体列表</td></tr>
+<tr><td><code>pointerCurrentRaycast</code> / <code>pointerPressRaycast</code></td><td>当前 / 按下时的射线结果（RaycastResult）</td></tr>
+</table>
+<h4>TextMeshPro（第 5、20 章）</h4>
+<table>
+<tr><th>成员</th><th>说明</th></tr>
+<tr><td><code>TMP_Text.text</code> / <code>SetText(format, args)</code></td><td>赋相同字符串会被忽略；SetText 不比较新旧值，编辑器下会额外分配（第 20 章）</td></tr>
+<tr><td><code>font</code> / <code>fontSharedMaterial</code> / <code>fontMaterial</code></td><td>字体资源；共享材质（改它影响所有用该材质的文字）；实例材质（会复制一份）</td></tr>
+<tr><td><code>fontSize</code> / <code>enableAutoSizing</code> / <code>fontSizeMin</code> / <code>fontSizeMax</code></td><td>字号与自动字号（自动字号会多次排版）</td></tr>
+<tr><td><code>enableWordWrapping</code> / <code>overflowMode</code> / <code>margin</code> / <code>characterSpacing</code> / <code>lineSpacing</code> / <code>richText</code></td><td>换行、溢出处理、边距、字距、行距、富文本</td></tr>
+<tr><td><code>maxVisibleCharacters</code> / <code>textInfo</code> / <code>isTextOverflowing</code> / <code>preferredWidth</code></td><td>打字机效果；排版结果（每个字符的位置）；是否溢出；首选宽度</td></tr>
+<tr><td><code>ForceMeshUpdate()</code> / <code>GetPreferredValues(text)</code></td><td>立即排版；计算一段文字需要的尺寸</td></tr>
+<tr><td><code>TMP_TextUtilities.FindIntersectingLink</code> / <code>FindIntersectingCharacter</code></td><td>点击位置对应的链接 / 字符</td></tr>
+<tr><td><code>TMP_FontAsset.CreateFontAsset(font)</code> / <code>TryAddCharacters(chars)</code> / <code>HasCharacters(chars)</code> / <code>fallbackFontAssetTable</code></td><td>运行时创建动态字体；预热字形；检查缺字；回退字体列表</td></tr>
+</table>
+
+<h3 class="sec">A.2 事件接口与触发顺序</h3>
+<table>
+<tr><th>接口</th><th>方法</th><th>何时触发</th></tr>
+<tr><td><code>IPointerEnterHandler</code> / <code>IPointerExitHandler</code></td><td>OnPointerEnter / OnPointerExit</td><td>指针进入 / 离开物体（及其子物体）</td></tr>
+<tr><td><code>IPointerMoveHandler</code></td><td>OnPointerMove</td><td>指针在物体上移动</td></tr>
+<tr><td><code>IPointerDownHandler</code> / <code>IPointerUpHandler</code></td><td>OnPointerDown / OnPointerUp</td><td>按下 / 抬起（抬起发给按下时的那个物体）</td></tr>
+<tr><td><code>IPointerClickHandler</code></td><td>OnPointerClick</td><td>在同一个物体上按下并抬起，且没有被拖拽取消</td></tr>
+<tr><td><code>IInitializePotentialDragHandler</code></td><td>OnInitializePotentialDrag</td><td>按下时找到了拖拽处理者，常用来设 useDragThreshold</td></tr>
+<tr><td><code>IBeginDragHandler</code> / <code>IDragHandler</code> / <code>IEndDragHandler</code></td><td>OnBeginDrag / OnDrag / OnEndDrag</td><td>移动超过阈值开始拖拽 / 拖拽中每次移动 / 松开</td></tr>
+<tr><td><code>IDropHandler</code></td><td>OnDrop</td><td>拖拽松开时，发给指针下的物体</td></tr>
+<tr><td><code>IScrollHandler</code></td><td>OnScroll</td><td>滚轮</td></tr>
+<tr><td><code>ISelectHandler</code> / <code>IDeselectHandler</code> / <code>IUpdateSelectedHandler</code></td><td>OnSelect / OnDeselect / OnUpdateSelected</td><td>成为 / 不再是当前选中物体；选中期间每帧</td></tr>
+<tr><td><code>IMoveHandler</code> / <code>ISubmitHandler</code> / <code>ICancelHandler</code></td><td>OnMove / OnSubmit / OnCancel</td><td>方向键/摇杆导航、确认键、取消键（发给当前选中物体）</td></tr>
+</table>
+<p>StandaloneInputModule 每帧的处理顺序（摘自 <code>StandaloneInputModule.Process</code> / <code>ProcessMouseEvent</code>），以及一次“按下—拖动—松开”的完整事件序列：</p>
+<table>
+<tr><th>阶段</th><th>发出的事件（按顺序）</th></tr>
+<tr><td>每帧开始</td><td>UpdateSelected → 当前选中物体</td></tr>
+<tr><td>按下的那一帧</td><td>（选中变化时）Deselect → PointerDown（沿父节点找第一个处理者）→ 记录点击处理者 → InitializePotentialDrag（若有拖拽处理者）；Selectable 在 OnPointerDown 里调用 Select → Select</td></tr>
+<tr><td>移动</td><td>PointerExit / PointerEnter（悬停目标变化时）、PointerMove</td></tr>
+<tr><td>首次超过拖拽阈值</td><td>BeginDrag → （按下物体与拖拽物体不同则）PointerUp 发给按下物体并取消点击 → Drag</td></tr>
+<tr><td>拖拽中</td><td>Drag（每次移动）</td></tr>
+<tr><td>松开的那一帧</td><td>PointerUp → PointerClick（仍可点击时）→ Drop（拖拽中）→ EndDrag（拖拽中）→ 重新计算 Exit / Enter</td></tr>
+<tr><td>滚轮</td><td>Scroll（沿父节点找处理者）</td></tr>
+<tr><td>最后（sendNavigationEvents）</td><td>Move / Submit / Cancel → 当前选中物体</td></tr>
+</table>
+
+<h3 class="sec">A.3 Canvas 重建流程</h3>
+<figure><svg viewBox="0 0 600 330" width="600" font-family="PingFang SC" font-size="12">
+<defs><marker id="ax1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a8299"/></marker></defs>
+<rect x="10" y="10" width="170" height="80" rx="8" fill="#f5f6fa" stroke="#7a8299"/>
+<text x="20" y="32" fill="#1f2436" font-weight="bold">脚本 / 动画修改属性</text>
+<text x="20" y="52" fill="#1f2436" font-size="11">color、sprite、text、尺寸…</text>
+<text x="20" y="72" fill="#1f2436" font-size="11">→ SetXxxDirty()</text>
+<rect x="210" y="10" width="180" height="80" rx="8" fill="#f1effc" stroke="#5b4bd6"/>
+<text x="220" y="32" fill="#5b4bd6" font-weight="bold">CanvasUpdateRegistry</text>
+<text x="220" y="52" fill="#1f2436" font-size="11">m_LayoutRebuildQueue</text>
+<text x="220" y="72" fill="#1f2436" font-size="11">m_GraphicRebuildQueue</text>
+<rect x="420" y="10" width="170" height="80" rx="8" fill="#fff4ea" stroke="#ff8a3d"/>
+<text x="430" y="32" fill="#ff8a3d" font-weight="bold">willRenderCanvases</text>
+<text x="430" y="52" fill="#1f2436" font-size="11">渲染前（PostLateUpdate）</text>
+<text x="430" y="72" fill="#1f2436" font-size="11">或 ForceUpdateCanvases()</text>
+<line x1="180" y1="50" x2="208" y2="50" stroke="#7a8299" stroke-width="2" marker-end="url(#ax1)"/>
+<line x1="390" y1="50" x2="418" y2="50" stroke="#7a8299" stroke-width="2" marker-end="url(#ax1)"/>
+<rect x="10" y="120" width="580" height="140" rx="8" fill="#fff" stroke="#5b4bd6"/>
+<text x="20" y="142" fill="#5b4bd6" font-weight="bold">PerformUpdate()</text>
+<g font-size="11" fill="#1f2436">
+<rect x="20" y="152" width="96" height="44" rx="6" fill="#f1effc"/><text x="68" y="171" text-anchor="middle">清理无效项</text><text x="68" y="187" text-anchor="middle">CleanInvalid</text>
+<rect x="128" y="152" width="140" height="44" rx="6" fill="#f1effc"/><text x="198" y="171" text-anchor="middle">布局队列按深度排序</text><text x="198" y="187" text-anchor="middle">Pre / Layout / Post</text>
+<rect x="280" y="152" width="90" height="44" rx="6" fill="#f1effc"/><text x="325" y="171" text-anchor="middle">Layout</text><text x="325" y="187" text-anchor="middle">Complete</text>
+<rect x="382" y="152" width="90" height="44" rx="6" fill="#eef8f2"/><text x="427" y="171" text-anchor="middle">裁剪剔除</text><text x="427" y="187" text-anchor="middle">Clipper.Cull</text>
+<rect x="484" y="152" width="96" height="44" rx="6" fill="#fff4ea"/><text x="532" y="171" text-anchor="middle">图形队列</text><text x="532" y="187" text-anchor="middle">PreRender 等</text>
+</g>
+<g stroke="#7a8299" stroke-width="1.6" marker-end="url(#ax1)"><line x1="116" y1="174" x2="126" y2="174"/><line x1="268" y1="174" x2="278" y2="174"/><line x1="370" y1="174" x2="380" y2="174"/><line x1="472" y1="174" x2="482" y2="174"/></g>
+<text x="20" y="222" fill="#1f2436" font-size="11">布局：LayoutGroup / ContentSizeFitter 先水平后垂直计算尺寸与位置；裁剪：RectMask2D 算裁剪矩形并剔除</text>
+<text x="20" y="242" fill="#1f2436" font-size="11">图形：Graphic.Rebuild → UpdateGeometry（OnPopulateMesh + IMeshModifier）/ UpdateMaterial</text>
+<line x1="300" y1="260" x2="300" y2="278" stroke="#7a8299" stroke-width="2" marker-end="url(#ax1)"/>
+<rect x="90" y="280" width="420" height="42" rx="8" fill="#eef8f2" stroke="#2fb36a"/>
+<text x="300" y="298" fill="#2fb36a" font-weight="bold" text-anchor="middle">原生层：Canvas 合批（Canvas.BuildBatch + Canvas.*Job）</text>
+<text x="300" y="315" fill="#1f2436" font-size="11" text-anchor="middle">任一元素变化或移动，所在 Canvas 整体重新排序合并 → 提交绘制</text>
+</svg><figcaption><b>图 A-1</b> 从“改了一个属性”到“画到屏幕上”的完整流程（CanvasUpdate 枚举：Prelayout=0、Layout=1、PostLayout=2、PreRender=3、LatePreRender=4）</figcaption></figure>
+<table>
+<tr><th>改了什么</th><th>标脏</th><th>说明</th></tr>
+<tr><td>color（Graphic.color）</td><td>Vertices</td><td>颜色存在顶点里</td></tr>
+<tr><td>Image.sprite</td><td>Vertices（+ Material、Layout，视情况）</td><td>SetAllDirty，但贴图相同则跳过材质、尺寸相同则跳过布局（m_SkipMaterialUpdate / m_SkipLayoutUpdate）</td></tr>
+<tr><td>material</td><td>Material</td><td>换材质只标脏材质</td></tr>
+<tr><td>TMP 文字内容</td><td>Vertices + Layout</td><td>赋相同字符串时跳过</td></tr>
+<tr><td>RectTransform 尺寸</td><td>Vertices（+ 父布局）</td><td>OnRectTransformDimensionsChange 触发</td></tr>
+<tr><td>位置 / 旋转 / 缩放</td><td>不标脏</td><td>不重建网格，但所在 Canvas 要重新合批</td></tr>
+<tr><td>OnEnable（SetActive(true)）</td><td>全部</td><td>SetAllDirty</td></tr>
+<tr><td>Animator 写入属性</td><td>全部</td><td>OnDidApplyAnimationProperties → SetAllDirty</td></tr>
+<tr><td>CanvasGroup.alpha / CrossFadeAlpha</td><td>不标脏</td><td>作用在 CanvasRenderer 的继承透明度上</td></tr>
+</table>
+
+<h3 class="sec">A.4 常见问题 FAQ</h3>
+<table>
+<tr><th>问题</th><th>答</th></tr>
+<tr><td>按钮点了没反应？</td><td>按第 21 章的流程图查；最常见的是被透明图片挡住，用射线调试器看命中列表</td></tr>
+<tr><td>新建的 UI 在 Game 视图里看不到？</td><td>检查是否在 Canvas 下、Camera 模式画布是否指定了相机、父级 CanvasGroup 的 alpha</td></tr>
+<tr><td>界面在不同分辨率下错位？</td><td>Canvas Scaler 选 Scale With Screen Size；元素按“贴哪条边”设锚点；比例差太多时用第 19 章的布局切换</td></tr>
+<tr><td>刘海挡住了按钮？</td><td>用 SafeAreaPanel，Device Simulator 测试；背景延伸进刘海、内容留在安全区内</td></tr>
+<tr><td>中文显示成方块？</td><td>字体资源里没有这些字：用动态字体或把字符集补全，配置 Fallback（第 5 章）</td></tr>
+<tr><td>文字放大后发糊？</td><td>用 TextMeshPro（SDF）代替旧版 Text；World Space 下旧版 Text 要调 dynamicPixelsPerUnit</td></tr>
+<tr><td>Layout Group 改了子物体尺寸没效果？</td><td>父布局组开了 Child Controls Size 时，子物体尺寸由它决定；用 LayoutElement 指定首选尺寸（第 10 章）</td></tr>
+<tr><td>刚改完内容读 rect 是旧值？</td><td>调用 LayoutRebuilder.ForceRebuildLayoutImmediate 或等下一帧</td></tr>
+<tr><td>ScrollRect 设置 normalizedPosition 不生效？</td><td>Content 尺寸还没更新；先强制重建布局再设</td></tr>
+<tr><td>粒子特效显示在 UI 下面？</td><td>Overlay 画布永远在最上；改用 Camera 模式，用 sortingOrder 让粒子夹在两层画布之间（第 19 章）</td></tr>
+<tr><td>Mask 和 RectMask2D 用哪个？</td><td>矩形裁剪优先 RectMask2D；非矩形只能 Mask；很多并排的裁剪区两种都测（第 20 章）</td></tr>
+<tr><td>界面静止时 CPU 仍然高？</td><td>有元素每帧被标脏：用 RebuildWatcher 找出来（第 20 章）</td></tr>
+<tr><td>隐藏界面用哪种方法？</td><td>频繁开关用 CanvasGroup 或 Canvas.enabled；很少打开的用 SetActive；不要长期移出屏幕（第 20 章实测）</td></tr>
+<tr><td>Batch 数很高？</td><td>重叠元素交替使用不同贴图 / 材质；打图集，调整层级顺序；用 Profiler 的 UI 模块看打断原因</td></tr>
+<tr><td>点击 UI 时角色也跟着移动了？</td><td>处理场景点击前判断 EventSystem.current.IsPointerOverGameObject()</td></tr>
+<tr><td>循环里 AddListener 所有按钮都传了同一个值？</td><td>闭包捕获了循环变量，先拷贝到局部变量（第 6 章）</td></tr>
+<tr><td>InputSystem 包装好之后 UI 点不了？</td><td>把 StandaloneInputModule 换成 InputSystemUIInputModule，或 Active Input Handling 选 Both</td></tr>
+<tr><td>World Space 画布点不到？</td><td>指定 Event Camera；检查 GraphicRaycaster 和 Blocking Objects（第 19 章）</td></tr>
+</table>
+
+<h3 class="sec">A.5 术语表</h3>
+<table>
+<tr><th>术语</th><th>英文</th><th>含义（首次出现的章节）</th></tr>
+<tr><td>画布</td><td>Canvas</td><td>UI 的根容器，决定渲染方式与合批范围（1、2）</td></tr>
+<tr><td>画布缩放器</td><td>Canvas Scaler</td><td>把设计分辨率映射到屏幕的组件（2）</td></tr>
+<tr><td>锚点 / 轴心</td><td>Anchor / Pivot</td><td>元素相对父节点的参考框 / 自身的中心点（3）</td></tr>
+<tr><td>安全区</td><td>Safe Area</td><td>屏幕上不被刘海、圆角、系统手势遮挡的区域（3、19）</td></tr>
+<tr><td>九宫格</td><td>9-Slice / Sliced</td><td>四角不拉伸、四边单向拉伸、中间双向拉伸的图片模式（4）</td></tr>
+<tr><td>精灵图集</td><td>Sprite Atlas</td><td>把多张精灵打包进一张纹理，减少批次（4、20）</td></tr>
+<tr><td>有向距离场</td><td>SDF, Signed Distance Field</td><td>TMP 存储字形的方式，放大不糊、描边便宜（5）</td></tr>
+<tr><td>回退字体</td><td>Fallback Font</td><td>主字体缺字时依次查找的备用字体（5）</td></tr>
+<tr><td>可选择控件</td><td>Selectable</td><td>Button、Toggle、Slider 等的基类，管理状态与导航（6）</td></tr>
+<tr><td>状态过渡</td><td>Transition</td><td>Color Tint / Sprite Swap / Animation（6）</td></tr>
+<tr><td>视口</td><td>Viewport</td><td>ScrollRect 中显示内容的窗口（9）</td></tr>
+<tr><td>布局元素 / 布局控制者</td><td>ILayoutElement / ILayoutController</td><td>提供尺寸信息 / 设置子物体尺寸位置（10）</td></tr>
+<tr><td>首选尺寸</td><td>Preferred Size</td><td>元素希望的尺寸，布局组优先满足（10）</td></tr>
+<tr><td>事件系统 / 输入模块 / 射线检测器</td><td>EventSystem / InputModule / Raycaster</td><td>UI 事件的三件套（11）</td></tr>
+<tr><td>事件冒泡</td><td>Bubbling</td><td>ExecuteHierarchy 沿父节点向上找处理者（11）</td></tr>
+<tr><td>拖拽阈值</td><td>Drag Threshold</td><td>移动超过多少像素才算拖拽（11）</td></tr>
+<tr><td>图形</td><td>Graphic</td><td>所有可见 UI 元素的基类（12）</td></tr>
+<tr><td>标脏 / 重建</td><td>Set Dirty / Rebuild</td><td>标记需要更新 / 在渲染前统一更新（12、20）</td></tr>
+<tr><td>合批</td><td>Batching</td><td>把材质贴图相同的元素合成一次绘制（12、20）</td></tr>
+<tr><td>绘制调用</td><td>Draw Call / Batch</td><td>CPU 向 GPU 提交的一次绘制（20）</td></tr>
+<tr><td>深度</td><td>Depth</td><td>画布给每个元素分配的绘制层次，影响合批（12、20）</td></tr>
+<tr><td>顶点辅助类</td><td>VertexHelper</td><td>OnPopulateMesh 中构建网格的工具（13）</td></tr>
+<tr><td>网格修改器</td><td>BaseMeshEffect / IMeshModifier</td><td>在网格生成后修改顶点（13）</td></tr>
+<tr><td>模板缓冲</td><td>Stencil Buffer</td><td>Mask 用来实现任意形状裁剪的缓冲区（14）</td></tr>
+<tr><td>裁剪矩形</td><td>Clip Rect</td><td>RectMask2D 传给 Shader 的矩形（14）</td></tr>
+<tr><td>预乘 Alpha</td><td>Premultiplied Alpha</td><td>颜色已经乘过透明度的存储方式（14、19）</td></tr>
+<tr><td>缓动</td><td>Easing / Tween</td><td>动画数值随时间变化的曲线 / 补间（15）</td></tr>
+<tr><td>界面栈</td><td>UI Stack</td><td>按打开顺序管理界面、处理返回键（16）</td></tr>
+<tr><td>对象池</td><td>Object Pool</td><td>复用对象，避免反复创建销毁（17、20）</td></tr>
+<tr><td>虚拟列表 / 循环列表</td><td>Virtualized List</td><td>只为可见项创建 UI 并复用（18）</td></tr>
+<tr><td>本地化</td><td>Localization (L10n)</td><td>按语言切换文字、字体、资源（19）</td></tr>
+<tr><td>伪本地化</td><td>Pseudo-localization</td><td>自动生成的“假语言”，用于提前测试排版（19）</td></tr>
+<tr><td>渲染纹理</td><td>RenderTexture</td><td>相机可以渲染进去的纹理（19）</td></tr>
+<tr><td>广告牌</td><td>Billboard</td><td>始终朝向相机的平面（19）</td></tr>
+<tr><td>动静分离</td><td>Canvas Splitting</td><td>把频繁变化的元素放进独立画布（20）</td></tr>
+<tr><td>过度绘制</td><td>Overdraw</td><td>同一像素被多次绘制（20）</td></tr>
+<tr><td>填充率</td><td>Fill Rate</td><td>GPU 每秒能处理的像素数，UI 半透明叠加的主要瓶颈（20）</td></tr>
+</table>
+
+<h3 class="sec">A.6 常用快捷键</h3>
+<p>Windows 下的 <kbd>Ctrl</kbd> 在 macOS 上对应 <kbd>Cmd</kbd>，<kbd>Alt</kbd> 对应 <kbd>Option</kbd>。以下为默认设置，可在 <span class="menu">Edit › Shortcuts</span>（macOS：<span class="menu">Unity › Shortcuts</span>）中查看和修改。</p>
+<table>
+<tr><th>快捷键</th><th>作用</th></tr>
+<tr><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd></td><td>平移视图 / 移动 / 旋转 / 缩放 / Rect Tool（编辑 UI 最常用 T）</td></tr>
+<tr><td><kbd>F</kbd></td><td>Scene 视图聚焦到选中物体</td></tr>
+<tr><td><kbd>2</kbd></td><td>Scene 视图切换 2D / 3D 模式</td></tr>
+<tr><td><kbd>Shift</kbd> + <kbd>Space</kbd></td><td>最大化 / 还原鼠标所在的窗口</td></tr>
+<tr><td><kbd>Ctrl</kbd> + <kbd>D</kbd></td><td>复制选中物体</td></tr>
+<tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> / <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd></td><td>新建空物体 / 新建空子物体</td></tr>
+<tr><td><kbd>Ctrl</kbd> + <kbd>P</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> / <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd></td><td>Play / 暂停 / 单帧步进</td></tr>
+<tr><td>锚点预设面板 + <kbd>Shift</kbd> / <kbd>Alt</kbd></td><td>同时设置轴心 / 同时设置位置（第 3 章）</td></tr>
+<tr><td>Rect Tool 拖动 + <kbd>Shift</kbd> / <kbd>Alt</kbd></td><td>等比缩放 / 以中心缩放</td></tr>
+<tr><td>拖动时按住 <kbd>Ctrl</kbd></td><td>按增量吸附移动</td></tr>
+</table>
+<div class="note tip"><b>本书配套工具菜单</b><span class="menu">UGUIBook › Ch20 › Run Perf Lab</span>（性能实验室）、<span class="menu">Tools › UGUIBook › 批量替换字体与精灵 / 检查丢失引用 / UI 规范检查 / 高清截图</span>、<span class="menu">Assets › UGUIBook › …</span>（对选中的预制体运行）、<span class="menu">GameObject › UGUIBook › 关闭非交互元素的 Raycast Target</span>。运行时：F2 Overdraw 视图（OverdrawView）、F3 射线调试器（RaycastDebugger）。</div>
+</section>

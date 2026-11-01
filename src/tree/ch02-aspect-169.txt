@@ -1,0 +1,39 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Background|Image,AspectRatioFitter
+1|ReferenceArea_1920x1080|
+1|Player|
+2|AvatarFrame|Image
+3|Avatar|Image
+2|Name|TextMeshProUGUI
+2|HpBar|Image
+3|Fill|Image
+1|StagePill|Image
+2|Text|TextMeshProUGUI
+1|Coins|Image
+2|Icon_item_coin|Image
+2|Text|TextMeshProUGUI
+1|IconButton_gear|Image,Button
+2|Icon_gear|Image
+1|Joystick|Image
+2|Knob|Image
+1|Attack|Image,Button
+2|Icon_item_sword|Image
+1|IconButton_star|Image,Button
+2|Icon_star|Image
+1|IconButton_heart|Image,Button
+2|Icon_heart|Image
+1|IconButton_gift|Image,Button
+2|Icon_gift|Image
+1|InfoPanel|Image,ScreenInfo
+2|InfoText|TextMeshProUGUI
+1|MatchRow|MatchControl
+2|Label|TextMeshProUGUI
+2|Slider|Slider
+3|Background|Image
+3|Fill Area|
+4|Fill|Image
+3|Handle Slide Area|
+4|Handle|Image
+5|Ring|Image
+0|EventSystem|EventSystem,StandaloneInputModule

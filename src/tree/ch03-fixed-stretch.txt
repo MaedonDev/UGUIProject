@@ -1,0 +1,12 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Window|Image
+2|Outline|Image
+2|TitleBar|Image
+3|Text|TextMeshProUGUI
+3|Close|Image
+2|Button_固定 300×100|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Footer|Image
+3|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

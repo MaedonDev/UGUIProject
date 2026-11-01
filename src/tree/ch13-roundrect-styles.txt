@@ -1,0 +1,21 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Solid0|RoundedRect
+1|Text|TextMeshProUGUI
+1|Solid1|RoundedRect
+1|Text|TextMeshProUGUI
+1|Solid2|RoundedRect
+1|Text|TextMeshProUGUI
+1|Solid3|RoundedRect
+1|Text|TextMeshProUGUI
+1|Border0|RoundedRect
+1|Text|TextMeshProUGUI
+1|Border1|RoundedRect
+1|Text|TextMeshProUGUI
+1|Border2|RoundedRect
+1|Text|TextMeshProUGUI
+1|Avatar|RoundedRect
+1|Picture|RoundedRect
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

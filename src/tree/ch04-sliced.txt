@@ -1,0 +1,18 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Image|Image
+1|SliceLine|Image
+1|SliceLine|Image
+1|SliceLine|Image
+1|SliceLine|Image
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Image|Image
+1|Text|TextMeshProUGUI
+1|Image|Image
+1|Text|TextMeshProUGUI
+1|Image|Image
+1|Text|TextMeshProUGUI
+1|Small|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

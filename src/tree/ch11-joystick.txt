@@ -1,0 +1,14 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,JoystickPlayer
+1|Arena|Image
+2|Player|Image
+3|Arrow|Image
+1|TouchArea|Image,VirtualJoystick
+2|AreaTint|Image
+2|Base|Image
+3|Fill|Image
+3|Knob|Image
+4|Dot|Image
+1|Readout|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,12 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Card_0|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Card_1|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Card_2|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Card_3|Image,UIParamEffect
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

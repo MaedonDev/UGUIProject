@@ -1,0 +1,65 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text|TextMeshProUGUI
+1|Scroll View|Image,ScrollRect
+2|Viewport|RectMask2D
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+4|Section_装备|Image,VerticalLayoutGroup,FoldoutSection
+5|Header|Image,Button,LayoutElement
+6|Text (TMP)|TextMeshProUGUI
+6|Arrow|Image
+5|Body|RectMask2D,LayoutElement
+6|Content|VerticalLayoutGroup,ContentSizeFitter
+7|Item_精钢长剑|Image,HorizontalLayoutGroup
+8|Icon_item_sword|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+7|Item_橡木盾|Image,HorizontalLayoutGroup
+8|Icon_item_shield|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+7|Item_皮革头盔|Image,HorizontalLayoutGroup
+8|Icon_item_helmet|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+7|Item_猎人短弓|Image,HorizontalLayoutGroup
+8|Icon_item_bow|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+4|Section_消耗品|Image,VerticalLayoutGroup,FoldoutSection
+5|Header|Image,Button,LayoutElement
+6|Text (TMP)|TextMeshProUGUI
+6|Arrow|Image
+5|Body|RectMask2D,LayoutElement
+6|Content|VerticalLayoutGroup,ContentSizeFitter
+7|Item_生命药水|Image,HorizontalLayoutGroup
+8|Icon_item_potion_red|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+7|Item_法力药水|Image,HorizontalLayoutGroup
+8|Icon_item_potion_blue|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+7|Item_苹果|Image,HorizontalLayoutGroup
+8|Icon_item_apple|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+4|Section_任务道具|Image,VerticalLayoutGroup,FoldoutSection
+5|Header|Image,Button,LayoutElement
+6|Text (TMP)|TextMeshProUGUI
+6|Arrow|Image
+5|Body|RectMask2D,LayoutElement
+6|Content|VerticalLayoutGroup,ContentSizeFitter
+7|Item_地牢钥匙|Image,HorizontalLayoutGroup
+8|Icon_item_key|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+7|Item_古老卷轴|Image,HorizontalLayoutGroup
+8|Icon_item_scroll|Image,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+8|Text|TextMeshProUGUI,LayoutElement
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

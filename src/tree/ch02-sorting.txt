@@ -1,0 +1,19 @@
+0|Main Camera|Camera,AudioListener
+0|HudCanvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Button_背包|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_bag|Image
+2|Tip|Canvas,GraphicRaycaster
+3|Bg|Image
+3|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
+0|PopupCanvas|Canvas,CanvasScaler,GraphicRaycaster,SortingDemo
+1|Notice|
+2|Shadow|Image
+2|Bg|Image
+2|Title|TextMeshProUGUI
+2|Body|TextMeshProUGUI
+2|Toggle_气泡的 Override Sorting|Toggle
+3|Background|Image
+4|Checkmark|Image
+3|Label|TextMeshProUGUI

@@ -1,0 +1,6 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Viewport (RectMask2D)|Image,RectMask2D
+2|LineChart|LineChart
+2|Ring|RingProgress
+0|EventSystem|EventSystem,StandaloneInputModule

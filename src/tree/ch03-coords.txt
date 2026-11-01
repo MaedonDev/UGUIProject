@@ -1,0 +1,11 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ClickArea|Image,ClickMarker
+2|Grid|Image
+2|!MarkerTemplate|
+3|Dot|Image
+3|Coord|TextMeshProUGUI
+1|InfoPanel|Image
+2|Info|TextMeshProUGUI
+1|Hint|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

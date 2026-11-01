@@ -1,0 +1,19 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Holder_zh|
+2|Button_领取每日奖励|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+3|Icon_gift|Image
+1|Text|TextMeshProUGUI
+1|Holder_en|
+2|Button_Claim Daily Reward|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+3|Icon_gift|Image
+1|Text|TextMeshProUGUI
+1|Holder_de|
+2|Button_Tagesbelohnung abholen|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+3|Icon_gift|Image
+0|EventSystem|EventSystem,StandaloneInputModule

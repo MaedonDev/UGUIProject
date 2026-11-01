@@ -1,0 +1,24 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Button_领取奖励|Image,Button,UIParamEffect
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_gift|Image
+1|Text|TextMeshProUGUI
+1|Button_领取奖励|Image,Button,UIParamEffect
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_gift|Image
+1|Text|TextMeshProUGUI
+1|Button_领取奖励|Image,Button,UIParamEffect
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_gift|Image
+1|Text|TextMeshProUGUI
+1|Button_领取奖励|Image,Button,UIParamEffect
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_gift|Image
+1|Text|TextMeshProUGUI
+1|Button_领取奖励|Image,Button,UIParamEffect
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_gift|Image
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

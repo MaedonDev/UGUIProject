@@ -1,0 +1,10 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Mask1 (圆角矩形)|Image,Mask
+2|Stripes|Image
+2|Mask2 (圆)|Image,Mask
+3|Checker|Image
+3|Mask3 (星)|Image,Mask
+4|Leaf (风景图)|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

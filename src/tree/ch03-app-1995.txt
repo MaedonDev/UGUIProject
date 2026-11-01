@@ -1,0 +1,88 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|SafeArea|SafeArea
+2|TopBar|Image
+3|Avatar|Image
+3|Title|TextMeshProUGUI
+3|Bell|Image
+4|RedDot|Image,CornerBadge
+2|TabBar|Image
+3|Tab_首页|
+4|Icon_home|Image
+4|Label|TextMeshProUGUI
+3|Tab_背包|
+4|Icon_bag|Image
+4|Label|TextMeshProUGUI
+3|Tab_消息|
+4|Icon_chat|Image
+4|Label|TextMeshProUGUI
+3|Tab_我的|
+4|Icon_user|Image
+4|Label|TextMeshProUGUI
+2|Content|RectMask2D
+3|Task_0|
+4|Shadow|Image
+4|Bg|Image
+4|IconBg|Image
+5|Icon_star|Image
+4|Title|TextMeshProUGUI
+4|Reward|TextMeshProUGUI
+4|Button_领取|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+3|Task_1|
+4|Shadow|Image
+4|Bg|Image
+4|IconBg|Image
+5|Icon_trophy|Image
+4|Title|TextMeshProUGUI
+4|Reward|TextMeshProUGUI
+4|Button_领取|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+3|Task_2|
+4|Shadow|Image
+4|Bg|Image
+4|IconBg|Image
+5|Icon_item_sword|Image
+4|Title|TextMeshProUGUI
+4|Reward|TextMeshProUGUI
+4|Button_前往|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+3|Task_3|
+4|Shadow|Image
+4|Bg|Image
+4|IconBg|Image
+5|Icon_heart|Image
+4|Title|TextMeshProUGUI
+4|Reward|TextMeshProUGUI
+4|Button_前往|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+3|Task_4|
+4|Shadow|Image
+4|Bg|Image
+4|IconBg|Image
+5|Icon_user|Image
+4|Title|TextMeshProUGUI
+4|Reward|TextMeshProUGUI
+4|Button_前往|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+3|Task_5|
+4|Shadow|Image
+4|Bg|Image
+4|IconBg|Image
+5|Icon_play|Image
+4|Title|TextMeshProUGUI
+4|Reward|TextMeshProUGUI
+4|Button_前往|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+3|Task_6|
+4|Shadow|Image
+4|Bg|Image
+4|IconBg|Image
+5|Icon_gift|Image
+4|Title|TextMeshProUGUI
+4|Reward|TextMeshProUGUI
+4|Button_前往|Image,Button
+5|Text (TMP)|TextMeshProUGUI
+3|IconButton_plus|Image,Button
+4|Icon_plus|Image
+0|EventSystem|EventSystem,StandaloneInputModule

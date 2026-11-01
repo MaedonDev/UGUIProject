@@ -1,0 +1,18 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Button_设置|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Button_商店|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Button_邮件|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Button_好友|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Button_背包|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Button_任务|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Button_活动|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

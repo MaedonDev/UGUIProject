@@ -1,0 +1,22 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Desktop|Image
+1|Window_背包|Image
+2|Shadow|Image
+2|TitleBar|Image,DraggableWindow
+3|Text|TextMeshProUGUI
+3|Close|Image
+2|Body|TextMeshProUGUI
+1|Window_任务|Image
+2|Shadow|Image
+2|TitleBar|Image,DraggableWindow
+3|Text|TextMeshProUGUI
+3|Close|Image
+2|Body|TextMeshProUGUI
+1|Window_设置|Image
+2|Shadow|Image
+2|TitleBar|Image,DraggableWindow
+3|Text|TextMeshProUGUI
+3|Close|Image
+2|Body|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

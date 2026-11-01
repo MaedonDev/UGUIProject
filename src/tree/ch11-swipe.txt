@@ -1,0 +1,107 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text|TextMeshProUGUI
+2|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|Scroll View|Image,ScrollRect
+2|Viewport|RectMask2D
+3|Content|VerticalLayoutGroup,ContentSizeFitter
+4|Row0|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row1|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row2|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row3|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row4|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row5|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row6|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row7|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row8|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row9|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row10|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+4|Row11|Image,LayoutElement,SwipeRow
+5|Button_删除|Image,Button
+6|Text (TMP)|TextMeshProUGUI
+5|Front|Image
+6|Line|Image
+6|Avatar|Image
+6|Text|TextMeshProUGUI
+6|Text|TextMeshProUGUI
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+0|EventSystem|EventSystem,StandaloneInputModule

@@ -1,0 +1,221 @@
+<section class="chapter" id="c18" data-title="列表、背包与无限滚动" data-sub="循环列表原理与实现、聊天、背包、排行榜">
+<div class="chap-head"><div class="num">CHAPTER 18<b>第 18 章</b></div><h2>列表、背包与无限滚动</h2><p class="lead">邮件、好友、排行榜、背包、聊天记录、商城……游戏界面里一半以上是列表。条目少的时候，第 9、10 章的 ScrollRect + LayoutGroup 就够了；条目一多，界面开始卡顿、打开要等好几秒、内存飙升。这一章先用实测数据说明一万条数据的列表为什么卡，然后实现真正的虚拟化循环列表（固定高度、可变高度、网格三种），最后用它做出聊天、背包、排行榜三个完整案例。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>普通列表与循环列表的实测对比：GameObject 数量、创建与首次布局耗时</div><div>虚拟化的原理：只为可见项创建对象，滚动时回收复用</div><div>可变高度列表的前缀和 + 二分查找；网格按行虚拟化；跳转到指定项</div><div>复用的铁律：Bind 里重设所有字段；回收与隐藏的顺序优化</div><div>聊天列表：预先测量文字尺寸、多模板、只在底部时自动滚动</div><div>背包：网格 + 筛选排序 + 长按拖拽交换（与 ScrollRect 共存）+ 详情 Tips；排行榜的“我的排名”固定行</div></div>
+
+<h3 class="sec">18.1 一万项列表为什么卡</h3>
+<p>先做一个实验。左边是第 9、10 章的标准做法：ScrollRect 的 Content 上挂 VerticalLayoutGroup 和 ContentSizeFitter，每条数据 Instantiate 一个列表项；右边是本章要实现的循环列表 LoopListView。两边用完全相同的列表项模板（图标、标题、副标题、按钮），分别生成 1000 条和 10000 条数据，测量创建耗时、第一次 <code>Canvas.ForceUpdateCanvases()</code>（布局 + 网格重建）的耗时，以及 Content 下的 GameObject 数量：</p>
+<figure class="shot"><img src="img/ch18-bench.jpg"><figcaption><b>图 18-1</b> 同一个列表项模板，普通列表与循环列表的实测对比（作者环境：Apple M5 Mac / Unity 2022.3.62f3 / 编辑器批处理模式，先各跑一次 200 条预热）</figcaption></figure>
+<div class="scene">Ch18/Scenes/Ch18_Benchmark.unity</div>
+<table>
+<tr><th>方案</th><th>数据量</th><th>GameObject</th><th>Graphic</th><th>创建 + 绑定</th><th>首次布局与重建</th></tr>
+<tr><td>普通列表</td><td>1000</td><td>10000</td><td>10000</td><td>277.3 ms</td><td>337.2 ms</td></tr>
+<tr><td>普通列表</td><td>10000</td><td>100000</td><td>100000</td><td>3462.9 ms</td><td>5099.9 ms</td></tr>
+<tr><td>循环列表</td><td>1000</td><td>50</td><td>50</td><td>0.3 ms</td><td>12.7 ms</td></tr>
+<tr><td>循环列表</td><td>10000</td><td>50</td><td>50</td><td>0.5 ms</td><td>12.7 ms</td></tr>
+</table>
+<p>数字很直观：普通列表的开销随数据量线性增长，一万条数据要创建十万个 GameObject，在一台很快的电脑上也要卡八秒多；循环列表无论多少条数据都只有 5 个列表项（视口里能看到 3～4 个，上下各多准备 1 个），耗时只有十几毫秒（主要是这 5 项的首次网格生成），而且和数据量无关。在手机上，普通列表的差距只会更大。同一台机器多次运行，耗时会有两三成的波动（作者几次批处理里普通列表 10000 条的首次布局在 4.7～5.1 秒之间），但数量级和对比关系是稳定的。你可以打开配套场景，在自己的设备上点两个按钮自测，结果会打印在场景底部和 Console 里。</p>
+<p>细心的读者会发现每个列表项是 10 个 GameObject，而模板里明明只建了 8 个节点（根、高亮框、图标底、图标、标题、副标题、按钮、按钮文字）。多出来的两个是 TMP 自动生成的 <code>TMP SubMeshUI</code> 子对象：配套工程的中文字体是动态字体，字符多了之后会扩展出第二张图集，用到第二张图集里字形的文本就需要一个额外的子网格对象来绘制。这在大量文字的列表里很常见，也是普通列表开销中容易被忽视的一部分。</p>
+<p>普通列表慢在哪里，可以拆成四笔账：</p>
+<ul>
+<li><b>创建</b>：每个 GameObject 的分配、组件初始化、Awake/OnEnable；TMP 文本还要解析字符、取字形。</li>
+<li><b>布局</b>：VerticalLayoutGroup 要遍历所有子物体计算尺寸和位置（第 10 章的两阶段布局），一万个子物体就是一万次。</li>
+<li><b>网格重建</b>：每个 Graphic 都要生成一次顶点（第 12 章），十万个 Graphic 就是十万次 <code>OnPopulateMesh</code>。</li>
+<li><b>常驻开销</b>：创建完以后也没完——RectMask2D 每帧要对所有子元素做裁剪判断，Canvas 合批的数据量巨大，内存也一直占着。滚动时虽然不再重建网格，但 Content 移动会让整个 Canvas 重新合批，元素越多越慢。</li>
+</ul>
+<p>还有一笔账在表格里看不到：内存。每个 GameObject 和组件在原生层和托管层都有内存占用，十万个对象常驻会让低端手机的内存非常紧张；关闭界面时销毁它们又会产生大量需要回收的对象，下一次垃圾回收（GC）就可能带来一次明显的卡顿。循环列表的对象数量是常数，打开、关闭、滚动都几乎不产生新的内存分配，这一点在移动端往往比耗时更重要。</p>
+<p>而屏幕上任何时刻能看到的只有几条。循环列表的思路就是：<b>只为看得见的那几条创建对象</b>。</p>
+
+<h4>只把看不见的隐藏掉行不行</h4>
+<p>一个常见的“折中方案”是：仍然为每条数据创建对象，但把视口外的 SetActive(false)。这能省掉看不见的元素的渲染和合批，却省不掉最贵的两笔——创建和内存。一万条数据仍然要创建十万个 GameObject，打开界面仍然要卡好几秒；而且隐藏的子物体在 LayoutGroup 里不参与布局（被忽略），Content 的高度会算错，滚动条跟着出错。另一个折中是“分批创建”：每帧创建 50 条，把卡顿摊到很多帧里，界面打开时不卡了，但几秒钟内列表是不完整的，内存占用也没有减少。这些方案都只是推迟问题，真正解决问题的是让对象数量和数据量脱钩。</p>
+
+<h3 class="sec">18.2 虚拟化原理</h3>
+<p>虚拟化列表（Virtualized List，国内常叫“循环列表”“无限滚动列表”）把“数据”和“显示对象”分开：数据可以有一万条，显示对象只有视口能容纳的那么几个。滚动时，滚出视口的对象被回收，填上新数据后放到即将滚入视口的位置。用户看到的是一条连续的长列表，场景里实际上只有几个列表项在不断“换装”。</p>
+<figure><svg viewBox="0 0 600 270" width="600" font-family="PingFang SC" font-size="12">
+<defs><marker id="a18" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ff8a3d"/></marker></defs>
+<rect x="40" y="10" width="170" height="250" fill="#f6f5fd" stroke="#e0deef"/>
+<text x="125" y="28" text-anchor="middle" fill="#7a8299">Content（高度 = 全部数据）</text>
+<g fill="#e0deef"><rect x="55" y="40" width="140" height="22" rx="4"/><rect x="55" y="66" width="140" height="22" rx="4"/></g>
+<rect x="55" y="92" width="140" height="22" rx="4" fill="#c9c2f2"/>
+<g fill="#5b4bd6"><rect x="55" y="118" width="140" height="22" rx="4"/><rect x="55" y="144" width="140" height="22" rx="4"/><rect x="55" y="170" width="140" height="22" rx="4"/></g>
+<rect x="55" y="196" width="140" height="22" rx="4" fill="#c9c2f2"/>
+<g fill="#e0deef"><rect x="55" y="222" width="140" height="22" rx="4"/></g>
+<rect x="30" y="112" width="190" height="86" fill="none" stroke="#1e88e5" stroke-width="2.5"/>
+<text x="225" y="160" fill="#1e88e5">视口</text>
+<text x="225" y="106" fill="#8f84e6">缓冲</text><text x="225" y="212" fill="#8f84e6">缓冲</text>
+<text x="125" y="58" text-anchor="middle" fill="#7a8299">只有数据，没有对象</text>
+<g font-size="12" fill="#1f2436">
+<text x="300" y="40">① 根据 Content 的滚动位置算出可见区间 [first, last]</text>
+<text x="300" y="68">② 区间外的项：放回对象池（暂不隐藏）</text>
+<text x="300" y="96">③ 区间内缺的项：从池里取一个（没有才 Instantiate）</text>
+<text x="315" y="116" fill="#7a8299">摆到第 i 项的位置，调用 onBind(i, item) 填数据</text>
+<text x="300" y="144">④ 本轮没被复用的池中对象才 SetActive(false)</text>
+<text x="300" y="180" fill="#ff8a3d">滚动方向</text>
+</g>
+<line x1="365" y1="190" x2="365" y2="250" stroke="#ff8a3d" stroke-width="2" marker-end="url(#a18)"/>
+<text x="380" y="215" fill="#7a8299">顶部滚出的那个对象，</text><text x="380" y="235" fill="#7a8299">马上被用作底部新滚入的项</text>
+</svg><figcaption><b>图 18-2</b> 循环列表：Content 的高度按全部数据计算（滚动条才正确），但只有视口和缓冲区里的项有对象</figcaption></figure>
+<p>关键点有三个。第一，<b>Content 的高度必须按全部数据计算</b>，否则滚动条的长度和位置都不对，惯性滚动到底的手感也不对；但 Content 里并没有那么多子物体，所以不能用 LayoutGroup 和 ContentSizeFitter，位置和尺寸全部由代码计算。第二，<b>位置要能快速反查</b>：给定滚动位置，立刻知道第几项在视口顶部。固定高度时一次除法即可；可变高度时要用前缀和加二分查找（案例 18.2）。第三，<b>缓冲区</b>：视口上下各多准备一两项，快速滑动时新项来不及绑定也不会露出空白。</p>
+<p>用一个“透视”实验验证一下：把列表视口上的 RectMask2D 去掉，视口外的东西就都能看见了。</p>
+<figure class="shot"><img src="img/ch18-principle.jpg"><figcaption><b>图 18-3</b> 去掉遮罩后的循环列表：蓝框是视口，视口外上下各多出 1 个缓冲项（第 3、9 项），再往外就什么都没有了。右侧显示数据 10000 条、实例只有 7 个</figcaption></figure>
+
+<h3 class="case"><span class="no">案例 18.1</span>循环列表的公共部分<span class="lv">高阶</span></h3>
+<p><b>目标</b>：写一个基类，负责对象池、回收复用、与 ScrollRect 的联动、跳转；把“每项在哪、多高”留给子类，这样固定高度、可变高度、网格只需要各写几十行。</p>
+<pre class="code" data-file="Ch18/LoopViewBase.cs" data-region="base"></pre>
+<p>基类要求和 ScrollRect 挂在同一个物体上，<code>Init</code> 把 Content 的锚点设为顶部拉伸、轴心在顶部。这样 <code>content.anchoredPosition.y</code> 恰好就是“已经往下滚了多少”，0 是顶部，越往下越大，后面所有的计算都基于这个值。它在 <code>OnEnable</code> 里订阅 <code>ScrollRect.onValueChanged</code>：ScrollRect 在拖拽、惯性、弹性回弹时都会触发这个事件，每次触发就重新计算可见区间。</p>
+<pre class="code" data-file="Ch18/LoopViewBase.cs" data-region="setcount"></pre>
+<p>对外的接口只有几个：<code>SetCount</code> 设置数据条数（数据本身由使用者自己保存），<code>onBind</code> 回调负责把第 i 条数据显示到某个列表项上，<code>Refresh</code> / <code>RefreshItem</code> 在数据内容变化时重新绑定。列表组件完全不知道数据是什么类型——邮件、聊天消息、物品都可以，这让同一个组件能服务所有列表。</p>
+<p>核心是 <code>UpdateVisible</code>：</p>
+<pre class="code" data-file="Ch18/LoopViewBase.cs" data-region="update"></pre>
+<p>这里有一个容易被忽略的优化：<b>先回收、再复用、最后才隐藏</b>。滚动一行时，顶部滚出去的那一项马上就会被用作底部滚进来的那一项。如果回收时立刻 <code>SetActive(false)</code>、复用时再 <code>SetActive(true)</code>，这个列表项下的每个 Graphic 都会走一遍 OnDisable/OnEnable，标脏、从 Canvas 注销再注册，白白多一轮重建。先把它放进池子而不隐藏，复用时直接改位置和数据，只有这一轮确实没用上的对象才隐藏。</p>
+<p>另一个细节是对象池按“模板类型”分开：聊天列表有左气泡、右气泡、时间条三种模板，左气泡回收的对象不能拿去当右气泡用。基类用 <code>m_TypeOf</code> 记录每个对象来自哪个模板，<code>m_Pools</code> 按类型存放。</p>
+<div class="box"><h4>复用的铁律：Bind 里重设所有字段</h4><p>列表项是复用的，第 37 项用的对象上一刻可能还显示着第 3 项。<code>onBind</code> 里必须把这个列表项上所有会因数据而变化的东西<b>全部</b>重新赋值：文字、图标、颜色、按钮是否可点、选中框是否显示、红点是否显示……哪怕“大多数数据都是默认值”，也要显式地设回默认值。只在某些条件下才设置的字段，就会把上一条数据的状态带过来——比如只在“已领取”时把按钮置灰，没领取时不管，那么一个曾经显示过已领取邮件的列表项，复用给未领取的邮件时按钮仍然是灰的。循环列表的 bug 九成出在这里。</p></div>
+<p>按钮点击也是同理：列表项里的按钮回调<b>不能捕获数据或下标</b>（复用后就过期了），而应该读取列表项“当前”绑定的下标。邮件列表项的写法是 Awake 里只 AddListener 一次，回调里用 <code>m_Index</code>，每次 Set 时更新 <code>m_Index</code>：</p>
+<pre class="code" data-file="Ch18/MailItemView.cs" data-region="mailitem"></pre>
+<p>基类的 Update 只用于平滑跳转的动画；列表本身不需要每帧做任何事情，只有滚动位置变化（onValueChanged）或数据变化（SetCount / Refresh）时才计算。没有滚动的时候，循环列表的每帧开销是零。配套工程的批处理出图不会进入 Play 模式、也就不会触发 onValueChanged，所以搭景代码在设置好滚动位置后直接调用公开的 <code>UpdateVisible()</code>——运行时由事件驱动、编辑器里手动调用，走的是同一套逻辑，这也是把核心逻辑写成公开方法、而不是塞进 Unity 回调里的好处。</p>
+<p>最后是跳转：</p>
+<pre class="code" data-file="Ch18/LoopViewBase.cs" data-region="scroll"></pre>
+<p><code>ScrollTo(index, align)</code> 算出目标滚动位置：第 index 项的顶部减去 <code>(视口高度 - 项高度) × align</code>，align 为 0 时顶部对齐、0.5 时居中、1 时底部对齐，再夹在 [0, 最大滚动距离] 之间。跳转前一定要调用 <code>ScrollRect.StopMovement()</code>，否则正在进行的惯性滚动会在下一帧把位置又带走。<code>duration</code> 大于 0 时在 Update 里做一段 EaseOutCubic 的平滑滚动；动画过程中如果用户用手指拖动了列表（ScrollRect 有了速度），就放弃动画，把控制权交还给手指。</p>
+
+<h4>与 ScrollRect 参数的配合</h4>
+<p>循环列表复用了 ScrollRect 的全部交互：拖拽、惯性、弹性回弹、滚轮、滚动条。ScrollRect 的参数（第 9 章）照常生效，但有几点要注意。Movement Type 为 Elastic 时，拖过头的那一瞬间 <code>ScrollY</code> 会小于 0 或大于最大值，可见区间的计算必须能处理越界（二分查找和按行计算都会把结果夹在 [0, count-1] 之间）；Clamped 模式没有这个问题，但手感生硬。Inertia 打开时，用户松手后的几百毫秒里 onValueChanged 每帧都会触发，UpdateVisible 每帧执行，所以它必须足够快——这就是为什么区间计算要用 O(log n) 或 O(1) 的方法，而不能每帧遍历所有数据。Scroll Sensitivity 决定鼠标滚轮一格滚多远，PC 上的长列表建议调到 30～60，否则滚轮滚得很慢。最后，滚动条的长度由 Content 与视口的高度比决定，循环列表的 Content 高度是按全部数据算的，所以滚动条长度和位置都是正确的，拖动滚动条快速定位也能正常工作。</p>
+
+<h3 class="case"><span class="no">案例 18.2</span>固定高度与可变高度列表<span class="lv">高阶</span></h3>
+<p><b>目标</b>：一个 LoopListView 同时支持固定高度（不传 heightOf）和可变高度（传入每项高度），支持多种模板，支持在末尾高效追加。</p>
+<pre class="code" data-file="Ch18/LoopListView.cs" data-region="list"></pre>
+<h4>前缀和：把“滚动位置 → 第几项”变成二分查找</h4>
+<p>固定高度时，第 i 项的顶部是 <code>paddingTop + i × (高度 + 间距)</code>，反过来由滚动位置求下标只需一次除法。可变高度时没有这样的公式，但可以预先算出每一项的顶部位置，存成数组 <code>m_Tops</code>——它就是高度的<b>前缀和</b>（Prefix Sum）。这个数组是单调递增的，所以“顶部不超过 y 的最后一项”可以用二分查找在 O(log n) 时间内找到：一万条数据最多比较 14 次。</p>
+<figure><svg viewBox="0 0 600 160" width="600" font-family="PingFang SC" font-size="12">
+<g text-anchor="middle">
+<text x="60" y="30" fill="#7a8299">高度</text>
+<rect x="100" y="14" width="60" height="26" fill="#eceaf9" stroke="#5b4bd6"/><text x="130" y="32">120</text>
+<rect x="160" y="14" width="90" height="26" fill="#eceaf9" stroke="#5b4bd6"/><text x="205" y="32">180</text>
+<rect x="250" y="14" width="40" height="26" fill="#eceaf9" stroke="#5b4bd6"/><text x="270" y="32">56</text>
+<rect x="290" y="14" width="120" height="26" fill="#eceaf9" stroke="#5b4bd6"/><text x="350" y="32">240</text>
+<rect x="410" y="14" width="60" height="26" fill="#eceaf9" stroke="#5b4bd6"/><text x="440" y="32">120</text>
+<text x="60" y="80" fill="#7a8299">m_Tops</text>
+<text x="100" y="80">0</text><text x="160" y="80">120</text><text x="250" y="80">300</text><text x="290" y="80">356</text><text x="410" y="80">596</text><text x="470" y="80">716</text>
+<line x1="100" y1="50" x2="100" y2="66" stroke="#7a8299"/><line x1="160" y1="50" x2="160" y2="66" stroke="#7a8299"/><line x1="250" y1="50" x2="250" y2="66" stroke="#7a8299"/><line x1="290" y1="50" x2="290" y2="66" stroke="#7a8299"/><line x1="410" y1="50" x2="410" y2="66" stroke="#7a8299"/><line x1="470" y1="50" x2="470" y2="66" stroke="#7a8299"/>
+<line x1="330" y1="95" x2="330" y2="118" stroke="#ff8a3d" stroke-width="2"/><text x="330" y="134" fill="#ff8a3d">滚动位置 y = 400 → 二分查找 → 第 3 项（顶部 356 ≤ 400）</text>
+<text x="300" y="155" fill="#7a8299">（为了清楚省略了间距与内边距；数字为举例）</text>
+</g></svg><figcaption><b>图 18-4</b> 高度的前缀和：m_Tops[i] 是第 i 项顶部的位置，最后一个元素是总高度</figcaption></figure>
+<p>前缀和数组在 <code>SetCount</code> 时整体计算一次，代价 O(n)，一万条也就是一万次加法，远小于创建任何一个 GameObject。聊天这种不停在末尾追加的列表，用 <code>Append</code> 只计算新增的部分，数组按 2 倍扩容，追加一条消息几乎没有开销。如果某一项的高度变了（比如展开了一条可折叠的消息），调用 <code>InvalidateHeights</code> 重新计算并让可见项原地重排。</p>
+<p>可变高度列表有一个前提：<b>每项的高度必须在显示之前就知道</b>。如果要等列表项创建出来、让 ContentSizeFitter 布局一遍才知道高度，那就退化成了“先把所有项都创建一遍”，虚拟化失去了意义。所以可变高度的数据要在数据层预先测量并缓存高度，案例 18.4 的聊天列表会演示怎么用 TMP 的 <code>GetPreferredValues</code> 预先算出文字尺寸。</p>
+<h4>固定高度列表的完整示例</h4>
+<pre class="code" data-file="Ch18/FixedListDemo.cs" data-region="fixeddemo"></pre>
+<figure class="shot"><img src="img/ch18-fixed.jpg"><figcaption><b>图 18-5</b> 一万封邮件的列表，跳转到第 5000 封并居中高亮；右侧实时显示可见区间和实例数量</figcaption></figure>
+<div class="scene">Ch18/Scenes/Ch18_FixedList.unity</div>
+<p>在配套场景里来回拖动、甩动列表，输入序号跳转，点几个“领取”：右侧“实例化的 Item”始终是同一个数字。领取后只调用 <code>RefreshItem(index)</code> 刷新那一项；如果那一项此刻不在视口里，什么都不会发生——数据已经改了，等它滚进视口时 Bind 自然会显示新状态。</p>
+<p>跳转时的高亮也遵循复用规则：高亮的是“第 5000 条数据”，不是“某个列表项对象”，所以 FixedListDemo 记录的是数据下标 <code>m_Highlight</code>，Bind 时比较下标决定是否显示高亮框，跳转后调用 <code>Refresh()</code> 让可见项重新判断。数据源整体刷新（比如服务器推送了新邮件）时，调用 <code>SetCount(count, keepPosition: true)</code> 可以保持当前的滚动位置，用户不会被突然拉回顶部。</p>
+<div class="note warn"><b>常见坑</b>不要在列表项上挂 LayoutGroup 或 ContentSizeFitter 来决定它自己的高度，更不要在 Content 上挂 LayoutGroup：循环列表的位置是代码算的，LayoutGroup 会在下一次布局时把它们全部“摆回去”，列表项会叠在一起或跳到奇怪的位置。列表项<b>内部</b>用 LayoutGroup 排版子元素是可以的，只是复用时每次 Bind 都会触发一次布局重建，列表项复杂时会有开销。</div>
+
+<h3 class="case"><span class="no">案例 18.3</span>网格循环列表<span class="lv">进阶</span></h3>
+<p><b>目标</b>：背包、商城、图鉴这类网格按“行”虚拟化；列数可以固定，也可以按视口宽度自动计算，横竖屏切换时自动重排。</p>
+<pre class="code" data-file="Ch18/LoopGridView.cs" data-region="grid"></pre>
+<p>网格的计算比可变高度列表还简单：所有格子一样大，第 i 个格子在第 <code>i / 列数</code> 行、第 <code>i % 列数</code> 列。可见区间按行计算：视口顶部所在的行到底部所在的行，再各扩展 <code>m_Buffer</code> 行，转换成格子下标区间。列数为 0 时按宽度自动计算 <code>floor((可用宽度 + 间距) / (格子宽 + 间距))</code>，剩余的宽度平分到两边，让整个网格水平居中。</p>
+<p>网格还有一个和列表不同的地方：数据条数不是列数的整数倍时，最后一行是不满的，可见区间的末尾要用 <code>Mathf.Min(m_Count - 1, ...)</code> 截断，否则会去绑定不存在的数据。背包这类需要显示“空格子”的场景（容量 40，只有 12 个物品，剩下 28 个画成空槽），有两种做法：把 SetCount 设为容量，Bind 时下标超出物品数量就显示为空槽；或者像第 16 章那样在网格下面垫一层静态的空槽背景。前者更通用，空槽也能接收拖放。</p>
+<p><code>OnRectTransformDimensionsChange</code> 是 Unity 在 RectTransform 尺寸变化时发给组件的消息（UGUI 的 UIBehaviour 把它包装成了虚方法，普通 MonoBehaviour 直接声明同名方法即可收到）。窗口拉伸、横竖屏切换、父节点布局改变时，网格会重新计算列数并原地重排，已经创建的格子不需要重新创建。</p>
+
+<h3 class="case"><span class="no">案例 18.4</span>聊天列表：可变高度与自动滚到底<span class="lv">高阶</span></h3>
+<p><b>目标</b>：别人的消息在左、自己的在右，气泡宽度随文字长短变化，长消息自动换行；超过 5 分钟插一条时间；收到新消息时，如果用户在看最新消息就自动滚到底，如果用户正在往上翻历史，就不打扰，只在右下角提示“N 条新消息”。</p>
+<figure class="shot"><img src="img/ch18-chat.jpg"><figcaption><b>图 18-6</b> 左：在底部时，新消息到来自动滚到底；右：用户往上翻看历史时又来了三条消息，列表不跳动，右下角出现“3 条新消息”，点它平滑滚到底</figcaption></figure>
+<div class="scene">Ch18/Scenes/Ch18_Chat.unity</div>
+<h4>预先测量：高度存在数据里</h4>
+<p>按案例 18.2 的要求，每条消息的高度必须在显示前知道。消息的高度由文字决定，而文字的尺寸取决于字体、字号和换行宽度。TMP 提供了 <code>GetPreferredValues(text, width, height)</code>：给定最大宽度，返回这段文字排版后的首选宽度和高度——短句返回真实宽度，长句按最大宽度换行后返回多行的高度。用一个和气泡里的文字<b>同字体、同字号、同边距</b>的 TMP 组件来量，结果就和实际显示一致：</p>
+<pre class="code" data-file="Ch18/ChatBubbleView.cs" data-region="chatdata"></pre>
+<pre class="code" data-file="Ch18/ChatPanel.cs" data-region="chat"></pre>
+<p>测量结果和高度缓存在 <code>ChatMessage</code> 里，每条消息只测量一次。滚动时 Bind 只做赋值，不做任何测量或布局：</p>
+<pre class="code" data-file="Ch18/ChatBubbleView.cs" data-region="bubble"></pre>
+<p>气泡没有用 HorizontalLayoutGroup + ContentSizeFitter 来自适应尺寸（第 10 章的聊天气泡做法），而是直接把测好的尺寸赋给 <code>sizeDelta</code>。原因是复用：一个列表项每次被复用都要重新布局一次，自动布局在列表项里的开销会随着滚动速度成倍放大；而尺寸已经测好了，直接赋值是最便宜的。左右两种气泡共用一个脚本，区别只在模板的锚点：左气泡的头像、名字、气泡都锚在左上角，右气泡锚在右上角，位置的 x 取反。</p>
+<p>测量本身也有成本：<code>GetPreferredValues</code> 内部要完整地做一遍文本排版，只是不生成网格。实时聊天每秒几条消息，测量完全不是问题；但如果进入聊天界面时一次性加载一千条历史消息，逐条测量会让首帧明显变慢。常见的处理有三种：只加载最近的几十条，往上翻时再分页加载（同时测量）；或者先用估算高度（比如按字数估计行数）建立前缀和，等某条消息第一次滚进视口附近时再精确测量并调用 <code>InvalidateHeights</code> 修正；或者把测量结果随消息一起持久化，下次进入直接读取。示例采用了最简单的“来一条测一条”。</p>
+<div class="note warn"><b>常见坑</b>测量时要把“可用宽度”算对：最大文字宽度 = 列表项宽度 × 最大气泡比例 − 气泡左右内边距。测得的宽度再多留 2 个像素：浮点误差可能让实际排版时某一行刚好放不下而多换一行，导致文字溢出气泡。另外，列表宽度变化（横竖屏切换）时，所有消息的换行都会变，需要重新测量全部消息再调用 <code>InvalidateHeights</code>。</div>
+<h4>只在底部时自动滚动</h4>
+<p>“新消息自动滚到底”看似简单，做不好会非常烦人：用户正往上翻找一条历史消息，群里每来一条新消息列表就跳回底部。正确的规则是在<b>追加之前</b>判断用户是否在底部（容差 30 像素）：在底部就滚到底，不在就只累加未读数、显示提示按钮；用户自己滚回底部时清零未读。自己发的消息例外，无论在哪都滚到底——用户刚按下发送，当然想看到自己的消息。</p>
+<p>时间条是第三种模板（固定 56 像素高）。插入规则用模拟时钟判断“距上一条超过 5 分钟”。在真实项目里用消息的服务器时间戳，并且还要处理“加载更早的历史消息”：往列表<b>头部</b>插入数据时，所有项的位置都会下移，需要在重算前缀和之后把滚动位置加上新插入内容的总高度，用户看到的画面才不会跳动。这是聊天列表比普通列表难的地方，也是练习题之一。</p>
+
+<h3 class="case"><span class="no">案例 18.5</span>背包：网格、筛选排序、拖拽与 Tips<span class="lv">高阶</span></h3>
+<p><b>目标</b>：300 个物品的网格背包，按分类筛选、按规则整理；点击格子弹出详情 Tips，Tips 不出屏幕；长按后拖动可以交换两个格子，拖到边缘自动滚动；直接拖动仍然是滚动列表。</p>
+<figure class="shot"><img src="img/ch18-bag.jpg"><figcaption><b>图 18-7</b> 背包网格（按宽度自动算出 11 列）与物品详情 Tips：Tips 贴在格子右侧，放不下时放左侧，上下夹在屏幕内</figcaption></figure>
+<div class="scene">Ch18/Scenes/Ch18_Bag.unity</div>
+<pre class="code" data-file="Ch18/BagView.cs" data-region="bagdata"></pre>
+<pre class="code" data-file="Ch18/BagView.cs" data-region="bagview"></pre>
+<h4>筛选与排序</h4>
+<pre class="code" data-file="Ch18/BagView.cs" data-region="filter"></pre>
+<p>筛选不复制物品数据，只生成一个“视图”：<code>m_View</code> 存放符合条件的物品在完整背包中的下标，网格显示的第 i 格对应 <code>m_Items[m_View[i]]</code>。切换分类只需重建这个整数列表、重新 SetCount，三百个物品在一帧内就能完成。</p>
+<p>“整理”按钮真实地改变了物品顺序（很多游戏的背包都是这样：整理一次，之后的顺序就固定下来，玩家还可以手动拖动调整）。<code>List.Sort</code> 是不稳定排序，相同品质的物品每次整理后相对顺序可能不同，看起来像“越整理越乱”；所以比较器最后用 Id 兜底，保证同样的输入总是得到同样的结果。</p>
+<h4>点击与 Tips</h4>
+<pre class="code" data-file="Ch18/BagView.cs" data-region="select"></pre>
+<pre class="code" data-file="Ch18/ItemTips.cs" data-region="tips"></pre>
+<p>Tips 的高度随描述长短变化（VerticalLayoutGroup + ContentSizeFitter），而摆放位置要根据高度做边界判断，所以赋完文字后先调用 <code>LayoutRebuilder.ForceRebuildLayoutImmediate</code> 立刻算出布局（第 10 章），再读 <code>rect</code>。位置换算用格子的世界角点 <code>GetWorldCorners</code> 转到 Tips 父节点的本地坐标，和第 3 章跟随鼠标的 Tooltip 是同一个套路。Tips 下面垫了一张全屏透明的按钮，点空白处关闭；列表一滚动也关闭，因为格子已经移走了。</p>
+<p>背包的选中状态也要按“数据”而不是“格子”记录：<code>m_Selected</code> 是视图下标，Bind 时比较 <code>i == m_Selected</code> 决定是否显示选中框。如果把选中状态记在格子对象上（比如格子里存一个 bool），格子被复用后，选中框就会出现在另一个物品上。同理，筛选、整理之后视图下标都变了，所以 SetFilter 里会把选中清空、关闭 Tips。</p>
+<h4>长按拖拽：和 ScrollRect 共存</h4>
+<p>背包格子在 ScrollRect 里，这带来一个经典冲突：格子实现了 <code>IBeginDragHandler</code> 之后，事件系统会把拖拽事件交给格子（第 11 章：事件从命中的物体向上冒泡，找到第一个能处理的就停下），ScrollRect 就收不到拖拽，列表再也滚不动了。解决办法是让格子在开始拖拽时“判断意图”：</p>
+<pre class="code" data-file="Ch18/BagCell.cs" data-region="cell"></pre>
+<p>按下后保持不动超过 0.3 秒再开始拖，判定为“拖物品”；否则判定为“滚列表”，把 <code>OnBeginDrag</code> / <code>OnDrag</code> / <code>OnEndDrag</code> 原样转交给 ScrollRect。ScrollRect 自己就实现了这三个接口，直接调用它的方法即可，惯性和弹性都正常工作。另一种常见的判定方式是看拖拽的初始方向：横向拖是拖物品，纵向拖是滚列表，适合横向空间充足的界面。</p>
+<pre class="code" data-file="Ch18/BagView.cs" data-region="drag"></pre>
+<p>拖拽的实现要点：跟手的图标（Ghost）放在最上层的 DragLayer 里，并且<b>必须关闭 Raycast Target</b>——否则 Ghost 一直在手指正下方，挡住了下面的格子，格子收不到 <code>OnDrop</code>。手指下方是哪个格子，可以直接读 <code>PointerEventData.pointerCurrentRaycast</code>，事件系统已经做过射线检测了。松手时 <code>OnDrop</code> 先于 <code>OnEndDrag</code> 触发（第 11 章的事件顺序表），所以在目标格子的 OnDrop 里交换数据，在源格子的 OnEndDrag 里清理 Ghost。交换的是完整背包里两个物品的位置；由于两个物品都在当前筛选视图里，视图下标不变，只需刷新这两格。</p>
+<p>拖到视口上下边缘时，Update 里按固定速度改变滚动位置并调用 <code>UpdateVisible</code>，背包很长时也能把物品拖到很远的格子。注意格子是复用的：自动滚动过程中，被拖拽的那个源格子可能已经滚出视口、被复用成了别的物品——所以拖拽状态记录的是<b>数据下标</b> <code>m_DragFrom</code>，而不是格子对象。</p>
+<figure class="shot"><img src="img/ch18-bag-drag.jpg"><figcaption><b>图 18-8</b> 按品质整理后的背包，正在拖拽一个格子：原位置图标变淡，Ghost 跟手，手指下的目标格子高亮</figcaption></figure>
+
+<h3 class="case"><span class="no">案例 18.6</span>排行榜：“我的排名”固定行<span class="lv">进阶</span></h3>
+<p><b>目标</b>：一千名玩家的排行榜，前三名有金银铜徽章；我的那一行高亮；我的那一行不在视口里时，在列表顶部或底部显示一个固定的“我的排名”行；点“定位我”平滑滚动到我的位置。</p>
+<figure class="shot"><img src="img/ch18-rank.jpg"><figcaption><b>图 18-9</b> 三种状态：我的排名在视口下方时固定行贴底；在视口内时固定行隐藏（列表里那一行高亮）；在视口上方时固定行贴顶</figcaption></figure>
+<div class="scene">Ch18/Scenes/Ch18_Rank.unity</div>
+<pre class="code" data-file="Ch18/RankPanel.cs" data-region="rank"></pre>
+<p>固定行不是列表的一部分，而是列表外面、和视口同样大小的一个层（PinnedArea）里的一行，用的是和列表项相同的 RankRowView，所以样式完全一致。每次可见区间变化（基类的 <code>Scrolled</code> 事件），判断我的那一行是否<b>完整</b>可见：完整可见就隐藏固定行；否则比较我的那一行和当前滚动位置，在上方就把固定行的锚点设到顶部，在下方就设到底部。“完整可见”而不是“部分可见”很重要：如果只露出一半就隐藏固定行，玩家会看到半行被裁掉的自己。</p>
+<pre class="code" data-file="Ch18/RankRowView.cs" data-region="rankrow"></pre>
+<p>前三名的金银铜徽章用的是同一个模板，只是在 Bind 里根据名次显示或隐藏徽章、切换名次文字的颜色。如果前三名的样式和普通行差别很大（更高的行、立绘、特效），更好的做法是像聊天那样用第二个模板：<code>templateOf = i =&gt; i &lt; 3 ? 1 : 0</code>，再配合 <code>heightOf</code> 给前三名更大的高度。两个模板各自有对象池，不会互相串样式。</p>
+
+<p>示例的“定位我”按钮调用 <code>ScrollTo(myIndex, 0.5f, 0.4f)</code>，把我的那一行平滑滚动到视口中央。滚动过程中每一帧都会触发 Scrolled，固定行会在我的那一行完整进入视口的那一刻消失，衔接得很自然。如果排行榜在打开时就应该显示我附近的名次（很多游戏是这样），在 Init 末尾直接调用一次不带动画的 ScrollTo 即可。</p>
+<p>排行榜的数据量往往很大（全服几十万人），实际项目不会一次把所有数据拉到客户端，而是分页请求：先拿前 100 名和“我附近的 20 名”，滚动接近已加载数据的末尾时再请求下一页。循环列表天然适合分页：SetCount 设成总人数（滚动条正确），onBind 时如果数据还没到，先显示“加载中”的占位，数据到了调用 RefreshItem。这是练习题之一。</p>
+
+<h3 class="sec">18.7 循环列表的常见问题</h3>
+<div class="kv">
+<span>列表项叠在一起或位置乱跳</span><span>Content 或列表项上有 LayoutGroup / ContentSizeFitter 在和代码抢位置。循环列表的 Content 上不能有它们。</span>
+<span>滚动时内容“串”了</span><span>Bind 里没有重设所有字段（见案例 18.1 的铁律），或者按钮回调捕获了旧的下标。</span>
+<span>快速滑动时露出空白</span><span>缓冲区太小；把 Buffer 调成 2。若 Bind 本身很慢（加载图片），要把耗时操作改成异步，先显示占位。</span>
+<span>跳转后位置又被拉走</span><span>没有调用 StopMovement，惯性还在；或者在 SetCount 之前调用了 ScrollTo，此时 Content 高度还不对。</span>
+<span>数据变化后显示没更新</span><span>条数变了要 SetCount（可传 keepPosition=true 保持位置），只是内容变了用 Refresh 或 RefreshItem，高度变了用 InvalidateHeights。</span>
+<span>列表项里的图片闪一下</span><span>复用时异步加载的图片还没回来，显示的是上一条的图。Bind 时先把图片设为占位图，加载回调里检查列表项当前绑定的下标是否仍是发起加载时的那个，不是就丢弃结果。</span>
+<span>序列化引用运行时是 null</span><span>检查字段名：MonoBehaviour 继承自 UnityEngine.Object，它自己就有一个序列化字段 <code>m_Name</code>（物体名）。如果你的视图类也写 <code>[SerializeField] TMP_Text m_Name;</code>，场景文件里会出现两个同名的键，加载时你的引用会丢失，编辑器里看着连好了、一运行就空引用。作者在配套工程里就踩过这个坑，所以本章的列表项都用 <code>m_NameText</code>。<code>m_Script</code>、<code>m_Enabled</code>、<code>m_GameObject</code> 同理不要用。</span>
+<span>嵌套滚动（横向列表套在纵向列表里）</span><span>和背包拖拽是同一个问题，按拖拽方向把事件转给外层 ScrollRect，见第 9 章的嵌套滚动案例。</span>
+</div>
+
+<h4>如何验证一个循环列表写对了</h4>
+<p>循环列表的 bug 往往只在特定操作下出现，建议每写一个新列表都按下面的清单手动测一遍：快速甩到底再甩回顶，看有没有空白和串内容；滚到中间改变数据条数（增加、减少、清空），看位置和显示是否正确；跳转到第一条、最后一条和不存在的下标；在列表滚动的惯性过程中点击列表项；改变窗口大小或横竖屏；让某些数据处于特殊状态（已领取、选中、红点），来回滚动确认状态不会“传染”给别的项。配套工程的固定高度列表场景显示了实例数量和可见区间，测试时盯着这两个数字，任何异常都会立刻表现出来。</p>
+<p>另外值得一提的是，Unity 的另一套 UI 系统 UI Toolkit 内置了虚拟化的 <code>ListView</code>，原理和本章完全相同（固定高度或动态高度、makeItem / bindItem 两个回调）。如果将来迁移到 UI Toolkit（第 21 章讨论取舍），本章的思路和数据接口可以原样沿用。社区里也有不少成熟的 UGUI 循环列表开源实现，功能比本章的更全（横向、分页吸附、无限循环首尾相接），读懂了本章的原理，选用和修改它们都会很轻松。</p>
+
+<h3 class="sec">18.8 什么时候不需要循环列表</h3>
+<p>循环列表不是免费的：它增加了代码复杂度，列表项必须遵守复用的规则，不能用 LayoutGroup 自动排列，调试时看到的场景结构也和数据对不上。下面几种情况，普通列表更合适：条目数量有明确上限且很小（设置页的十几个选项、一屏就能放下的任务列表）；条目结构差异很大、高度无法预先计算（比如图文混排的公告，每条都要先布局才知道高度——这时可以考虑分页，而不是硬上虚拟化）；列表项内部有复杂的状态和动画，复用时很难完整重置。一个实用的经验值是：可能超过一两百条、或者每条比较复杂的列表，就用循环列表；否则先用普通列表，等 Profiler 显示它成为瓶颈时再替换——因为两者的数据接口（数据列表 + Bind 方法）可以设计成一样的，替换的成本很低。</p>
+<p>另外，循环列表解决的是“创建和布局”的开销。如果列表项本身很复杂（几十个 Graphic、带 Mask 的头像、带特效），即使只有十个可见项，滚动时的合批和填充率开销依然存在，这需要第 20 章的手段：减少列表项的层级和 Graphic 数量、用 RectMask2D 代替 Mask、把列表放进单独的 Canvas。</p>
+
+<h3 class="sec">18.9 列表项本身的设计</h3>
+<p>循环列表把列表项的数量降到了个位数，但每个列表项的开销会在滚动时被反复支付：每次复用都要 Bind、可能触发文字重新排版和网格重建，Content 移动时整个 Canvas 要重新合批。所以列表项本身也值得精心设计：</p>
+<ul>
+<li><b>层级扁平</b>：能用一张九宫格图解决的背景不要叠三层；不需要的空节点去掉。每少一个 Graphic，滚动时的合批和裁剪就少一份工作。</li>
+<li><b>关掉不需要的 Raycast Target</b>：列表项里通常只有按钮需要接收点击，图标、文字、背景都应该关闭。射线检测时事件系统要遍历画布上所有开启了 Raycast Target 的 Graphic。</li>
+<li><b>避免每个列表项一个 Mask</b>：圆形头像如果用 Mask 裁剪，每个列表项都会打断合批（第 14 章）。更好的做法是让美术直接出圆形头像图，或者用支持圆形裁剪的 Shader。</li>
+<li><b>图标进图集</b>：列表里的图标如果来自不同的贴图，相邻的列表项无法合批。把同类图标打进一个 Sprite Atlas（第 20 章）。</li>
+<li><b>文字少变</b>：Bind 时文字没变就不要重新赋值；数字格式化的结果可以缓存在数据里（比如“1.2 万”），避免每次 Bind 都生成新字符串。</li>
+<li><b>异步内容要防串</b>：头像、物品图需要异步加载时，Bind 先显示占位图，回调里检查列表项当前的下标是否还是发起加载时的下标。</li>
+</ul>
+<h4>列表项动画与复用</h4>
+<p>“列表打开时各项依次飞入”“新消息滑入”这类动画（第 15 章）和复用天然冲突：一个正在播放飞入动画的列表项被滚出视口、复用给另一条数据，动画还在继续，新数据就会带着半截动画出现。处理原则是：动画状态属于“显示状态”的一部分，Bind 时必须一并重置——要么在 Bind 里停止并复位动画，要么只对“首次出现”的数据播放动画（在数据里记一个标记，播放过就不再播）。入场动画最好只作用于列表项的一个子节点（比如内容容器的位移和透明度），而不要改列表项根节点的位置，因为根节点的位置由循环列表控制，动画和列表会互相覆盖。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>普通列表的开销随数据量线性增长：实测一万条数据十万个 GameObject、创建加首次布局约 8.6 秒（作者环境）；循环列表只有 5 个列表项、十几毫秒，与数据量无关。</li>
+<li>虚拟化 = Content 按全部数据设高度 + 只为可见项和缓冲项创建对象 + 滚动时回收复用。</li>
+<li>先回收、再复用、最后隐藏，避免无谓的 OnDisable/OnEnable 重建；对象池按模板类型分开。</li>
+<li>复用的铁律：Bind 里重设所有字段；按钮回调读当前下标，不捕获旧数据。</li>
+<li>可变高度用前缀和 + 二分查找；高度必须预先测量（TMP.GetPreferredValues）并缓存在数据里；追加时只算新增部分。</li>
+<li>网格按行虚拟化，列数可按宽度自动计算；跳转要先 StopMovement。</li>
+<li>聊天只在用户位于底部时自动滚动；背包长按判定拖物品、否则把拖拽转交 ScrollRect，Ghost 要关 Raycast Target；排行榜固定行按“完整可见”判断贴顶或贴底。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>给 LoopListView 增加横向模式（Horizontal），用它做一个横向滚动的英雄选择列表。</li>
+<li>实现聊天的“上拉加载更早的消息”：在列表头部插入 20 条数据，保证用户看到的画面不跳动（提示：插入后把 ScrollY 加上新插入内容的总高度）。</li>
+<li>让排行榜支持分页：SetCount(1000)，但数据每次只“请求”50 条（用协程模拟 0.5 秒延迟），未到达的行显示“加载中…”占位。</li>
+<li>给背包加多选模式：长按进入多选，点选多个格子后一键出售（复用第 16 章的确认框）。</li>
+<li>给邮件列表加“左滑删除”：在列表项上实现横向拖拽，纵向拖拽仍然交给 ScrollRect；删除后调用 SetCount(count - 1, true) 保持位置。</li>
+<li>在 Ch18_Benchmark 场景里增加“滚动 100 屏”的测量：分别对两种列表连续修改滚动位置并强制更新画布，比较每帧耗时。</li>
+</ol></div>
+</section>

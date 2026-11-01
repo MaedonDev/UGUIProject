@@ -1,0 +1,610 @@
+{
+ "round_4": {
+  "border": [
+   6,
+   6,
+   6,
+   6
+  ]
+ },
+ "round_8": {
+  "border": [
+   10,
+   10,
+   10,
+   10
+  ]
+ },
+ "round_16": {
+  "border": [
+   18,
+   18,
+   18,
+   18
+  ]
+ },
+ "round_24": {
+  "border": [
+   26,
+   26,
+   26,
+   26
+  ]
+ },
+ "round_32": {
+  "border": [
+   34,
+   34,
+   34,
+   34
+  ]
+ },
+ "round_outline_8": {
+  "border": [
+   10,
+   10,
+   10,
+   10
+  ]
+ },
+ "round_outline_16": {
+  "border": [
+   18,
+   18,
+   18,
+   18
+  ]
+ },
+ "pill": {
+  "border": [
+   32,
+   32,
+   32,
+   32
+  ]
+ },
+ "shadow_16": {
+  "border": [
+   38,
+   38,
+   38,
+   38
+  ]
+ },
+ "glow_24": {
+  "border": [
+   54,
+   54,
+   54,
+   54
+  ]
+ },
+ "slot": {
+  "border": [
+   16,
+   16,
+   16,
+   16
+  ]
+ },
+ "frame_select": {
+  "border": [
+   18,
+   18,
+   18,
+   18
+  ]
+ },
+ "circle": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "circle_small": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "ring": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "ring_thin": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "circle_soft": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "gradient_v": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "gradient_h": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "checker": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "stripes": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "noise": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "check": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "close": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "plus": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "minus": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "arrow_down": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "arrow_up": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "arrow_left": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "arrow_right": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "back": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "star": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "star_outline": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "heart": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "home": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "gear": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "user": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "search": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "lock": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "sound": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "mute": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "music": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "bag": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "mail": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "bell": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "trophy": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "gift": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "chat": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "play": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "pause": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "refresh": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "menu": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "pointer": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "info": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "warning": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_sword": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_shield": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_potion_red": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_potion_blue": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_potion_green": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_gem": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_coin": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_apple": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_key": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_scroll": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_bow": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_helmet": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "item_ring": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "avatar_1": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "avatar_2": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "avatar_3": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "avatar_4": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "avatar_5": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "avatar_6": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "bg_landscape": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "bg_night": {
+  "border": [
+   0,
+   0,
+   0,
+   0
+  ]
+ }
+}

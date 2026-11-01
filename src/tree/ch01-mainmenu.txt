@@ -1,0 +1,20 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Background|Image,AspectRatioFitter
+1|Shade|Image
+1|MainPage|
+2|Title|
+3|TitleText|TextMeshProUGUI
+3|SubTitle|TextMeshProUGUI
+2|Buttons|VerticalLayoutGroup
+3|Button_开始游戏|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+4|Icon_play|Image
+3|Button_设置|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+4|Icon_gear|Image
+3|Button_退出|Image,Button,LayoutElement
+4|Text (TMP)|TextMeshProUGUI
+4|Icon_close|Image
+1|Version|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

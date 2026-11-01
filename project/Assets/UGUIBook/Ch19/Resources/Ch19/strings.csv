@@ -1,0 +1,23 @@
+key,zh,en,de,note
+lang.name,简体中文,English,Deutsch,语言自己的名字（下拉框里显示）
+menu.start,开始游戏,Start Game,Spiel starten,
+menu.continue,继续,Continue,Weiter,
+menu.settings,设置,Settings,Einstellungen,
+menu.quit,退出,Quit,Beenden,
+settings.title,设置,Settings,Einstellungen,
+settings.music,音乐,Music,Musik,
+settings.sfx,音效,Sound Effects,Soundeffekte,
+settings.language,语言,Language,Sprache,
+settings.notify,消息通知,Notifications,Benachrichtigungen,德语往往比英语长 30% 以上
+settings.graphics,画面设置,Graphics,Grafikeinstellungen,
+settings.autosave,自动保存,Auto Save,Automatisch speichern,
+reward.claim,领取每日奖励,Claim Daily Reward,Tagesbelohnung abholen,
+dialog.ok,确定,OK,OK,
+dialog.cancel,取消,Cancel,Abbrechen,
+shop.buy,购买,Buy,Kaufen,
+coins,"你有 {0} 个金币","You have {0} coins","Du hast {0} Gold",带参数：用 Loc.Format
+hint.switch,点下面的按钮切换语言,Tap a button below to switch language,Tippe unten auf eine Sprache,
+dialog.quit.body,"确定要退出游戏吗？
+未保存的进度将会丢失。","Are you sure you want to quit?
+Unsaved progress will be lost.","Willst du das Spiel wirklich beenden?
+Nicht gespeicherter Fortschritt geht verloren.",带换行的单元格要用双引号包起来

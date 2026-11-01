@@ -1,0 +1,21 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Text_0|Text
+2|Wireframe|WireframeView
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text_1|Text,Shadow
+2|Wireframe|WireframeView
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text_2|Text,Outline
+2|Wireframe|WireframeView
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|Text_3|Text,Shadow,Outline
+2|Wireframe|WireframeView
+1|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+1|BenchText|Text,Shadow,Outline,OutlineBench
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

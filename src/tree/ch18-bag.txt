@@ -1,0 +1,65 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,BagView
+1|Toolbar|
+2|Tabs|HorizontalLayoutGroup,ToggleGroup
+3|Tab_全部|Image,Toggle
+4|On|Image
+4|Label|TextMeshProUGUI
+3|Tab_装备|Image,Toggle
+4|On|Image
+4|Label|TextMeshProUGUI
+5|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+3|Tab_消耗品|Image,Toggle
+4|On|Image
+4|Label|TextMeshProUGUI
+5|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+3|Tab_材料|Image,Toggle
+4|On|Image
+4|Label|TextMeshProUGUI
+5|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Capacity|TextMeshProUGUI
+2|Dropdown|Image,TMP_Dropdown
+3|Outline|Image
+3|Label|TextMeshProUGUI
+4|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+3|Arrow|Image
+3|!Template|Image,ScrollRect
+4|Viewport|Mask,Image
+5|Content|
+6|Item|Toggle
+7|Item Background|Image
+7|Item Checkmark|Image
+7|Item Label|TextMeshProUGUI
+4|Scrollbar|Image,Scrollbar
+5|Sliding Area|
+6|Handle|Image
+2|Arrange|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+4|TMP SubMeshUI [NotoSansSC-Bold SDF Material + NotoSansSC-Bold SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+1|BagGrid|Image,ScrollRect,LoopGridView
+2|Bg|Image
+2|Viewport|RectMask2D
+3|Content|
+2|Scrollbar Vertical|Image,Scrollbar
+3|Sliding Area|
+4|Handle|Image
+2|!CellTemplate|Image,BagCell
+3|Quality|Image
+3|Shade|Image
+3|Icon|Image
+3|Count|TextMeshProUGUI
+3|Selected|Image
+3|DropHint|Image
+1|!TipsLayer|ItemTips
+2|Blocker|Image,Button
+2|Panel|Image,VerticalLayoutGroup,ContentSizeFitter
+3|Icon|Image,LayoutElement
+3|Name|TextMeshProUGUI
+3|Type|TextMeshProUGUI
+3|Divider|Image,LayoutElement
+3|Desc|TextMeshProUGUI
+3|Footer|TextMeshProUGUI
+1|DragLayer|
+2|!Ghost|Image
+1|Hint|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

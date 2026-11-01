@@ -1,0 +1,10 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|DialogBox|Image,Typewriter,DialogBox
+2|Avatar|Image
+2|Name|TextMeshProUGUI
+2|Body|TextMeshProUGUI
+2|NextArrowRoot|
+3|NextArrow|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

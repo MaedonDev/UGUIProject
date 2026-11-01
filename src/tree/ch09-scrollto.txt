@@ -1,0 +1,46 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ListCard|ScrollToDemo
+2|Shadow|Image
+2|Bg|Image
+2|Scroll View|Image,ScrollRect,SmoothScroller
+3|Viewport|RectMask2D
+4|Content|VerticalLayoutGroup,ContentSizeFitter
+3|Scrollbar Vertical|Image,Scrollbar
+4|Sliding Area|
+5|Handle|Image
+2|!RowTemplate|Image,LayoutElement
+3|Label|TextMeshProUGUI
+1|Controls|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Dropdown|Image,TMP_Dropdown
+3|Outline|Image
+3|Label|TextMeshProUGUI
+3|Arrow|Image
+3|!Template|Image,ScrollRect
+4|Viewport|Mask,Image
+5|Content|
+6|Item|Toggle
+7|Item Background|Image
+7|Item Checkmark|Image
+7|Item Label|TextMeshProUGUI
+4|Scrollbar|Image,Scrollbar
+5|Sliding Area|
+6|Handle|Image
+2|Button_跳 转|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+2|Button_回到顶部|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+3|Icon_arrow_up|Image
+2|Button_滚到底部|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+3|Icon_arrow_down|Image
+0|EventSystem|EventSystem,StandaloneInputModule

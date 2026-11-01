@@ -1,0 +1,556 @@
+<section class="chapter" id="c11" data-title="事件系统" data-sub="从一次点击读懂 EventSystem、输入模块与射线检测">
+<div class="chap-head"><div class="num">CHAPTER 11<b>第 11 章</b></div><h2>事件系统</h2><p class="lead">按钮能点、列表能滑、背包能拖——这些都建立在 EventSystem 之上。本章从“一次点击”出发，沿着源码走完从读取输入、射线检测、排序、冒泡到回调的全过程，并在配套工程里驱动真实的输入模块，录下事件发生的真实顺序。然后用七个案例把拖拽、多点触控、3D 物体点击和事件转发全部做一遍。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>EventSystem、输入模块（InputModule）、射线检测器（Raycaster）三件套的分工，以及 StandaloneInputModule.Process 的完整流程</div><div>GraphicRaycaster 如何筛选命中的图形、EventSystem 如何给多个射线结果排序，Raycast Target 与 CanvasGroup 在其中的作用</div><div>全部事件接口、ExecuteEvents 的冒泡规则、拖拽事件的阈值与顺序，PointerEventData 每个字段的含义</div><div>PhysicsRaycaster、EventTrigger、Input System 包的 InputSystemUIInputModule、多点触控，以及七个可运行的交互案例</div></div>
+
+<h3 class="sec">11.1 三件套：谁负责什么</h3>
+<p>新建一个 Canvas 时，Unity 会顺手建一个叫 EventSystem 的物体，上面挂着 EventSystem 和 Standalone Input Module；Canvas 上则自带一个 Graphic Raycaster。这三个组件就是 UGUI 事件系统的全部骨架：</p>
+<div class="kv"><span>EventSystem</span><span>总调度。每帧（Update）挑一个可用的输入模块让它干活；记录当前选中的物体（currentSelectedGameObject）；提供 <code>RaycastAll</code>，把所有射线检测器的结果汇总、排序。场景里应当只有一个。</span>
+<span>InputModule</span><span>翻译官。读取原始输入（鼠标、触摸、键盘、手柄），换算成 PointerEventData，决定这一帧该发哪些事件、发给谁。内置的是 StandaloneInputModule（旧 Input Manager），Input System 包提供 InputSystemUIInputModule。</span>
+<span>Raycaster</span><span>眼睛。回答“屏幕上这一点下面有什么”。GraphicRaycaster 检测 UI 图形，PhysicsRaycaster 检测 3D 碰撞体，Physics2DRaycaster 检测 2D 碰撞体。每个 Canvas 一个 GraphicRaycaster，每个相机可以挂一个物理射线检测器。</span></div>
+<p>新手最常遇到的“按钮点了没反应”，十有八九就是这三件里少了一件：场景里没有 EventSystem（复制界面到新场景时最容易丢）、Canvas 上的 GraphicRaycaster 被删了、或者 Active Input Handling 设成了只用新 Input System 却还挂着 StandaloneInputModule。理解了这三者的分工，排查就有了方向。</p>
+<figure><svg viewBox="0 0 600 230" width="600" font-family="PingFang SC" font-size="13">
+<defs><marker id="a11" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b4bd6"/></marker></defs>
+<rect x="10" y="80" width="110" height="70" rx="8" fill="#fff" stroke="#7a8299"/><text x="65" y="108" text-anchor="middle" font-weight="bold">原始输入</text><text x="65" y="130" text-anchor="middle" fill="#7a8299" font-size="12">鼠标/触摸/键盘</text>
+<rect x="150" y="70" width="140" height="90" rx="8" fill="#f4f2fd" stroke="#5b4bd6"/><text x="220" y="98" text-anchor="middle" font-weight="bold" fill="#5b4bd6">InputModule</text><text x="220" y="120" text-anchor="middle" font-size="12">生成 PointerEventData</text><text x="220" y="140" text-anchor="middle" font-size="12">决定发什么事件</text>
+<rect x="320" y="10" width="150" height="70" rx="8" fill="#fff4ec" stroke="#ff8a3d"/><text x="395" y="38" text-anchor="middle" font-weight="bold" fill="#ff8a3d">EventSystem</text><text x="395" y="60" text-anchor="middle" font-size="12">RaycastAll + 排序</text>
+<rect x="320" y="150" width="150" height="70" rx="8" fill="#eef8f2" stroke="#2fb36a"/><text x="395" y="178" text-anchor="middle" font-weight="bold" fill="#2fb36a">ExecuteEvents</text><text x="395" y="200" text-anchor="middle" font-size="12">找处理者、冒泡、回调</text>
+<rect x="492" y="10" width="104" height="30" rx="6" fill="#fff" stroke="#e0deef"/><text x="544" y="30" text-anchor="middle" font-size="11">GraphicRaycaster</text>
+<rect x="492" y="50" width="104" height="30" rx="6" fill="#fff" stroke="#e0deef"/><text x="544" y="70" text-anchor="middle" font-size="11">PhysicsRaycaster</text>
+<rect x="492" y="170" width="104" height="34" rx="6" fill="#fff" stroke="#e0deef"/><text x="544" y="192" text-anchor="middle" font-size="11">IPointerXxxHandler</text>
+<line x1="120" y1="115" x2="148" y2="115" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a11)"/>
+<line x1="290" y1="95" x2="318" y2="55" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a11)"/>
+<line x1="470" y1="30" x2="490" y2="25" stroke="#5b4bd6" stroke-width="1.5" marker-end="url(#a11)"/>
+<line x1="470" y1="55" x2="490" y2="63" stroke="#5b4bd6" stroke-width="1.5" marker-end="url(#a11)"/>
+<line x1="290" y1="140" x2="318" y2="180" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a11)"/>
+<line x1="470" y1="187" x2="490" y2="187" stroke="#5b4bd6" stroke-width="2" marker-end="url(#a11)"/>
+<text x="10" y="200" fill="#7a8299" font-size="12">每帧：EventSystem.Update → module.Process()</text>
+</svg><figcaption><b>图 11-1</b> 事件系统的数据流：输入模块是主角，射线检测与事件派发都是它在调用</figcaption></figure>
+
+<h3 class="sec">11.2 EventSystem.Update：每帧做了什么</h3>
+<p>EventSystem 本身的逻辑很少，核心就是 Update：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/EventSystem/EventSystem.cs
+protected virtual void Update()
+{
+    if (current != this)
+        return;
+    TickModules();
+    bool changedModule = false;
+    var systemInputModulesCount = m_SystemInputModules.Count;
+    for (var i = 0; i &lt; systemInputModulesCount; i++)
+    {
+        var module = m_SystemInputModules[i];
+        if (module.IsModuleSupported() &amp;&amp; module.ShouldActivateModule())
+        {
+            if (m_CurrentInputModule != module)
+            {
+                ChangeEventModule(module);
+                changedModule = true;
+            }
+            break;
+        }
+    }
+    // no event module set... set the first valid one...
+    if (m_CurrentInputModule == null)
+    {
+        // ……找第一个 IsModuleSupported 的模块
+    }
+    if (!changedModule &amp;&amp; m_CurrentInputModule != null)
+        m_CurrentInputModule.Process();
+    // ……（编辑器下：场景里不止一个 EventSystem 时打警告）
+}
+</pre>
+<p>几个值得注意的点：</p>
+<ul>
+<li><b>只有 <code>EventSystem.current</code> 会工作</b>。current 是静态列表里的第一个（最早启用的那个），其他 EventSystem 的 Update 直接 return。所以场景叠加加载时出现两个 EventSystem，后加载的那个是“摆设”，编辑器还会每帧打警告。</li>
+<li><b>TickModules</b> 调用所有模块的 UpdateModule（StandaloneInputModule 在这里记录上一帧和这一帧的鼠标位置）。</li>
+<li><b>同一时刻只有一个模块在 Process</b>。模块按挂载顺序询问 ShouldActivateModule，第一个回答“要”的成为当前模块；切换模块的那一帧不 Process。</li>
+</ul>
+<h4>选中（Selection）：键盘和手柄导航的基础</h4>
+<p>EventSystem 还维护着“当前选中的物体”。它和悬停、按下是完全不同的概念：悬停跟着指针走，选中则是一个持久状态，键盘方向键、手柄摇杆、回车键的事件都发给它。设置选中的唯一入口是 SetSelectedGameObject：</p>
+<pre class="code" data-lang="csharp">// 摘自 EventSystem.cs
+public void SetSelectedGameObject(GameObject selected, BaseEventData pointer)
+{
+    if (m_SelectionGuard)
+    {
+        Debug.LogError("Attempting to select " + selected +  "while already selecting an object.");
+        return;
+    }
+    m_SelectionGuard = true;
+    if (selected == m_CurrentSelected)
+    {
+        m_SelectionGuard = false;
+        return;
+    }
+    // Debug.Log("Selection: new (" + selected + ") old (" + m_CurrentSelected + ")");
+    ExecuteEvents.Execute(m_CurrentSelected, pointer, ExecuteEvents.deselectHandler);
+    m_CurrentSelected = selected;
+    ExecuteEvents.Execute(m_CurrentSelected, pointer, ExecuteEvents.selectHandler);
+    m_SelectionGuard = false;
+}
+</pre>
+<p>先给旧的发 OnDeselect，再给新的发 OnSelect。m_SelectionGuard 防止在 OnSelect / OnDeselect 回调里再次调用它（那会打出“while already selecting”的错误）——如果你需要在失去选中时把选中转移到别处，要延后一帧再做。鼠标按下时，输入模块会调用 DeselectIfSelectionChanged：如果按下的东西不是当前选中的物体（沿父链找 ISelectHandler），就先把选中清空；Selectable 自己在 OnPointerDown 里再把自己设为选中。所以用鼠标点过一个按钮后，按钮会停在 Selected 状态（第 6 章的按钮“点完一直高亮”就是这个原因），点一下空白处才会取消。EventSystem 的 First Selected 字段决定输入模块激活时默认选中谁，做手柄菜单时一定要设置它。</p>
+<p>另一个重要方法是 <code>RaycastAll</code>：遍历 RaycasterManager 里登记的所有射线检测器（每个 BaseRaycaster 在 OnEnable 时登记），让它们把结果追加到同一个列表里，最后用 RaycastComparer 排序。排序规则在 11.4 节讲。</p>
+
+<h3 class="sec">11.3 一次点击的全过程：StandaloneInputModule 源码</h3>
+<p>Process 是输入模块每帧的入口：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/EventSystem/InputModules/StandaloneInputModule.cs
+public override void Process()
+{
+    if (!eventSystem.isFocused &amp;&amp; ShouldIgnoreEventsOnNoFocus())
+        return;
+    bool usedEvent = SendUpdateEventToSelectedObject();
+    // case 1004066 - touch / mouse events should be processed before navigation events in case
+    // they change the current selected gameobject and the submit button is a touch / mouse button.
+    // touch needs to take precedence because of the mouse emulation layer
+    if (!ProcessTouchEvents() &amp;&amp; input.mousePresent)
+        ProcessMouseEvent();
+    if (eventSystem.sendNavigationEvents)
+    {
+        if (!usedEvent)
+            usedEvent |= SendMoveEventToSelectedObject();
+        if (!usedEvent)
+            SendSubmitEventToSelectedObject();
+    }
+}
+</pre>
+<p>顺序是：先给当前选中物体发 OnUpdateSelected（InputField 靠它每帧处理键盘输入）→ 有触摸就处理触摸，没有就处理鼠标 → 最后处理键盘/手柄导航（方向键 Move、回车 Submit、Esc Cancel）。注意第一行：窗口失去焦点时整个模块停止工作，这就是“编辑器里点了 Game 视图之外的地方，UI 就不响应了”的原因。</p>
+<h4>ProcessMouseEvent：一帧里的三步</h4>
+<pre class="code" data-lang="csharp">// 摘自 StandaloneInputModule.cs
+protected void ProcessMouseEvent(int id)
+{
+    var mouseData = GetMousePointerEventData(id);
+    var leftButtonData = mouseData.GetButtonState(PointerEventData.InputButton.Left).eventData;
+    m_CurrentFocusedGameObject = leftButtonData.buttonData.pointerCurrentRaycast.gameObject;
+    // Process the first mouse button fully
+    ProcessMousePress(leftButtonData);
+    ProcessMove(leftButtonData.buttonData);
+    ProcessDrag(leftButtonData.buttonData);
+    // Now process right / middle clicks
+    ProcessMousePress(mouseData.GetButtonState(PointerEventData.InputButton.Right).eventData);
+    ProcessDrag(mouseData.GetButtonState(PointerEventData.InputButton.Right).eventData.buttonData);
+    ProcessMousePress(mouseData.GetButtonState(PointerEventData.InputButton.Middle).eventData);
+    ProcessDrag(mouseData.GetButtonState(PointerEventData.InputButton.Middle).eventData.buttonData);
+    if (!Mathf.Approximately(leftButtonData.buttonData.scrollDelta.sqrMagnitude, 0.0f))
+    {
+        var scrollHandler = ExecuteEvents.GetEventHandler&lt;IScrollHandler&gt;(leftButtonData.buttonData.pointerCurrentRaycast.gameObject);
+        ExecuteEvents.ExecuteHierarchy(scrollHandler, leftButtonData.buttonData, ExecuteEvents.scrollHandler);
+    }
+}
+</pre>
+<p><code>GetMousePointerEventData</code>（在父类 PointerInputModule 里）先更新左键的 PointerEventData：位置、与上一帧的差 delta、滚轮，然后<b>做一次 RaycastAll，取排序后的第一个结果</b>存进 <code>pointerCurrentRaycast</code>；右键、中键的数据从左键复制。也就是说，鼠标每一帧都会做一次完整的射线检测，不管你有没有按键。</p>
+<p>接下来对左键依次处理按下/抬起（ProcessMousePress）、悬停进出（ProcessMove）、拖拽（ProcessDrag）。</p>
+<h4>按下：找“按下处理者”和“点击处理者”</h4>
+<pre class="code" data-lang="csharp">// 摘自 StandaloneInputModule.cs（ProcessMousePress，按下分支节选）
+pointerEvent.eligibleForClick = true;
+pointerEvent.delta = Vector2.zero;
+pointerEvent.dragging = false;
+pointerEvent.useDragThreshold = true;
+pointerEvent.pressPosition = pointerEvent.position;
+pointerEvent.pointerPressRaycast = pointerEvent.pointerCurrentRaycast;
+DeselectIfSelectionChanged(currentOverGo, pointerEvent);
+// ……（双击计时重置）
+var newPressed = ExecuteEvents.ExecuteHierarchy(currentOverGo, pointerEvent, ExecuteEvents.pointerDownHandler);
+var newClick = ExecuteEvents.GetEventHandler&lt;IPointerClickHandler&gt;(currentOverGo);
+// didnt find a press handler... search for a click handler
+if (newPressed == null)
+    newPressed = newClick;
+// ……（clickCount：同一个物体在 0.3 秒内再次按下就累加）
+pointerEvent.pointerPress = newPressed;
+pointerEvent.rawPointerPress = currentOverGo;
+pointerEvent.pointerClick = newClick;
+pointerEvent.clickTime = time;
+// Save the drag handler as well
+pointerEvent.pointerDrag = ExecuteEvents.GetEventHandler&lt;IDragHandler&gt;(currentOverGo);
+if (pointerEvent.pointerDrag != null)
+    ExecuteEvents.Execute(pointerEvent.pointerDrag, pointerEvent, ExecuteEvents.initializePotentialDrag);
+</pre>
+<p>按下的那一帧，模块从射线命中的物体（currentOverGo，往往是按钮里的文字或图标）出发，<b>沿父链向上</b>找三种处理者：第一个实现 IPointerDownHandler 的（立刻调用 OnPointerDown，记为 pointerPress）、第一个实现 IPointerClickHandler 的（先记下来，抬起时再判断）、第一个实现 IDragHandler 的（记为 pointerDrag，并立即发 OnInitializePotentialDrag）。三个处理者可以是不同的物体——比如列表项里的按钮处理点击，外层的 ScrollRect 处理拖拽。</p>
+<h4>抬起：同一个物体才算点击</h4>
+<pre class="code" data-lang="csharp">// 摘自 StandaloneInputModule.cs（ReleaseMouse 节选）
+ExecuteEvents.Execute(pointerEvent.pointerPress, pointerEvent, ExecuteEvents.pointerUpHandler);
+var pointerClickHandler = ExecuteEvents.GetEventHandler&lt;IPointerClickHandler&gt;(currentOverGo);
+// PointerClick and Drop events
+if (pointerEvent.pointerClick == pointerClickHandler &amp;&amp; pointerEvent.eligibleForClick)
+{
+    ExecuteEvents.Execute(pointerEvent.pointerClick, pointerEvent, ExecuteEvents.pointerClickHandler);
+}
+if (pointerEvent.pointerDrag != null &amp;&amp; pointerEvent.dragging)
+{
+    ExecuteEvents.ExecuteHierarchy(currentOverGo, pointerEvent, ExecuteEvents.dropHandler);
+}
+// ……清空 pointerPress / rawPointerPress / pointerClick
+if (pointerEvent.pointerDrag != null &amp;&amp; pointerEvent.dragging)
+    ExecuteEvents.Execute(pointerEvent.pointerDrag, pointerEvent, ExecuteEvents.endDragHandler);
+</pre>
+<p>抬起时 OnPointerUp 总是发给按下时的那个物体（即使指针已经移走）；OnPointerClick 只有在“抬起处找到的点击处理者 == 按下时记下的点击处理者”并且 eligibleForClick 还为真时才发——这就是为什么在按钮上按下、拖到外面再松手不会触发点击。还要注意顺序：<b>OnDrop 在 OnEndDrag 之前</b>，案例 11.2 正是利用这一点判断物品有没有被某个格子接住。</p>
+<h4>悬停链：HandlePointerExitAndEnter</h4>
+<p>悬停事件由 BaseInputModule.HandlePointerExitAndEnter 处理。它先用 FindCommonRoot 找到旧悬停物体与新悬停物体的公共祖先，然后从旧物体沿父链向上发 OnPointerExit，直到（不包括）公共祖先；再从新物体沿父链向上发 OnPointerEnter，同样到公共祖先为止。这意味着从子物体 A 移到同一父物体下的 B 时，父物体 Panel 不会收到 Exit 再 Enter——它一直处于悬停状态。PointerEventData 的 fullyExited、reentered 两个字段就是为了让处理者区分“真的离开了”和“只是移到了自己的子物体上”。BaseInputModule 还有一个序列化字段 m_SendPointerHoverToParent（默认 true），关掉后悬停事件遇到第一个处理者就停止向上传播，行为更接近点击事件。做“鼠标移到卡片上弹出详情”这类功能时，如果卡片内部有很多子元素，记得在 OnPointerExit 里检查 fullyExited，否则在子元素之间移动时详情框会闪烁。</p>
+<h4>实测：真实的事件顺序</h4>
+<p>读源码容易漏细节，不如直接录下来。配套工程里写了一个 ScriptedInput（继承 BaseInput，用代码“假装”鼠标），赋给输入模块的 <code>inputOverride</code>，就能在不进入 Play 模式的情况下驱动<b>真实的</b> StandaloneInputModule。面板 Panel 和它里面的 A、B 都挂了一个记录所有事件的 EventLogger：</p>
+<pre class="code" data-file="Ch11/ScriptedInput.cs" data-region="input"></pre>
+<pre class="code" data-file="Ch11/EventLogger.cs" data-region="logger"></pre>
+<figure class="shot"><img src="img/ch11-order.jpg"><figcaption><b>图 11-2</b> 用 ScriptedInput 驱动 StandaloneInputModule 录下的真实事件序列（配图生成时实跑，未经手工编辑）</figcaption></figure>
+<p>从图 11-2 可以读出很多源码里不太显眼的事实：</p>
+<ul>
+<li>移入 A 时，A 和它的父物体 Panel <b>都</b>收到了 OnPointerEnter。悬停事件是沿父链发的（HandlePointerExitAndEnter 一直走到两个物体的公共祖先为止），而按下、点击只发给第一个处理者。</li>
+<li>按下的同一帧里，紧跟 OnPointerDown 的是 OnInitializePotentialDrag——因为 A 实现了 IDragHandler，它被记成了潜在的拖拽对象。</li>
+<li>第 3 帧指针移动了 24 像素，超过 EventSystem 的 Drag Threshold（默认 10 像素），于是同一帧里先 OnBeginDrag 再 OnDrag。</li>
+<li>第 4 帧拖到 B 上：先处理悬停（A Exit、B Enter），再发 OnDrag。拖拽期间悬停事件照常发送，案例 11.2 用它来高亮“即将放入的格子”。</li>
+<li>第 5 帧松手：OnPointerUp 发给 A（按下的物体），没有 OnPointerClick（抬起处的点击处理者是 B，不是 A），OnDrop 发给 B，最后 OnEndDrag 发给 A。</li>
+</ul>
+<div class="scene">Ch11/Scenes/Ch11_EventLog.unity</div>
+<p>打开这个场景运行，在 A、B 上点击、拖动，右侧会实时显示事件日志（方括号里是帧号）。试试在 A 上按下后移出再松手、快速双击（看 clickCount）、按住右键拖动，体会每种操作的事件组合。</p>
+
+<h3 class="sec">11.4 射线检测：谁在最上面</h3>
+<h4>GraphicRaycaster.Raycast 逐段看</h4>
+<p>GraphicRaycaster 的 Raycast 方法先做一系列快速过滤，再逐个测试图形：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/UI/Core/GraphicRaycaster.cs（静态 Raycast，逐个测试图形）
+for (int i = 0; i &lt; totalCount; ++i)
+{
+    Graphic graphic = foundGraphics[i];
+    // -1 means it hasn't been processed by the canvas, which means it isn't actually drawn
+    if (!graphic.raycastTarget || graphic.canvasRenderer.cull || graphic.depth == -1)
+        continue;
+    if (!RectTransformUtility.RectangleContainsScreenPoint(graphic.rectTransform, pointerPosition, eventCamera, graphic.raycastPadding))
+        continue;
+    if (eventCamera != null &amp;&amp; eventCamera.WorldToScreenPoint(graphic.rectTransform.position).z &gt; eventCamera.farClipPlane)
+        continue;
+    if (graphic.Raycast(pointerPosition, eventCamera))
+    {
+        s_SortedGraphics.Add(graphic);
+    }
+}
+s_SortedGraphics.Sort((g1, g2) =&gt; g2.depth.CompareTo(g1.depth));
+</pre>
+<p>候选图形来自 <code>GraphicRegistry.GetRaycastableGraphicsForCanvas</code>：只有 Raycast Target 勾选的图形才会登记到这个列表里，所以关掉 Raycast Target 不仅让它“点不中”，还让它根本不参与遍历——这是第 20 章“清理 Raycast Target”优化的源头。之后依次排除：被 RectMask2D 裁掉的（cull）、还没被画过的（depth == -1，比如本帧刚激活的）、点不在矩形内的（可以用 Raycast Padding 扩大或缩小可点区域）、超出相机远裁剪面的。最后调用 <code>graphic.Raycast</code>，它沿父链检查所有 ICanvasRaycastFilter：</p>
+<ul>
+<li><b>CanvasGroup</b>：blocksRaycasts 为 false 时返回无效，整个子树都点不中；ignoreParentGroups 会让它不再理会更上层的 CanvasGroup。</li>
+<li><b>Image</b>：alphaHitTestMinimumThreshold 大于 0 时按像素透明度判断（见第 4 章不规则按钮）。</li>
+<li><b>RectMask2D / Mask</b>：点在遮罩外面就无效。</li>
+<li>遇到勾了 Override Sorting 的子 Canvas 时停止向上检查。</li>
+</ul>
+<p>通过的图形按 depth（Canvas 计算出的绘制顺序，越大越靠上）从大到小排序。对 Screen Space - Camera 和 World Space 画布，还会计算射线到图形平面的距离，并可以用 Blocking Objects 让前面的 3D/2D 碰撞体挡住 UI。</p>
+<h4>多个射线检测器的排序</h4>
+<p>EventSystem.RaycastAll 把所有检测器的结果合在一起后排序，比较器 RaycastComparer 的优先级从高到低是：</p>
+<ol>
+<li>不同检测器时：事件相机的 depth 大的在前；再比 sortOrderPriority（Overlay 画布返回自己的 sortingOrder）、renderOrderPriority；</li>
+<li>Sorting Layer 靠上的在前；</li>
+<li>sortingOrder 大的在前；</li>
+<li>同一个根画布内，depth 大的在前；</li>
+<li>distance 小的在前；</li>
+<li>都一样就按加入列表的先后。</li>
+</ol>
+<p>Overlay 画布的检测器在第 1 步就会排在 PhysicsRaycaster 前面（PhysicsRaycaster 的 sortOrderPriority 是 int.MinValue），这就是“UI 自动挡住 3D 物体”的原因（案例 11.5）。</p>
+<p>同样用实测说话。图 11-3 里，P 点下面叠着：Card 底图、购买按钮、按钮文字、一个挂了 CanvasGroup（blocksRaycasts = false）的水印、钻石图标和标题（Raycast Target 关闭），以及另一个 sortingOrder = 10 的画布上的 Toast。右侧是在配图生成时对 P 点调用 <code>EventSystem.RaycastAll</code> 得到的真实结果：</p>
+<figure class="shot"><img src="img/ch11-raycast.jpg"><figcaption><b>图 11-3</b> RaycastAll 的真实结果：高 sortingOrder 画布的 Toast 排第一；按钮的文字（Text (TMP)）也被命中了</figcaption></figure>
+<p>结果里有一个很多人没注意到的事实：<b>按钮的文字也在命中列表里，而且排在按钮前面</b>。用菜单 <span class="menu">UI › Button - TextMeshPro</span> 创建的按钮，文字默认是开着 Raycast Target 的。它不影响点击（文字本身没有处理者，ExecuteEvents 会沿父链找到 Button），但它白白参与了每帧的射线检测，还可能挡住你放在文字后面的其他可点击元素。养成习惯：<b>纯展示的文字和图标关掉 Raycast Target</b>。</p>
+
+<h4>射线检测的性能</h4>
+<p>从源码可以算出射线检测的开销：鼠标存在时，每帧至少一次 RaycastAll；每根触摸手指每帧一次。每次 RaycastAll 遍历所有启用的射线检测器，每个 GraphicRaycaster 遍历自己画布上所有开了 Raycast Target 的图形，对每个图形做矩形测试，通过的还要沿父链 GetComponents 检查过滤器。所以真正影响开销的是“开着 Raycast Target 的图形数量”和“它们的层级深度”，而不是画布数量本身。几条建议：纯展示的 Image、Text 关掉 Raycast Target（TMP 文字默认是开着的）；隐藏的界面不仅要看不见，还要关掉它的 GraphicRaycaster 或整个 Canvas；不需要交互的画布（纯 HUD 显示）可以干脆不挂 GraphicRaycaster；PhysicsRaycaster 的 Event Mask 只勾需要点击的层，并设置 Max Ray Intersections 使用无 GC 的版本。具体的测量方法见第 20 章。</p>
+<h3 class="sec">11.5 PointerEventData：一次指针交互的全部信息</h3>
+<p>所有指针事件的参数都是 PointerEventData。它不是每次事件新建的，而是输入模块按 pointerId 缓存、每帧更新的同一个对象（鼠标左键 id = -1、右键 -2、中键 -3，触摸用 fingerId 0、1、2……）。常用字段：</p>
+<table>
+<tr><th>字段</th><th>含义</th></tr>
+<tr><td>position / delta</td><td>当前屏幕坐标（像素，左下角为原点）/ 与上一帧的差</td></tr>
+<tr><td>pressPosition</td><td>按下时的屏幕坐标；拖拽阈值就是比较它和 position 的距离</td></tr>
+<tr><td>pointerCurrentRaycast</td><td>本帧射线检测排第一的结果（RaycastResult：gameObject、module、distance、depth、worldPosition、worldNormal……）</td></tr>
+<tr><td>pointerPressRaycast</td><td>按下那一帧的射线结果</td></tr>
+<tr><td>pointerEnter / hovered</td><td>当前悬停的物体 / 悬停链上所有收到 Enter 的物体</td></tr>
+<tr><td>pointerPress / rawPointerPress / lastPress</td><td>处理按下事件的物体 / 射线实际命中的物体 / 上一次按下的物体</td></tr>
+<tr><td>pointerClick</td><td>按下时记下的点击处理者</td></tr>
+<tr><td>pointerDrag / dragging</td><td>拖拽处理者 / 是否已超过阈值开始拖拽</td></tr>
+<tr><td>useDragThreshold</td><td>是否使用拖拽阈值，可以在 OnInitializePotentialDrag 里关掉（案例 11.6）</td></tr>
+<tr><td>clickCount / clickTime</td><td>连击次数（0.3 秒内）/ 上次按下的时间（unscaledTime）</td></tr>
+<tr><td>button</td><td>Left / Right / Middle</td></tr>
+<tr><td>pressEventCamera / enterEventCamera</td><td>按下/悬停时命中物体所属检测器的相机；Overlay 画布为 null。坐标换算时传它</td></tr>
+<tr><td>scrollDelta</td><td>滚轮</td></tr>
+<tr><td>eligibleForClick</td><td>是否还有资格触发点击，开始拖拽后会被清为 false</td></tr>
+<tr><td>used / Use()</td><td>标记“已使用”，主要用于导航与提交事件（见 11.6 节）</td></tr>
+</table>
+<div class="note warn"><b>注意</b>因为 PointerEventData 是复用的，<b>不要把它存下来在之后的帧里读</b>，下一帧它的内容就变了。需要保存的数值（位置、pointerId）请拷贝出来。</div>
+
+<h3 class="sec">11.6 事件接口全表与 ExecuteEvents</h3>
+<p>UGUI 的所有事件接口都继承自空接口 IEventSystemHandler，定义在 <code>Runtime/EventSystem/EventInterfaces.cs</code>：</p>
+<table>
+<tr><th>接口</th><th>方法</th><th>何时触发（StandaloneInputModule）</th><th>发给谁</th></tr>
+<tr><td>IPointerEnterHandler / IPointerExitHandler</td><td>OnPointerEnter / OnPointerExit</td><td>悬停目标变化时</td><td>沿父链，到公共祖先为止</td></tr>
+<tr><td>IPointerMoveHandler</td><td>OnPointerMove</td><td>指针在悬停链上移动时</td><td>悬停链上的物体</td></tr>
+<tr><td>IPointerDownHandler</td><td>OnPointerDown</td><td>按下的那一帧</td><td>从命中物体向上第一个处理者</td></tr>
+<tr><td>IPointerUpHandler</td><td>OnPointerUp</td><td>抬起的那一帧（或开始拖拽时，如果按下者不是拖拽者）</td><td>pointerPress</td></tr>
+<tr><td>IPointerClickHandler</td><td>OnPointerClick</td><td>在同一个物体上按下并抬起</td><td>pointerClick</td></tr>
+<tr><td>IInitializePotentialDragHandler</td><td>OnInitializePotentialDrag</td><td>按下时，找到了拖拽处理者</td><td>pointerDrag</td></tr>
+<tr><td>IBeginDragHandler / IDragHandler / IEndDragHandler</td><td>OnBeginDrag / OnDrag / OnEndDrag</td><td>超过阈值时 / 拖拽中每帧（指针有移动时）/ 松手时</td><td>pointerDrag</td></tr>
+<tr><td>IDropHandler</td><td>OnDrop</td><td>拖拽中松手，在 OnEndDrag 之前</td><td>从松手处命中物体向上第一个处理者</td></tr>
+<tr><td>IScrollHandler</td><td>OnScroll</td><td>滚轮</td><td>向上第一个处理者</td></tr>
+<tr><td>ISelectHandler / IDeselectHandler</td><td>OnSelect / OnDeselect</td><td>EventSystem.SetSelectedGameObject 时</td><td>新/旧选中物体</td></tr>
+<tr><td>IUpdateSelectedHandler</td><td>OnUpdateSelected</td><td>每帧</td><td>当前选中物体</td></tr>
+<tr><td>IMoveHandler</td><td>OnMove</td><td>方向键/摇杆导航</td><td>当前选中物体</td></tr>
+<tr><td>ISubmitHandler / ICancelHandler</td><td>OnSubmit / OnCancel</td><td>Submit / Cancel 按键</td><td>当前选中物体</td></tr>
+</table>
+<h4>ExecuteEvents：三个函数决定冒泡规则</h4>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/EventSystem/ExecuteEvents.cs
+public static GameObject ExecuteHierarchy&lt;T&gt;(GameObject root, BaseEventData eventData, EventFunction&lt;T&gt; callbackFunction) where T : IEventSystemHandler
+{
+    GetEventChain(root, s_InternalTransformList);
+    var internalTransformListCount = s_InternalTransformList.Count;
+    for (var i = 0; i &lt; internalTransformListCount; i++)
+    {
+        var transform = s_InternalTransformList[i];
+        if (Execute(transform.gameObject, eventData, callbackFunction))
+            return transform.gameObject;
+    }
+    return null;
+}
+public static GameObject GetEventHandler&lt;T&gt;(GameObject root) where T : IEventSystemHandler
+{
+    if (root == null)
+        return null;
+    Transform t = root.transform;
+    while (t != null)
+    {
+        if (CanHandleEvent&lt;T&gt;(t.gameObject))
+            return t.gameObject;
+        t = t.parent;
+    }
+    return null;
+}
+</pre>
+<ul>
+<li><code>Execute(go, data, functor)</code>：只对 go 这一个物体，调用它身上<b>所有</b>启用的、实现了接口 T 的组件。一个组件抛异常不会影响其他组件（每次调用都包在 try/catch 里，异常用 Debug.LogException 打出来）。</li>
+<li><code>ExecuteHierarchy</code>：从 root 开始沿父链往上，<b>在第一个能处理的物体上执行后就停止</b>，返回那个物体。按下、放置、滚轮用它。</li>
+<li><code>GetEventHandler</code>：只找不执行，返回父链上第一个能处理的物体。点击、拖拽处理者用它预先记录。</li>
+</ul>
+<p>所以 UGUI 的“冒泡”和网页 DOM 不同：<b>它只冒到第一个处理者为止，没有“继续向上传播”的选项</b>，BaseEventData.Use() 也不能阻止父物体收到事件（Use 只被导航、提交等少数地方检查）。想让父物体也收到，需要子物体自己转发：<code>ExecuteEvents.ExecuteHierarchy(transform.parent.gameObject, eventData, ExecuteEvents.pointerClickHandler)</code>。案例 11.7 是一个完整的转发例子。</p>
+<p>你也可以用 ExecuteEvents 发自定义事件：定义一个继承 IEventSystemHandler 的接口和一个 <code>EventFunction&lt;T&gt;</code>，就能用同样的冒泡机制向 UI 层级里发消息，比 SendMessage 类型安全得多。</p>
+
+<h3 class="sec">11.7 拖拽的细节</h3>
+<p>拖拽相关的判断集中在 PointerInputModule.ProcessDrag：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/EventSystem/InputModules/PointerInputModule.cs
+protected virtual void ProcessDrag(PointerEventData pointerEvent)
+{
+    if (!pointerEvent.IsPointerMoving() ||
+        Cursor.lockState == CursorLockMode.Locked ||
+        pointerEvent.pointerDrag == null)
+        return;
+    if (!pointerEvent.dragging
+        &amp;&amp; ShouldStartDrag(pointerEvent.pressPosition, pointerEvent.position, eventSystem.pixelDragThreshold, pointerEvent.useDragThreshold))
+    {
+        ExecuteEvents.Execute(pointerEvent.pointerDrag, pointerEvent, ExecuteEvents.beginDragHandler);
+        pointerEvent.dragging = true;
+    }
+    // Drag notification
+    if (pointerEvent.dragging)
+    {
+        // Before doing drag we should cancel any pointer down state
+        // And clear selection!
+        if (pointerEvent.pointerPress != pointerEvent.pointerDrag)
+        {
+            ExecuteEvents.Execute(pointerEvent.pointerPress, pointerEvent, ExecuteEvents.pointerUpHandler);
+            pointerEvent.eligibleForClick = false;
+            pointerEvent.pointerPress = null;
+            pointerEvent.rawPointerPress = null;
+        }
+        ExecuteEvents.Execute(pointerEvent.pointerDrag, pointerEvent, ExecuteEvents.dragHandler);
+    }
+}
+</pre>
+<ul>
+<li><b>指针不动就没有 OnDrag</b>：按住不动时 IsPointerMoving 为 false，不会每帧收到 OnDrag。需要“按住持续触发”的逻辑（比如摇杆按住不动也要持续移动）应该在 Update 里读状态，而不是依赖 OnDrag。</li>
+<li><b>阈值</b>：EventSystem 的 Drag Threshold 默认 10 像素，是屏幕像素，高分屏手机上 10 像素很短，手指一抖就会从“点击”变成“拖拽”。移动端常根据 Screen.dpi 动态设置，例如 <code>EventSystem.current.pixelDragThreshold = Mathf.RoundToInt(0.1f * Screen.dpi)</code>（约 2.5 毫米），以实际设备手感为准。</li>
+<li><b>开始拖拽会取消按下</b>：按下处理者和拖拽处理者不是同一个物体时（列表里的按钮 + 外层 ScrollRect），开始拖拽的瞬间会给按钮补发 OnPointerUp、并取消点击资格。所以滑动列表时按钮不会被误点，按钮的按下态也会恢复。</li>
+<li><b>Drop 的目标是射线命中的物体</b>：被拖动的物体如果跟着指针走，它自己就挡在了射线前面，OnDrop 永远落在它自己身上。解决办法是拖拽期间把它的 CanvasGroup.blocksRaycasts 设为 false（案例 11.2）。</li>
+</ul>
+
+<h3 class="sec">11.8 屏蔽与穿透：CanvasGroup、Raycast Target 与 IsPointerOverGameObject</h3>
+<p>控制“点不点得到”有几个层次：</p>
+<table>
+<tr><th>手段</th><th>作用范围</th><th>说明</th></tr>
+<tr><td>Graphic.raycastTarget = false</td><td>单个图形</td><td>不参与射线检测，射线穿过它打到下面的东西</td></tr>
+<tr><td>CanvasGroup.blocksRaycasts = false</td><td>整个子树</td><td>子树里所有图形都点不中（穿透）；常用于拖拽中的物体、淡出中的界面</td></tr>
+<tr><td>CanvasGroup.interactable = false</td><td>整个子树的 Selectable</td><td>按钮等控件变成禁用态，但图形仍然挡射线（不穿透）</td></tr>
+<tr><td>Selectable.interactable = false</td><td>单个控件</td><td>禁用态，仍挡射线</td></tr>
+<tr><td>GraphicRaycaster.enabled = false</td><td>整个画布</td><td>整个画布不再响应、也不挡射线；隐藏界面时比逐个关闭便宜</td></tr>
+<tr><td>全屏透明 Image</td><td>挡住下面所有东西</td><td>模态弹窗的遮罩（案例 11.4）</td></tr>
+</table>
+<p>另一个方向的需求是：游戏逻辑自己读输入（比如点地面移动角色），但点在 UI 上时不该响应。<code>EventSystem.current.IsPointerOverGameObject()</code> 就是为此准备的，它的实现很简单：</p>
+<pre class="code" data-lang="csharp">// 摘自 PointerInputModule.cs
+public override bool IsPointerOverGameObject(int pointerId)
+{
+    var lastPointer = GetLastPointerEventData(pointerId);
+    if (lastPointer != null)
+        return lastPointer.pointerEnter != null;
+    return false;
+}
+</pre>
+<p>它看的是“该指针上一次处理时的悬停物体”。由此可以推出三个坑：一是触摸时要传 fingerId（无参版本固定查鼠标左键 -1，在手机上永远是 false）；二是它在输入模块 Process 之后才有效，如果你的 Update 先于 EventSystem 执行，读到的是上一帧的状态；三是场景里有 PhysicsRaycaster 时，悬停在 3D 物体上也返回 true，它分不清是不是 UI。案例 11.5 的 GroundClicker 用另一种更可靠的写法：自己调用一次 RaycastAll，看第一个结果的 module 是不是 GraphicRaycaster。</p>
+
+<h3 class="sec">11.9 PhysicsRaycaster、EventTrigger 与 Input System</h3>
+<h4>PhysicsRaycaster：让 3D 物体收到 UI 事件</h4>
+<p>给相机挂 <span class="menu">Add Component › Event › Physics Raycaster</span>，场景里带 Collider 的物体就能实现 IPointerClickHandler 等接口了。它的 Raycast 用相机发射线（Physics.RaycastAll，或设置了 Max Ray Intersections 时用 NonAlloc 版本），按距离排序后加入结果，并把命中点、法线写进 RaycastResult 的 worldPosition / worldNormal。Event Mask 与相机的 Culling Mask 求交集决定检测哪些层。2D 游戏用 Physics2DRaycaster，原理相同。</p>
+<h4>EventTrigger：为什么不推荐大量使用</h4>
+<p>EventTrigger 组件让你在 Inspector 里给任意事件绑定回调，看起来很方便。但看一眼它的声明就知道问题在哪：</p>
+<pre class="code" data-lang="csharp">// 摘自 Runtime/EventSystem/EventTrigger.cs（节选）
+public class EventTrigger :
+    MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler,
+    IPointerDownHandler,
+    // ……
+    IBeginDragHandler,
+    IDragHandler,
+    IEndDragHandler,
+    IDropHandler,
+    IScrollHandler,
+    // ……
+    ICancelHandler
+</pre>
+<p>它<b>实现了 17 个事件接口</b>（除 IPointerMoveHandler 外的全部），不管你在 Inspector 里只添加了一个 PointerClick。于是按 11.6 节的冒泡规则，它会截获这个物体上的所有事件：放在 ScrollRect 里的列表项挂了 EventTrigger 只想处理点击，结果拖拽也被它“处理”了（GetEventHandler&lt;IDragHandler&gt; 先找到它），列表再也滑不动；滚轮也被吃掉。此外每次事件都要遍历一遍 triggers 列表并调用 UnityEvent，比直接实现接口多一层开销。结论：原型阶段可以用，正式代码里需要哪个事件就实现哪个接口。</p>
+<h4>Input System 包的 InputSystemUIInputModule</h4>
+<p>本书工程的 Active Input Handling 是 Both，StandaloneInputModule 和新 Input System 都能用。如果项目只启用新 Input System，StandaloneInputModule 读不到任何输入，必须换成 Input System 包里的 <code>InputSystemUIInputModule</code>（选中 EventSystem，Inspector 里 StandaloneInputModule 上方会出现 “Replace with InputSystemUIInputModule” 按钮，这个提示来自 Input System 包的 StandaloneInputModuleEditor）。两者的差别：</p>
+<table>
+<tr><th></th><th>StandaloneInputModule</th><th>InputSystemUIInputModule</th></tr>
+<tr><td>输入来源</td><td>UnityEngine.Input（旧 Input Manager 的轴名 Horizontal、Submit……）</td><td>Input Action：Point、Click、ScrollWheel、Navigate、Submit、Cancel……可在 Actions Asset 里重绑定</td></tr>
+<tr><td>默认动作</td><td>—</td><td>OnEnable 时若没有配置任何动作，会调用 AssignDefaultActions() 使用包内的 DefaultInputActions</td></tr>
+<tr><td>事件数据</td><td>PointerEventData</td><td>ExtendedPointerEventData：额外有 device、pointerType（Mouse/Touch/Pen/Tracked）、touchId 等</td></tr>
+<tr><td>多指针</td><td>鼠标 + 触摸</td><td>鼠标、多点触摸、笔、XR 控制器，可选“合并成单指针”的 Pointer Behavior</td></tr>
+<tr><td>多人本地分屏</td><td>不支持</td><td>配合 MultiplayerEventSystem 每个玩家一套</td></tr>
+</table>
+<p>对 UI 代码而言，事件接口完全一样，你写的 IPointerClickHandler 不用改。想区分设备时，把参数转成 ExtendedPointerEventData：</p>
+<pre class="code" data-file="Ch11/InputModuleInfo.cs" data-region="click"></pre>
+<div class="scene">Ch11/Scenes/Ch11_InputSystem.unity</div>
+<p>这个场景的 EventSystem 上挂的是 InputSystemUIInputModule（搭景代码没有手动配置动作，运行时由 OnEnable 自动使用默认动作）。用鼠标点击、在支持触摸的设备上点击、或者接上手柄用方向键导航，观察显示的设备与指针类型。</p>
+
+<h4>World Space 画布的交互</h4>
+<p>World Space 画布（3D 场景里的告示牌、电脑屏幕、VR 菜单）的事件同样由 GraphicRaycaster 处理，但有两个前提：画布的 Event Camera 必须指定（为空时 eventCamera 属性会退回 Camera.main，找不到就无法检测）；画布不能离相机太远超出远裁剪面。射线结果的 distance 是相机到图形平面的真实距离，所以多个 World Space 画布之间、画布与 3D 物体之间可以按远近正确排序，配合 Blocking Objects = Three D，前面的墙就能挡住后面的屏幕。VR 中用手柄射线点 UI 时，Input System 包提供的 TrackedDeviceRaycaster 会用控制器的射线代替屏幕坐标，原理相同。</p>
+<h3 class="sec">11.10 多点触控</h3>
+<p>StandaloneInputModule 的 ProcessTouchEvents 对每一个触摸点（跳过 TouchType.Indirect，例如 Apple TV 遥控器）单独调用 GetTouchPointerEventData，每根手指有自己的 PointerEventData（pointerId = fingerId），独立地走一遍按下、悬停、拖拽流程。有触摸时这一帧不处理鼠标（Process 里的 <code>!ProcessTouchEvents() &amp;&amp;</code>）。这带来几个直接后果：</p>
+<ul>
+<li>两根手指可以同时操作两个不同的控件：左手推摇杆、右手按技能（案例 11.3 的摇杆只认自己的那根手指）。</li>
+<li>同一个控件上的两根手指会产生两套独立的事件，控件需要用 pointerId 区分（案例 11.6）。</li>
+<li>触摸抬起时会直接发 OnPointerExit（手机上没有“悬停”）。</li>
+<li>Input.multiTouchEnabled 关掉时只有第一根手指会被报告。</li>
+</ul>
+<p>编辑器里没有多点触控，测试双指手势通常用 Unity Remote、真机，或者像案例 11.6 那样同时支持鼠标滚轮作为替代输入。</p>
+
+<h3 class="case"><span class="no">案例 11.1</span>可拖拽窗口<span class="lv">入门</span></h3>
+<p><b>目标</b>：按住窗口标题栏拖动窗口；窗口不能被拖出屏幕；点一下窗口就置顶。</p>
+<ol class="steps">
+<li>窗口是一个 Image（白底圆角），标题栏是它的子物体 Image，锚点设为顶部横向拉伸，高 80。</li>
+<li>给<b>标题栏</b>挂 DraggableWindow，把 Window 字段拖成窗口本身。标题栏的 Image 必须开着 Raycast Target，否则收不到事件。</li>
+</ol>
+<pre class="code" data-file="Ch11/DraggableWindow.cs" data-region="drag"></pre>
+<p>关键是坐标换算：<code>e.position</code> 是屏幕像素，而窗口在父物体里的位置是本地坐标，两者之间隔着 CanvasScaler 的缩放和可能的相机投影。<code>RectTransformUtility.ScreenPointToLocalPointInRectangle</code> 负责这一步，相机参数传 <code>e.pressEventCamera</code>（Overlay 画布为 null，Camera 画布为画布相机），两种模式都正确。OnBeginDrag 时记下“指针到窗口轴心”的偏移，拖动时保持这个偏移，窗口就不会在开始拖的瞬间跳一下。</p>
+<pre class="code" data-file="Ch11/DraggableWindow.cs" data-region="clamp"></pre>
+<figure class="shot"><img src="img/ch11-window.jpg"><figcaption><b>图 11-4</b> 三个可拖拽窗口，后点击的在上面</figcaption></figure>
+<div class="scene">Ch11/Scenes/Ch11_DragWindow.unity</div>
+<p><b>常见坑</b>：标题栏上的关闭按钮是 Button，它实现了 IPointerDownHandler 和 IPointerClickHandler，但没有实现 IDragHandler。所以在关闭按钮上按下并拖动，拖拽处理者会沿父链找到标题栏的 DraggableWindow，窗口照样能拖，而按钮的点击会在开始拖拽时被取消——这正是 11.7 节说的行为，不需要额外处理。窗口如果放在 World Space 画布上，OnDrag 里的坐标换算同样正确，只要画布的 Event Camera 设置了相机。</p>
+<p>置顶用的是 <code>SetAsLastSibling</code>：同一父物体下越靠后越晚画，也越先被射线命中。注意它会改变层级顺序，如果窗口在布局组里，布局也会重排；窗口所在的父物体最好是一个专门的“窗口层”。</p>
+
+<h3 class="case"><span class="no">案例 11.2</span>拖放背包格子（交换 / 丢弃）<span class="lv">进阶</span></h3>
+<p><b>目标</b>：把物品从一个格子拖到另一个格子：空格子直接放入，有物品就交换；拖到垃圾桶丢弃；拖到无效位置自动回到原位；拖动经过的格子高亮。</p>
+<p><b>思路</b>：物品实现 IBeginDrag / IDrag / IEndDrag，格子实现 IDropHandler。有两个容易踩的坑，都在 11.7 节分析过：物品跟着指针走会挡住射线（用 CanvasGroup.blocksRaycasts 解决）；物品在格子里时会被后面的格子盖住（拖起时挪到最上层的“拖拽层”解决）。</p>
+<pre class="code" data-file="Ch11/InventoryItem.cs" data-region="drag"></pre>
+<p>OnEndDrag 里用 m_Dropped 判断有没有被接住：因为 OnDrop 先于 OnEndDrag 执行，如果某个格子或垃圾桶接住了物品，它会调用 PlaceInto 或 Discard 把 m_Dropped 设为 true；到 OnEndDrag 时仍为 false，就说明落在了无效位置，放回原格子。</p>
+<pre class="code" data-file="Ch11/InventorySlot.cs" data-region="drop"></pre>
+<p>格子从 <code>e.pointerDrag</code> 拿到正在拖的物体。这一点很重要：任何东西都可能被拖到格子上（比如滑动外层列表时），所以要先确认它是 InventoryItem。交换时，“原住民”搬到被拖物品的来源格子（origin），然后被拖物品放进本格。</p>
+<figure class="shot"><img src="img/ch11-inventory.jpg"><figcaption><b>图 11-5</b> 正在把宝石拖到第 3 格上：宝石已移到拖拽层并半透明，目标格高亮</figcaption></figure>
+<div class="scene">Ch11/Scenes/Ch11_Inventory.unity</div>
+<div class="note tip"><b>扩展</b>真实项目里物品数据和显示应该分离：格子只显示数据，拖放只修改数据（交换两个格子的物品 ID），再刷新显示。这样存档、网络同步、撤销都更简单。另一种常见做法是拖起时不移动物品本身，而是生成一个“幽灵”图标跟随指针，原物品半透明留在原地，放下时再交换数据。</div>
+
+<h3 class="case"><span class="no">案例 11.3</span>虚拟摇杆<span class="lv">进阶</span></h3>
+<p><b>目标</b>：左半屏任意位置按下出现摇杆，拖动输出方向和力度，松手复位；支持死区；多点触控时只认控制摇杆的那根手指。</p>
+<pre class="code" data-file="Ch11/VirtualJoystick.cs" data-region="input"></pre>
+<p>几个设计要点：</p>
+<ul>
+<li>摇杆挂在一块<b>透明但开着 Raycast Target</b> 的大区域上（Image 颜色 alpha 为 0），而不是只挂在小小的底座上——手指不需要精确按到底座。</li>
+<li>OnPointerDown 里记下 pointerId，之后只处理这根手指的事件。右手在右半屏按技能按钮时产生的是另一个 pointerId，射线也命中不到左半屏，两者互不干扰。</li>
+<li>摇杆用 OnPointerDown + OnDrag 而不是 OnBeginDrag，因为按下的那一刻就要有输出；而 OnDrag 本身受拖拽阈值影响，前 10 像素收不到——这里在 OnPointerDown 末尾主动调用一次 OnDrag，并且摇杆的输出本来就会在后续 OnDrag 中更新。如果想完全消除阈值，可以像案例 11.6 那样在 OnInitializePotentialDrag 里关闭它。</li>
+<li>死区内输出 0，死区外重新映射到 0~1，手感更线性。</li>
+</ul>
+<figure class="shot"><img src="img/ch11-joystick.jpg"><figcaption><b>图 11-6</b> 动态摇杆：底座出现在按下的位置，摇杆头被限制在半径内</figcaption></figure>
+<div class="scene">Ch11/Scenes/Ch11_Joystick.unity</div>
+<p><b>常见坑</b>：摇杆区域如果和技能按钮所在的区域重叠，按钮在上层时手指按在按钮上就不会出现摇杆，这通常是期望的行为；反过来如果透明的摇杆区域盖在按钮上面，按钮就再也点不到了——注意层级顺序。另外，应用切到后台、来电或弹出系统对话框时，手指抬起的事件可能丢失，摇杆会“卡”在按下状态；在 OnApplicationPause / OnApplicationFocus 里调用复位逻辑可以避免。</p>
+<p>如 11.7 节所说，手指按住不动时不会有 OnDrag，但 value 保持不变，角色仍在 JoystickPlayer.Update 里持续移动——<b>状态由事件更新，行为由 Update 驱动</b>，这是处理“持续输入”的标准分工。</p>
+
+<h3 class="case"><span class="no">案例 11.4</span>点击空白处关闭弹窗<span class="lv">入门</span></h3>
+<p><b>目标</b>：模态弹窗出现时，点弹窗外的半透明区域关闭弹窗，点弹窗内部不关闭；另做一个不挡其他按钮的下拉小菜单，点它外面任意处收起。</p>
+<h4>做法一：全屏遮罩（模态弹窗）</h4>
+<p>结构是 Popup → Blocker（全屏半透明 Image）+ Panel（弹窗本体），<b>Blocker 和 Panel 是兄弟，Blocker 在前</b>。点 Panel 时射线先命中 Panel 的图片，事件沿 Panel 的父链冒泡，经过 Popup，根本碰不到 Blocker；点 Panel 外面时命中 Blocker，关闭弹窗。遮罩同时挡住了下面的所有按钮，这正是模态弹窗想要的。</p>
+<pre class="code" data-file="Ch11/PopupBlocker.cs" data-region="click"></pre>
+<p>如果有人把 Panel 错放成了 Blocker 的子物体，点 Panel 的点击会冒泡到 Blocker 上导致弹窗被关掉——这是这类功能最常见的 bug。脚本里检查 <code>pointerPressRaycast.gameObject</code> 是否就是 Blocker 本身，可以把这种情况挡掉。</p>
+<figure class="shot"><img src="img/ch11-popup.jpg"><figcaption><b>图 11-7</b> 模态弹窗：Blocker 挡住了后面的按钮</figcaption></figure>
+<h4>做法二：轮询指针位置（下拉菜单）</h4>
+<p>下拉菜单、气泡提示不希望挡住别的按钮：点菜单外的某个按钮，应该在收起菜单的同时触发那个按钮。这时不能用遮罩，而是在 Update 里检查“这一帧有没有按下，按下点在不在我的矩形里”：</p>
+<pre class="code" data-file="Ch11/DismissOnOutsidePress.cs" data-region="poll"></pre>
+<p>用 <code>#if ENABLE_INPUT_SYSTEM</code> / <code>ENABLE_LEGACY_INPUT_MANAGER</code> 同时兼容两套输入系统，这两个宏由 Player Settings 的 Active Input Handling 决定。</p>
+<div class="scene">Ch11/Scenes/Ch11_ClickOutside.unity</div>
+<p>场景里“打开弹窗”“领取”按钮的 OnClick 是在 Inspector 里绑定的（UnityEvent 持久监听，调用 GameObject.SetActive），没有写任何脚本，可以在 Inspector 里看到绑定关系。</p>
+
+<h3 class="case"><span class="no">案例 11.5</span>点击 3D 物体<span class="lv">进阶</span></h3>
+<p><b>目标</b>：场景里的方块、球、圆柱能像 UI 一样响应悬停和点击；UI 按钮挡在 3D 物体前面时，点按钮不会点到后面的物体；点地面放置标记，但点在 UI 上时不放置。</p>
+<ol class="steps">
+<li>选中 Main Camera，<span class="menu">Add Component › Event › Physics Raycaster</span>。</li>
+<li>3D 物体要有 Collider（用 <span class="menu">GameObject › 3D Object</span> 创建的自带），挂 Clickable3D。</li>
+<li>场景里要有 EventSystem（新建 UI 时自动创建；纯 3D 场景需要手动 <span class="menu">GameObject › UI › Event System</span>）。</li>
+</ol>
+<pre class="code" data-file="Ch11/Clickable3D.cs" data-region="events"></pre>
+<p>PhysicsRaycaster 填写了 RaycastResult 的 worldPosition 和 worldNormal，所以 OnPointerClick 里能直接拿到命中点。改颜色用 MaterialPropertyBlock，几个物体共用一个材质也互不影响，且不会生成材质实例。</p>
+<p>点地面的逻辑不走 EventSystem，而是在 Update 里自己读输入。为了不在点 UI 时也放置标记，需要判断指针是否在 UI 上：</p>
+<pre class="code" data-file="Ch11/GroundClicker.cs" data-region="guard"></pre>
+<figure class="shot"><img src="img/ch11-click3d.jpg"><figcaption><b>图 11-8</b> 球处于悬停高亮；底部是配图生成时对球调用 RaycastAll 得到的真实命中结果</figcaption></figure>
+<div class="scene">Ch11/Scenes/Ch11_Click3D.unity</div>
+<p>把“UI 按钮”拖到圆柱前面，点按钮的重叠部分，圆柱不会被点中：Overlay 画布的 GraphicRaycaster 在 RaycastComparer 第一步就排在了 PhysicsRaycaster 前面。如果画布是 Screen Space - Camera 且和物理检测器用同一个相机，就要比 sortingOrder、distance 了，结果可能不同——遇到“UI 挡不住 3D”的问题，先看两个检测器的排序依据。</p>
+<div class="note warn"><b>作者踩坑</b>在编辑器里（不进 Play 模式）用代码移动了带 Collider 的物体后立刻做物理射线，命中的仍是物体旧位置——编辑器下不跑物理模拟，Transform 的变化没有同步到物理场景。配图代码里需要先调用 <code>Physics.SyncTransforms()</code>。运行时如果在同一帧内移动物体后马上射线，也可能遇到同样的问题（取决于 Auto Sync Transforms 设置）。</div>
+
+<h3 class="case"><span class="no">案例 11.6</span>手势：双指缩放与单指平移<span class="lv">高阶</span></h3>
+<p><b>目标</b>：地图可以双指缩放（以两指中点为中心）、单指拖动平移、鼠标滚轮缩放；内容始终盖满视口。</p>
+<pre class="code" data-file="Ch11/PinchZoom.cs" data-region="pointers"></pre>
+<p>因为每根手指都有独立的 PointerEventData，我们用字典按 pointerId 记录“当前按着的手指和它们的位置”。某根手指 OnDrag 时，如果只有一根手指就平移；两根时比较“这根手指移动前后，与另一根手指的距离”之比，就是这一帧的缩放倍数。OnInitializePotentialDrag 里把 useDragThreshold 设为 false，手指一动就开始收到 OnDrag，缩放不会“卡一下”。</p>
+<pre class="code" data-file="Ch11/PinchZoom.cs" data-region="zoom"></pre>
+<p>“以某点为中心缩放”的技巧：缩放前后分别把同一个屏幕点换算成内容的本地坐标，两者之差乘以缩放倍数，就是内容需要移动的距离——把“漂走”的那一段补回来，手指下面的地点就保持不动了。</p>
+<figure class="shot"><img src="img/ch11-pinch.jpg"><figcaption><b>图 11-9</b> 以两指中点为中心放大 1.7 倍后的地图（白点为示意的手指位置）</figcaption></figure>
+<div class="scene">Ch11/Scenes/Ch11_Pinch.unity</div>
+<p><b>常见坑</b>：两根手指几乎同时按下时，第二根手指的 OnPointerDown 可能比第一根手指的第一次 OnDrag 还早，所以缩放计算必须只依赖字典里的最新位置，而不是假设事件的先后顺序。还要处理“缩放过程中抬起一根手指”：剩下那根手指立刻变成平移，如果它这一帧的位移包含了缩放时的移动，地图会猛地跳一下——可以在手指数量变化的那一帧跳过平移。地图内容很大时，缩放会改变大量顶点的世界坐标，但只修改了根节点的 localScale，不会触发任何图形重建，只有 Canvas 需要重新合批（第 12 章会实测这一点）。</p>
+<p>编辑器里用滚轮测试缩放（OnScroll 的 enterEventCamera 用于坐标换算），真机上测试双指。注意视口挂的是 RectMask2D，它也是一个 ICanvasRaycastFilter：地图放大后超出视口的部分点不到，这正是我们想要的。</p>
+
+<h3 class="case"><span class="no">案例 11.7</span>事件冒泡与拦截：列表里的“左滑删除”<span class="lv">高阶</span></h3>
+<p><b>目标</b>：竖向滚动的邮件列表，每一行可以左滑露出删除按钮；上下拖动时列表正常滚动。</p>
+<p><b>问题</b>：行实现了 IDragHandler。按下时输入模块用 GetEventHandler&lt;IDragHandler&gt; 从命中物体向上找拖拽处理者，最先找到的是行，于是上下拖动也被行“吃掉”，ScrollRect 永远收不到拖拽，列表滚不动了。这就是 11.6 节说的“只冒到第一个处理者为止”。</p>
+<p><b>解决</b>：在 OnBeginDrag 里根据拖动方向决定归属。横向自己处理；竖向就把这次拖拽转交给 ScrollRect——改写 <code>eventData.pointerDrag</code>，再手动给 ScrollRect 补发 OnBeginDrag。之后的 OnDrag、OnEndDrag 输入模块会直接发给 pointerDrag 指向的 ScrollRect。</p>
+<pre class="code" data-file="Ch11/SwipeRow.cs" data-region="forward"></pre>
+<p>方向用 <code>position - pressPosition</code> 判断而不是单帧的 delta：OnBeginDrag 发生在越过阈值的那一帧，累计位移比单帧位移可靠得多。OnInitializePotentialDrag 也要转发，ScrollRect 用它在按下时停住惯性滚动——否则列表还在惯性滑动时你按住某一行，列表不会停。</p>
+<figure class="shot"><img src="img/ch11-swipe.jpg" style="width:50%"><figcaption><b>图 11-10</b> 第 2 行已左滑打开，第 4 行滑到一半</figcaption></figure>
+<div class="scene">Ch11/Scenes/Ch11_SwipeList.unity</div>
+<div class="note"><b>举一反三</b>同样的“转交”技巧可以解决所有嵌套拖拽冲突：横向翻页里套竖向列表、可拖动的地图上有可拖动的图标。第 9 章的横竖嵌套 ScrollRect 也是这个原理。另一种思路是不实现 IDragHandler，而是在 Update 里自己判断手势——但那样就失去了 EventSystem 帮你做的射线检测、多点触控和取消点击等处理，通常得不偿失。</div>
+
+<h3 class="sec">11.11 排查清单：点了没反应</h3>
+<p>结合本章源码，“点了没反应”可以按事件流的顺序逐项排查：</p>
+<ol>
+<li><b>EventSystem</b>：场景里有没有？是不是有两个（第二个不工作）？运行时选中它，Inspector 底部的预览窗口会显示当前模块、悬停物体、按下物体等信息（来自 EventSystem.ToString）。</li>
+<li><b>输入模块</b>：Active Input Handling 只开了新 Input System 时，StandaloneInputModule 收不到输入；反之亦然。</li>
+<li><b>射线检测器</b>：Canvas 上有没有 GraphicRaycaster？3D 物体的相机上有没有 PhysicsRaycaster？</li>
+<li><b>射线有没有打到目标</b>：目标图形的 Raycast Target 是否开着？上面有没有透明的 Image 挡着（全屏背景、空的 Image、文字）？父物体有没有 CanvasGroup.blocksRaycasts = false？是不是被 RectMask2D 裁到了外面？</li>
+<li><b>有没有处理者</b>：命中物体到根的父链上，有没有组件实现了对应接口、并且是启用状态？中途有没有 EventTrigger 或别的组件把事件截走了？</li>
+<li><b>交互状态</b>：Selectable.interactable 和 CanvasGroup.interactable 是否为 true？</li>
+<li><b>焦点</b>：编辑器里 Game 视图是否有焦点？</li>
+</ol>
+<p>第 21 章会做一个运行时调试工具，把鼠标下面所有射线命中的物体列出来，原理就是本章 11.4 节的 RaycastAll。</p>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>EventSystem 每帧让当前输入模块 Process；输入模块生成 PointerEventData，调用 RaycastAll 找到指针下的物体，再用 ExecuteEvents 派发事件。</li>
+<li>GraphicRaycaster 只遍历开了 Raycast Target 的图形，排除被裁剪、未绘制、不在矩形内的，再经过 CanvasGroup、Mask、alpha 测试等过滤器，按 depth 排序；多个检测器的结果按相机深度、sortingOrder、depth、距离排序。</li>
+<li>按下时从命中物体向上找按下、点击、拖拽三种处理者；同一物体上按下并抬起才算点击；OnDrop 在 OnEndDrag 之前；超过拖拽阈值才开始拖，开始拖拽会取消按钮的按下与点击。</li>
+<li>事件只冒泡到第一个处理者为止，想让父物体也收到需要手动转发；改写 pointerDrag 可以把拖拽转交给别的物体。</li>
+<li>EventTrigger 实现了几乎全部事件接口，会截获这个物体上的所有事件；IsPointerOverGameObject 读的是上一次处理的悬停物体，触摸要传 fingerId。</li>
+<li>PhysicsRaycaster 让 3D 物体响应 UI 事件；Input System 项目用 InputSystemUIInputModule，事件接口不变，可通过 ExtendedPointerEventData 区分设备。</li>
+<li>多点触控时每根手指一套独立的事件数据，控件用 pointerId 区分；持续性输入用“事件改状态、Update 读状态”的分工。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>打开 Ch11_EventLog 场景，在 A 上按下，移到 Panel 的空白处再松手。预测事件序列，再运行验证；然后把 A 上的 EventLogger 换成只实现 IPointerClickHandler 的脚本，重新预测按下时谁收到 OnPointerDown。</li>
+<li>给可拖拽窗口加“边缘吸附”：松手时距离屏幕边缘小于 40 像素就贴边。再加“拖动右下角缩放窗口”的手柄。</li>
+<li>修改背包案例：拖拽时不移动物品本身，而是生成一个跟随指针的幽灵图标；在拖到不能放的格子（例如装备栏只接受装备）上时显示红色。</li>
+<li>为虚拟摇杆增加“固定位置 + 超出半径时底座跟随手指”的模式（很多射击游戏的手感）。</li>
+<li>写一个自定义事件接口 IItemUsedHandler，用 ExecuteEvents.ExecuteHierarchy 从物品向上发送，让背包面板和角色面板都能响应（提示：一个处理者处理完后要继续转发给父级）。</li>
+<li>阅读 InputSystemUIInputModule 的 Process 源码（包 com.unity.inputsystem 的 InputSystem/Plugins/UI 目录），找出它在触摸抬起后为什么要“推迟一帧”才移除指针状态，这对 IsPointerOverGameObject 有什么影响。</li>
+</ol></div>
+</section>

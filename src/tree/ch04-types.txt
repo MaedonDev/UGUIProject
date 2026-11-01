@@ -1,0 +1,11 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Simple：整张图直接拉伸|Image
+1|Text|TextMeshProUGUI
+1|Sliced：九宫格，四角不变|Image
+1|Text|TextMeshProUGUI
+1|Tiled：按原尺寸重复铺满|Image
+1|Text|TextMeshProUGUI
+1|Filled：只画一部分（这里 Radial 360，0.7）|Image
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

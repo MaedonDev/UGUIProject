@@ -1,0 +1,20 @@
+<section class="page front" id="front">
+  <h1>写在前面</h1>
+  <p>几乎每个 Unity 项目都离不开界面：主菜单、设置页、背包、商城、聊天、血条、小地图、新手引导……而 Unity 自带的 UGUI（Unity UI）从 4.6 版本诞生到今天，仍然是游戏项目里使用最广的运行时 UI 方案。它上手不难——拖一个按钮进场景就能点——但真要做好却不容易：换个分辨率就错位，列表一长就卡顿，界面一多就乱成一团，点了没反应不知道从哪查，美术要的效果不知道怎么实现。</p>
+  <p>这本书想陪你把这条路完整走一遍：<b>从第一个按钮开始，一直走到能读懂 UGUI 源码、能写自己的控件和 Shader、能搭起一个项目级 UI 框架、能定位并解决性能问题。</b>每个结论都有能跑的代码，每张截图都是配套工程真实渲染出来的。</p>
+  <p><b>这本书怎么组织。</b>全书分五个部分。<b>第一部分“入门”</b>从零开始：认识 UGUI，做出第一个界面，搞懂 Canvas、屏幕适配、RectTransform 与锚点，学会用图片和文字。<b>第二部分“控件”</b>逐个讲透内置控件——Button、Toggle、Slider、InputField、Dropdown、ScrollRect——以及自动布局系统，每个控件都讲结构、讲参数、讲事件、做实用案例。<b>第三部分“原理”</b>打开源码：事件系统如何把一次点击送到你的回调，Graphic 与 Canvas 如何重建和合批，如何自定义网格、写 UI Shader，Mask 和 RectMask2D 到底是怎么裁剪的。<b>第四部分“实战”</b>是项目里最常写的东西：UI 动效、UI 框架、游戏 HUD、无限滚动列表与背包、多分辨率与多语言。<b>第五部分“精通”</b>讲性能优化、调试工具与大量实用技巧。附录是随手翻的速查表。</p>
+  <p><b>每一章的写法。</b>章首列出“本章你会学到”，正文先讲必要的概念和原理，然后是一个个编号的<b>案例</b>：目标、思路、编辑器操作步骤、完整代码、关键代码讲解、实际效果截图、配套场景和常见坑。案例标题右侧标了难度：<b>入门</b>、<b>进阶</b>、<b>高阶</b>。章末有小结和练习。</p>
+  <p><b>你需要的基础。</b>会打开 Unity、知道 GameObject 和组件是什么、能看懂基础的 C# 就够了。完全没有做过 UI 也没关系，前两部分会把每一步编辑器操作都写清楚。如果你已经有 UGUI 经验，可以直接从第三部分读起，遇到不熟的概念再回头翻。</p>
+  <div class="box">
+    <h4>配套工程怎么用</h4>
+    <ol class="steps">
+      <li>解压配套工程，用 Unity Hub 以 <b>2022.3.x</b> 打开其中的 <code>project</code> 文件夹（作者使用 2022.3.62f3，其他 2022.3 小版本一般也可以）。第一次打开需要导入几分钟。</li>
+      <li>打开 <code>Assets/UGUIBook/Demos.unity</code> 点运行，就能看到全书所有配套场景的目录，点哪个进哪个，左下角“返回目录”回来。</li>
+      <li>每章的代码在 <code>Assets/UGUIBook/ChNN/</code>，场景在 <code>ChNN/Scenes/</code>；书中代码块标题上的路径就是文件在工程里的位置。</li>
+      <li>书中的图标、按钮底图、头像、物品图都是作者程序绘制的原创素材（<code>_Core/Sprites</code>），可以随意使用；中文字体是 Noto Sans SC 的子集（SIL 开源字体许可）。</li>
+      <li>如果打开后中文显示成方块，执行菜单 <span class="menu">UGUIBook › Setup Project</span>，它会重新生成中文字体资源并设为 TextMeshPro 默认字体。</li>
+    </ol>
+  </div>
+  <div class="note warn"><b>版本说明</b>本书基于 <b>Unity 2022.3 LTS</b>、Unity UI（<code>com.unity.ugui</code>）1.0.0、TextMeshPro 3.0.7、Input System 1.14.0，使用内置渲染管线与 Gamma 色彩空间。UGUI 的核心 API 多年来非常稳定，书中绝大部分内容同样适用于 2020、2021 和 Unity 6；在 Unity 6 中 TextMeshPro 已并入 <code>com.unity.ugui</code> 包，命名空间不变。软件界面与菜单名称以你实际使用的版本为准。</div>
+  <p style="font-size:8.8pt;color:#7a8299;margin-top:10pt">本书为作者原创的技术学习资料。Unity、TextMesh Pro 等为 Unity Technologies 的商标，本书与 Unity Technologies 无关联，也未获其认可。书中引用的 UGUI / TextMeshPro 源码片段仅用于学习讲解，版权归原作者所有，请以 Package Manager 中你实际安装的版本为准。</p>
+</section>

@@ -1,0 +1,16 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster,LoadingScreen
+1|Background|Image,AspectRatioFitter
+1|Shade|Image
+1|Title|TextMeshProUGUI
+1|ProgressBar|Slider,ProgressBar
+2|Background|Image
+2|Fill Area|
+3|Fill|Image
+1|Stage|TextMeshProUGUI
+1|Percent|TextMeshProUGUI
+1|Tip|TextMeshProUGUI
+1|Button_再加载一次|Image,Button
+2|Text (TMP)|TextMeshProUGUI
+2|Icon_refresh|Image
+0|EventSystem|EventSystem,StandaloneInputModule

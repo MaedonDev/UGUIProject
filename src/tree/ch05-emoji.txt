@@ -1,0 +1,20 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Msg|
+2|Avatar|Image
+2|Bubble|Image
+3|Text|TextMeshProUGUI
+1|Msg|
+2|Avatar|Image
+2|Bubble|Image
+3|Text|TextMeshProUGUI
+1|Msg|
+2|Avatar|Image
+2|Bubble|Image
+3|Text|TextMeshProUGUI
+1|Palette|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

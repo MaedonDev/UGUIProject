@@ -1,0 +1,17 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Title|TextMeshProUGUI
+1|Label|TextMeshProUGUI
+1|Track|Image
+1|Bar|Image
+1|Value|TextMeshProUGUI
+1|Label|TextMeshProUGUI
+1|Track|Image
+1|Bar|Image
+1|Value|TextMeshProUGUI
+1|Label|TextMeshProUGUI
+1|Track|Image
+1|Bar|Image
+1|Value|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

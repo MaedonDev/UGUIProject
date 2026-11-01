@@ -1,0 +1,63 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Card_Standard|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+1|Card_IntegerNumber|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+1|Card_DecimalNumber|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+1|Card_EmailAddress|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+1|Card_Password|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+1|Card_Pin|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule

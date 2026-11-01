@@ -1,0 +1,53 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Settings|
+2|Shadow|Image
+2|Bg|Image
+2|Text_settings.title|TextMeshProUGUI,LocalizedText
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Text_settings.music|TextMeshProUGUI,LocalizedText
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Control|
+3|Slider|Slider
+4|Background|Image
+4|Fill Area|
+5|Fill|Image
+4|Handle Slide Area|
+5|Handle|Image
+6|Ring|Image
+2|Text_settings.sfx|TextMeshProUGUI,LocalizedText
+2|Control|
+3|Slider|Slider
+4|Background|Image
+4|Fill Area|
+5|Fill|Image
+4|Handle Slide Area|
+5|Handle|Image
+6|Ring|Image
+2|Text_settings.notify|TextMeshProUGUI,LocalizedText
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Control|
+3|Toggle_|Toggle
+4|Background|Image
+5|Checkmark|Image
+2|Text_settings.autosave|TextMeshProUGUI,LocalizedText
+3|TMP SubMeshUI [NotoSansSC-Regular SDF Material + NotoSansSC-Regular SDF Atlas 1]|LayoutElement,TMP_SubMeshUI
+2|Control|
+3|Toggle_|Toggle
+4|Background|Image
+5|Checkmark|Image
+2|Text_settings.language|TextMeshProUGUI,LocalizedText
+2|Control|
+2|LangRow|HorizontalLayoutGroup,LanguageButtons
+3|Button_中文|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+3|Button_EN|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+3|Button_DE|Image,Button
+4|Text (TMP)|TextMeshProUGUI
+2|Button_OK|Image,Button
+3|Text (TMP)|TextMeshProUGUI,LocalizedText
+2|Button_Cancel|Image,Button
+3|Text (TMP)|TextMeshProUGUI,LocalizedText
+1|Text_hint.switch|TextMeshProUGUI,LocalizedText
+0|EventSystem|EventSystem,StandaloneInputModule

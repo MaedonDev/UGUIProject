@@ -1,0 +1,25 @@
+0|Main Camera|Camera,AudioListener
+0|EventSystem|EventSystem,StandaloneInputModule
+0|BgCanvas (Order 0)|Canvas,CanvasScaler,GraphicRaycaster
+1|Bg|Image
+1|Text|TextMeshProUGUI
+1|ChestGlow|Image
+1|Icon_gift|Image
+1|Sparkles|ParticleSystem,ParticleSystemRenderer,UIParticleOrder
+0|PopupCanvas (Order 10)|Canvas,CanvasScaler,GraphicRaycaster
+1|RewardPopup|
+2|Shadow|Image
+2|Bg|Image
+2|Text|TextMeshProUGUI
+2|Items|HorizontalLayoutGroup
+3|Slot|Image
+4|Icon_item_gem|Image
+3|Slot|Image
+4|Icon_item_coin|Image
+3|Slot|Image
+4|Icon_item_potion_red|Image
+2|Button_收下|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+0|Caption|Canvas,CanvasScaler,GraphicRaycaster
+1|CaptionBg|Image
+1|Caption|TextMeshProUGUI

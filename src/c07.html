@@ -1,0 +1,406 @@
+<section class="chapter" id="c07" data-title="Toggle、Slider 与 Scrollbar" data-sub="开关、单选、滑块、进度条与滚动条">
+<div class="chap-head"><div class="num">CHAPTER 07<b>第 7 章</b></div><h2>Toggle、Slider 与 Scrollbar</h2><p class="lead">按钮只有“按一下”这一种语义，而游戏里大量设置项需要“记住一个状态”或“在一个范围里取值”。这一章的三个控件——Toggle、Slider、Scrollbar——都继承自 Selectable，套路相同：几个子节点负责显示，控件本身负责把一个值“画”到子节点上。把这个套路看懂，你就能照着它写出 UGUI 没有内置的控件。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>Toggle 的结构、isOn 与 onValueChanged、SetIsOnWithoutNotify</div><div>ToggleGroup 的单选规则、allowSwitchOff 和几个反直觉的细节</div><div>Slider 如何用锚点“画”出数值：UpdateVisuals 源码精读</div><div>Scrollbar 的 size / value / numberOfSteps 与滑块位置公式</div><div>iOS 开关、页签、设置界面、加载进度条等六个实用案例</div><div>照着 Slider 的思路从零写一个双滑块区间控件</div></div>
+
+<h3 class="sec">7.1 Toggle 的结构</h3>
+<p>Toggle（开关、复选框）表示一个布尔状态：开或关。它在 UGUI 里的实现非常朴素——<b>Toggle 组件本身不画任何东西</b>，它只记住一个 <code>bool</code>，然后去控制一张“对勾”图片的显隐。先在编辑器里建一个看看：</p>
+<ol class="steps">
+<li>在 Hierarchy 里右键 <span class="menu">UI › Toggle</span>。如果场景里还没有 Canvas 和 EventSystem，Unity 会一并创建。</li>
+<li>展开新建的 <code>Toggle</code> 物体，可以看到三个子节点：<code>Background</code>、它下面的 <code>Checkmark</code>，以及 <code>Label</code>。</li>
+<li>选中根节点 <code>Toggle</code>，在 Inspector 里反复勾选 / 取消 <code>Is On</code>，观察 Scene 视图中对勾的出现和消失。</li>
+</ol>
+<p>菜单创建的 Toggle 内部调用的是 <code>DefaultControls.CreateToggle</code>，本书配套工程的 <code>UIKit.Toggle()</code> 也调用同一个方法，只是把精灵、尺寸换成了更适合 1920×1080 画布的样子，并把 <code>Label</code> 上的旧版 Text 换成了 TextMeshPro（Unity 2022.3 的 <span class="menu">UI › Toggle</span> 菜单目前仍然用旧版 Text 作标签，TMP 没有提供专门的 Toggle 菜单项，自己替换即可）。下面是它的层级：</p>
+<div class="tree" data-tree="ch07-toggle-anatomy" data-root="Card/Toggle_开启背景音乐" data-title="Hierarchy · Toggle"></div>
+<figure class="shot"><img src="img/ch07-toggle-anatomy.jpg"><figcaption><b>图 7-1</b> Toggle 由三个子节点组成：Background 是方框（同时是按状态变色的 targetGraphic），Checkmark 是对勾（Toggle 的 graphic，随 isOn 显隐），Label 只是普通文字</figcaption></figure>
+<p>理解这三个节点各自的“身份”很重要：</p>
+<div class="kv">
+<span>Background</span><span>被赋给 Toggle 的 <code>targetGraphic</code>（继承自 Selectable 的字段）。鼠标悬停、按下、禁用时，Color Tint 过渡改变的是它的颜色，和第 6 章的 Button 完全一样。</span>
+<span>Checkmark</span><span>被赋给 Toggle 自己的 <code>graphic</code> 字段。isOn 为 true 时它不透明，为 false 时透明。注意它是 Background 的<b>子节点</b>，所以总是画在方框之上。</span>
+<span>Label</span><span>和 Toggle 组件没有任何引用关系，只是恰好放在旁边。点文字能不能切换开关，取决于它的 Raycast Target，见下文。</span>
+</div>
+<p>为什么点击文字也能切换？Toggle 实现了 <code>IPointerClickHandler</code>，事件系统会从射线命中的那个 Graphic 开始<b>往上找</b>第一个能处理点击的组件（第 11 章细讲冒泡）。Label 上的 Text 默认开着 Raycast Target，命中 Label 后往上找到父节点的 Toggle，于是切换。反过来，如果你把 Label 的 Raycast Target 关掉，点文字就没反应了——这常常是“复选框只能点方框”这类 bug 的原因。<code>UIKit.Text</code> 默认关掉了文字的 Raycast Target，所以配套工程里的 Toggle 只能点方框；想让整行都可点，可以在根节点加一张透明的 Image 当点击区域。</p>
+
+<div class="box"><h4>Toggle 还是 Button？</h4><p>新手常犯的一个设计错误是用 Button 做开关：点击时自己翻转一个 bool、再手动换图片。这样做丢掉了很多东西——没有统一的“当前状态”可供读取，无法加入 ToggleGroup，读档时没有“只改显示不发事件”的方法，手柄的确认键行为也要自己写。判断标准很简单：<b>控件需要“记住”一个状态，就用 Toggle；只是触发一次动作，就用 Button</b>。“静音”是状态，用 Toggle；“播放下一首”是动作，用 Button。即使外观完全不像复选框（比如一个喇叭图标，开着时显示喇叭、关着时显示带斜杠的喇叭），也应该用 Toggle：把两张图分别作为 Background 和 Checkmark 叠放，Checkmark 显示时盖住底图即可，一行代码都不用写。</p></div>
+
+<h3 class="sec">7.2 Inspector 字段与 isOn 的来龙去脉</h3>
+<p>Toggle 的 Inspector 上半部分是 Selectable 的公共字段（Interactable、Transition、Navigation，见第 6 章），下半部分是它自己的：</p>
+<div class="kv">
+<span>Is On</span><span>当前状态，对应属性 <code>isOn</code>。</span>
+<span>Toggle Transition</span><span><code>None</code> 或 <code>Fade</code>。Fade 时 Checkmark 用 0.1 秒淡入淡出；None 时瞬间切换。</span>
+<span>Graphic</span><span>随状态显隐的那张图，默认就是 Checkmark。可以留空——留空后 Toggle 不再改任何画面，本章的 iOS 开关就利用了这一点。</span>
+<span>Group</span><span>所属的 ToggleGroup。设置后同组的 Toggle 互斥（单选），见 7.3 节。</span>
+<span>On Value Changed (Boolean)</span><span>状态改变时的事件，参数是新的 isOn。</span>
+</div>
+<p>isOn 的 setter 最终调用私有方法 <code>Set</code>。这段代码很短，但几乎所有 Toggle 相关的“怪现象”都能从这里找到答案：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Toggle.cs
+public void SetIsOnWithoutNotify(bool value)
+{
+    Set(value, false);
+}
+
+void Set(bool value, bool sendCallback = true)
+{
+    if (m_IsOn == value)
+        return;
+
+    // if we are in a group and set to true, do group logic
+    m_IsOn = value;
+    if (m_Group != null &amp;&amp; m_Group.isActiveAndEnabled &amp;&amp; IsActive())
+    {
+        if (m_IsOn || (!m_Group.AnyTogglesOn() &amp;&amp; !m_Group.allowSwitchOff))
+        {
+            m_IsOn = true;
+            m_Group.NotifyToggleOn(this, sendCallback);
+        }
+    }
+    PlayEffect(toggleTransition == ToggleTransition.None);
+    if (sendCallback)
+    {
+        UISystemProfilerApi.AddMarker("Toggle.value", this);
+        onValueChanged.Invoke(m_IsOn);
+    }
+}</pre>
+<p>逐句看：</p>
+<ul>
+<li><b>值没变就直接返回</b>，不发事件。所以连续两次 <code>isOn = true</code> 只会触发一次回调。</li>
+<li><b>在组里的特殊处理</b>：设为 true 时通知组把别人关掉；设为 false 时，如果组里已经没有别的 Toggle 是开的、并且组不允许全关，就<b>强行改回 true</b>。7.3 节会专门讲这条规则带来的后果。</li>
+<li><code>PlayEffect</code> 负责显隐 graphic：运行时调用 <code>graphic.CrossFadeAlpha</code>，编辑模式下直接 <code>canvasRenderer.SetAlpha</code>。注意它改的是 CanvasRenderer 的 alpha，<b>不是 Image.color</b>，所以你在 Inspector 里看到 Checkmark 的 Color 一直是不透明的，这是正常的。</li>
+<li><code>sendCallback</code> 为 false 时不发事件——这就是 <code>SetIsOnWithoutNotify</code> 的实现。</li>
+</ul>
+<div class="box"><h4>什么时候用 SetIsOnWithoutNotify</h4><p>规则很简单：<b>“用户操作”用 isOn，“程序同步显示”用 SetIsOnWithoutNotify</b>。典型场景是读档：打开设置界面时从存档里读出“震动 = 开”，要把开关拨到开的位置。如果用 <code>isOn = true</code>，onValueChanged 会被触发，而你给它挂的回调多半是“保存设置 + 播放音效 + 发统计”，结果界面一打开就保存了一次、响了一声、上报了一条“用户打开了震动”。Slider、Scrollbar、Dropdown、InputField 都有同样的 <code>SetValueWithoutNotify</code> / <code>SetTextWithoutNotify</code>，道理相同。</p></div>
+<div class="note warn"><b>编辑模式下的“幽灵回调”</b>Toggle 的 <code>Rebuild(CanvasUpdate)</code> 里有一段 <code>#if UNITY_EDITOR</code> 代码：在 Prelayout 阶段调用 <code>onValueChanged.Invoke(m_IsOn)</code>。它配合 OnValidate 使用，目的是让你在 Inspector 里改 Is On 时，绑定的持久化回调（Inspector 里拖的那种）立即生效、便于预览。副作用是：如果你在 Inspector 里给 On Value Changed 绑了会改场景数据的方法，<b>不进 Play 模式改一下 Is On 也会执行它</b>。Slider 和 Scrollbar 有完全一样的机制。</div>
+
+<h3 class="sec">7.3 ToggleGroup：把复选框变成单选框</h3>
+<p>复选框之间互不相干；单选框（Radio Button）同一组里只能选一个。UGUI 的做法是给几个 Toggle 指定同一个 <code>ToggleGroup</code>：</p>
+<ol class="steps">
+<li>新建一个空物体当容器，命名为 <code>Group</code>，挂上 <span class="menu">Add Component › UI › Toggle Group</span>。</li>
+<li>在它下面建 3～4 个 Toggle（放在别处也行，ToggleGroup 不要求父子关系，放在一起只是方便管理）。</li>
+<li>依次选中每个 Toggle，把 <code>Group</code> 物体拖到 Inspector 的 <code>Group</code> 字段里。</li>
+<li>只保留一个 Toggle 的 Is On 为勾选，运行后点击任意一个，其余的会自动取消。</li>
+</ol>
+<p>外观上，单选框习惯用圆形。配套工程里把 Background 和 Checkmark 的精灵都换成圆，就得到了图 7-2 右边的样子。</p>
+<figure class="shot"><img src="img/ch07-togglegroup.jpg"><figcaption><b>图 7-2</b> 左边是 4 个独立的 Toggle（多选），右边 4 个 Toggle 共用一个 ToggleGroup（单选）。底部开关可以在运行时切换 allowSwitchOff，状态栏实时显示当前选择</figcaption></figure>
+<div class="scene">Ch07/Scenes/Ch07_ToggleGroup.unity</div>
+<p>ToggleGroup 的源码只有不到两百行，核心是 <code>NotifyToggleOn</code>：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/ToggleGroup.cs
+public void NotifyToggleOn(Toggle toggle, bool sendCallback = true)
+{
+    ValidateToggleIsInGroup(toggle);
+    // disable all toggles in the group
+    for (var i = 0; i &lt; m_Toggles.Count; i++)
+    {
+        if (m_Toggles[i] == toggle)
+            continue;
+        if (sendCallback)
+            m_Toggles[i].isOn = false;
+        else
+            m_Toggles[i].SetIsOnWithoutNotify(false);
+    }
+}</pre>
+<p>也就是说，一次“点选第 3 项”实际上会产生一连串回调。把图 7-3 记在心里，写单选逻辑时就不会踩坑：</p>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC" font-size="13">
+<rect x="10" y="20" width="130" height="44" rx="6" fill="#5b4bd6"/><text x="75" y="47" fill="#fff" text-anchor="middle">点击“困难”</text>
+<rect x="175" y="20" width="160" height="44" rx="6" fill="#fff" stroke="#5b4bd6"/><text x="255" y="40" fill="#1f2436" text-anchor="middle">困难.Set(true)</text><text x="255" y="57" fill="#7a8299" text-anchor="middle" font-size="12">m_IsOn = true</text>
+<rect x="370" y="20" width="220" height="44" rx="6" fill="#fff" stroke="#5b4bd6"/><text x="480" y="40" fill="#1f2436" text-anchor="middle">group.NotifyToggleOn(困难)</text><text x="480" y="57" fill="#7a8299" text-anchor="middle" font-size="12">遍历组内其他成员</text>
+<line x1="140" y1="42" x2="170" y2="42" stroke="#7a8299" stroke-width="2"/><polygon points="170,37 178,42 170,47" fill="#7a8299"/>
+<line x1="335" y1="42" x2="365" y2="42" stroke="#7a8299" stroke-width="2"/><polygon points="365,37 373,42 365,47" fill="#7a8299"/>
+<rect x="370" y="95" width="220" height="40" rx="6" fill="#fcf2ef" stroke="#e5484d"/><text x="480" y="120" fill="#1f2436" text-anchor="middle">①“普通”.isOn = false → 回调(false)</text>
+<line x1="480" y1="64" x2="480" y2="90" stroke="#7a8299" stroke-width="2"/><polygon points="475,90 480,98 485,90" fill="#7a8299"/>
+<rect x="175" y="95" width="160" height="40" rx="6" fill="#f1f8f4" stroke="#2fb36a"/><text x="255" y="120" fill="#1f2436" text-anchor="middle">② 困难 回调(true)</text>
+<line x1="365" y1="115" x2="340" y2="115" stroke="#7a8299" stroke-width="2"/><polygon points="340,110 332,115 340,120" fill="#7a8299"/>
+<text x="20" y="170" fill="#1f2436">顺序：先收到旧选项的 false，再收到新选项的 true。</text>
+<text x="20" y="194" fill="#1f2436">只关心“选中了谁”时，回调里写 if (on) {...}，忽略 false 即可。</text>
+<text x="20" y="218" fill="#7a8299">再点一次已选中的“困难”：isOn 想变 false → 组不允许全关 → 改回 true，但回调(true)照样会发。</text>
+</svg><figcaption><b>图 7-3</b> 在 ToggleGroup 里点选一项时的回调顺序</figcaption></figure>
+<h4>三个容易误解的细节</h4>
+<ol>
+<li><b>点击已选中的项，仍然会收到 onValueChanged(true)</b>。看 Set 的代码：isOn 先被设成 false，组发现没人开着、又不允许全关，于是改回 true——但值的前后比较发生在最前面，此时已经过了“值没变就返回”那一关，回调照发。源码注释特意说明这是有意为之（Dropdown 依赖这个行为）。所以“选中某页签时播放音效”之类的逻辑，最好自己记录上一次的索引，相同就跳过。</li>
+<li><b>allowSwitchOff = false 时，不能用“先关当前项、再开目标项”的方式切换</b>。关当前项时组里没人开着，它会被强行改回 true。正确的做法是直接打开目标项，让组去关别人。本章案例 7.3 的读档代码就是这么写的。</li>
+<li><b>ToggleGroup 没有“选中项变了”的事件</b>。想知道当前选了谁，要么监听组里每个 Toggle 的 onValueChanged，要么调用 <code>GetFirstActiveToggle()</code> / <code>ActiveToggles()</code> 去查。另外，Toggle 只有在启用状态下才会注册进组（<code>OnEnable</code> 里注册、<code>OnDisable</code> 里注销），隐藏起来的 Toggle 不参与互斥。</li>
+</ol>
+<p>配套场景的 <code>ToggleGroupDemo</code> 演示了第 3 点——监听组内所有成员，再用 <code>GetFirstActiveToggle</code> 读出结果：</p>
+<pre class="code" data-file="Ch07/ToggleGroupDemo.cs" data-region="read"></pre>
+<p>allowSwitchOff 打开后，点击已选中的项会把它关掉，组里允许没有任何选中项，此时 <code>GetFirstActiveToggle()</code> 返回 null。“筛选条件：全部 / 只看武器 / 只看防具，再点一次取消筛选”就是这种交互。</p>
+
+<h3 class="case"><span class="no">案例 7.1</span>iOS 风格开关<span class="lv">入门</span></h3>
+<p><b>目标</b>：做一个胶囊形轨道 + 圆形滑块的开关，点击时滑块平滑地滑到另一侧，轨道颜色从灰渐变到绿。</p>
+<p><b>思路</b>：不要重新发明 Toggle。点击、键盘提交（Submit）、导航、Interactable、ToggleGroup、onValueChanged 这些 Toggle 都已经做好了，我们只是不喜欢它“淡入淡出一个对勾”的表现。所以保留 Toggle 组件，把它的 <code>graphic</code> 设为空（Toggle 就不再碰任何画面），再写一个小组件读取 <code>isOn</code>，自己负责画滑块和轨道。这是扩展 UGUI 控件最常用、也最稳妥的思路：<b>逻辑交给原生控件，表现自己接管</b>。</p>
+<figure class="shot"><img src="img/ch07-switch.jpg"><figcaption><b>图 7-4</b> 左：一组系统设置风格的开关，最后一行 interactable = false；右：同一个开关在动画进度 t = 0、0.5、1 时的样子，由 <code>Evaluate(t)</code> 直接画出</figcaption></figure>
+<p>层级结构如下。轨道 <code>Track</code> 同时是 Toggle 的 targetGraphic，所以悬停、按下、禁用时的 Color Tint 照常生效；滑块 <code>Knob</code> 是个空节点，下面放阴影和白色圆面——阴影必须是滑块的子节点，才能跟着滑块一起移动，而且要排在圆面之前，才会被画在圆面下面。</p>
+<div class="tree" data-tree="ch07-switch" data-root="SettingsList/Switch_无线局域网" data-title="Hierarchy · Switch"></div>
+<pre class="code" data-file="Ch07/SwitchToggle.cs"></pre>
+<p>几个关键点：</p>
+<ul>
+<li><b>Awake 里把 graphic 置空、过渡设为 None</b>。即使你在 Inspector 里忘了清空，组件也会帮你清掉。</li>
+<li><b>OnEnable 时直接跳到终点</b>。界面重新打开时，开关应该已经在正确的位置上，而不是当着玩家的面滑一遍。</li>
+<li><b>Update 用 <code>Time.unscaledDeltaTime</code></b>。暂停菜单通常会把 <code>Time.timeScale</code> 设为 0，如果用 deltaTime，暂停界面里的开关就永远动不了。这条规则适用于几乎所有 UI 动画。</li>
+<li><b>把“画成某一帧”的逻辑独立成 <code>Evaluate(t)</code></b>。动画只负责推进 t，画面完全由 t 决定。这样做的好处是：编辑器里可以预览任意中间帧，截图、单元测试都能直接调用它。本书配图就是在批处理模式下（不进 Play 模式、Update 不运行）调用 <code>Evaluate(0.5f)</code> 画出图 7-4 右边中间那个“半路上”的开关的。</li>
+<li>滑块的移动距离是 <code>轨道宽 − 滑块宽 − 2 × 边距</code>，用 <code>rect.width</code> 实时计算，而不是写死像素值，所以开关可以随意缩放。</li>
+</ul>
+<div class="scene">Ch07/Scenes/Ch07_Switch.unity</div>
+<div class="note tip"><b>扩展</b>胶囊轨道的两端要保持半圆：本书的 <code>pill</code> 精灵九宫格边距是 32 像素，开关高度超过 64 时，把 Image 的 <code>Pixels Per Unit Multiplier</code> 调成 <code>64 / 高度</code>，边框就会按比例放大（第 4 章讲过这个参数）。想要“按下时滑块变宽”的 iOS 细节，可以在组件里实现 <code>IPointerDownHandler</code> / <code>IPointerUpHandler</code>，按下时把 Knob 的宽度加大一点。</div>
+
+<h3 class="case"><span class="no">案例 7.2</span>Tab 页签<span class="lv">入门</span></h3>
+<p><b>目标</b>：角色界面顶部有“角色 / 装备 / 技能 / 成就”四个页签，点哪个就显示哪一页；选中的页签文字变成主题色，下方有一条指示条跟过去。</p>
+<p><b>思路</b>：页签就是“单选”。四个 Toggle 放进同一个 ToggleGroup，allowSwitchOff 保持 false（页签必须有且只有一个选中），每个 Toggle 对应一个页面物体，选中谁就激活谁、隐藏其余。</p>
+<figure class="shot"><img src="img/ch07-tabs.jpg"><figcaption><b>图 7-5</b> 页签栏是一个 ToggleGroup 加四个 Toggle，下面每个页签对应一个 Page 物体，选中“装备”时只有 Page_装备 处于激活状态</figcaption></figure>
+<p>页签的 Toggle 不需要对勾，<code>graphic</code> 留空即可；背景是一张全透明的 Image，只用来接收点击。注意四个页签用锚点平分宽度（第 <i>i</i> 个页签的 anchorMin.x = <i>i</i>/4、anchorMax.x = (<i>i</i>+1)/4），而不是用 HorizontalLayoutGroup——布局组的位置要等到这一帧的布局重建后才确定，Start 里立刻去读页签位置来摆指示条会读到旧值；锚点算出来的位置则随时有效（这个“布局延迟一帧”的问题第 10 章还会细讲）。</p>
+<pre class="code" data-file="Ch07/TabGroup.cs" data-region="listen"></pre>
+<p>循环里给每个 Toggle 加监听时，<code>int index = i;</code> 这一行绝对不能省。C# 的 lambda 捕获的是<b>变量</b>而不是值，<code>for</code> 循环里所有 lambda 捕获的是同一个 <code>i</code>，等到点击时循环早已结束，<code>i</code> 的值是 4，四个页签都会去打开不存在的第 5 页。这就是第 6 章提过的“闭包陷阱”，在页签、列表这类场景里出现频率极高。</p>
+<pre class="code" data-file="Ch07/TabGroup.cs" data-region="select"></pre>
+<p><code>Select</code> 做成公开方法，因为业务里经常需要“用代码切页”：比如领取奖励后自动跳到背包页。它的第一行处理了一个递归：如果目标页签还没勾上，就只设置 <code>isOn = true</code> 然后返回——这会通过 onValueChanged 再次进入 Select，这次 isOn 已经为 true，才真正去切页面。这样无论从点击进来还是从代码进来，都只走一条路径，状态不会不同步。</p>
+<div class="scene">Ch07/Scenes/Ch07_Tabs.unity</div>
+<div class="note"><b>页面怎么切更好</b>示例用 <code>SetActive</code> 切换页面，最简单也最常用。页面很重（例如带大量列表项）时，SetActive(true) 会触发整个子树的 OnEnable 和重建，可能卡一帧；可以改为第一次打开时才实例化页面、之后只切换显隐，或者用 CanvasGroup 的 alpha + blocksRaycasts 隐藏。各种隐藏方式的开销对比见第 20 章。</div>
+
+<p><b>扩展方向</b>：页签上的红点提示（有新装备时在“装备”页签右上角显示一个小圆点）是常见需求。红点应当由数据驱动——背包数据变化时发事件，红点组件监听后决定显隐——而不是在打开页签的地方手动去关，第 16 章的事件中心会实现这一套。另一个常见需求是“锁定”某个页签（等级不够不能进），把对应 Toggle 的 interactable 设为 false 即可，ToggleGroup 不会选中一个不可交互的 Toggle 吗？会的——用代码设置 isOn 不检查 interactable，只有点击才检查（<code>InternalToggle</code> 里的 <code>IsInteractable()</code>），所以代码切页时自己要先判断。</p>
+
+<h3 class="sec">7.4 Slider：用锚点“画”出一个数值</h3>
+<p>Slider（滑动条）在 [minValue, maxValue] 区间里取一个 float。用菜单 <span class="menu">UI › Slider</span> 创建后，层级如下（配套工程额外在 Handle 下加了一个描边圆环 <code>Ring</code>，这里隐藏掉）：</p>
+<div class="tree" data-tree="ch07-slider-anatomy" data-root="Canvas/Slider" data-hide="Ring" data-title="Hierarchy · Slider"></div>
+<figure class="shot"><img src="img/ch07-slider-anatomy.jpg"><figcaption><b>图 7-6</b> 同一个 value = 0.62 的 Slider，分三次框出它的部件：Background 是底槽；Fill 放在 Fill Area 容器里，右边界被拉到 62% 处；Handle 放在 Handle Slide Area 容器里，锚点被设在 62% 处</figcaption></figure>
+<p>和 Toggle 一样，Slider 组件本身不画东西，它只做一件事：<b>把 value 换算成 0～1 的比例，然后改 Fill 和 Handle 的锚点</b>。这正是 Slider 最值得读的一段源码：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Slider.cs（UpdateVisuals，略去编辑器分支）
+m_Tracker.Clear();
+if (m_FillContainerRect != null)
+{
+    m_Tracker.Add(this, m_FillRect, DrivenTransformProperties.Anchors);
+    Vector2 anchorMin = Vector2.zero;
+    Vector2 anchorMax = Vector2.one;
+
+    if (m_FillImage != null &amp;&amp; m_FillImage.type == Image.Type.Filled)
+    {
+        m_FillImage.fillAmount = normalizedValue;
+    }
+    else
+    {
+        if (reverseValue)
+            anchorMin[(int)axis] = 1 - normalizedValue;
+        else
+            anchorMax[(int)axis] = normalizedValue;
+    }
+    m_FillRect.anchorMin = anchorMin;
+    m_FillRect.anchorMax = anchorMax;
+}
+
+if (m_HandleContainerRect != null)
+{
+    m_Tracker.Add(this, m_HandleRect, DrivenTransformProperties.Anchors);
+    Vector2 anchorMin = Vector2.zero;
+    Vector2 anchorMax = Vector2.one;
+    anchorMin[(int)axis] = anchorMax[(int)axis] = (reverseValue ? (1 - normalizedValue) : normalizedValue);
+    m_HandleRect.anchorMin = anchorMin;
+    m_HandleRect.anchorMax = anchorMax;
+}</pre>
+<p>把它翻译成人话（以默认的 LeftToRight 为例）：</p>
+<ul>
+<li><b>Fill</b>：锚点从 (0,0)–(1,1) 出发，把 anchorMax.x 改成 normalizedValue。value = 0.62 时，Fill 的右边界锚在父容器 62% 的位置。因为 Fill 的 offset 是固定的，它的宽度就随锚点伸缩。</li>
+<li><b>Handle</b>：把 anchorMin.x 和 anchorMax.x 都设成 normalizedValue，x 方向的两个锚点重合 = 固定宽度、位置跟着锚点走（第 3 章“锚点重合 vs 分开”）；y 方向锚点 0～1 = 高度撑满父容器。</li>
+<li><b>Fill 的 Image 类型是 Filled 时</b>，不改锚点，而是改 <code>fillAmount</code>。这让你可以用环形（Radial 360）图片做圆形进度条，图 7-7 右边就是这样做的。</li>
+<li><code>m_Tracker.Add(..., DrivenTransformProperties.Anchors)</code> 把 Fill 和 Handle 的锚点标记为“被驱动”。在 Inspector 里你会看到它们的锚点字段变灰、不可编辑，并显示“Some values driven by Slider”——这不是 bug，改也改不动，因为下一次 UpdateVisuals 就会覆盖。</li>
+</ul>
+<figure><svg viewBox="0 0 600 210" width="600" font-family="PingFang SC" font-size="13">
+<text x="20" y="22" fill="#1f2436" font-weight="600">Fill Area（容器）：两端各内缩半个 Handle 宽</text>
+<rect x="40" y="40" width="520" height="26" rx="13" fill="#e0deef"/>
+<rect x="60" y="40" width="300" height="26" rx="13" fill="#5b4bd6"/>
+<line x1="60" y1="30" x2="60" y2="110" stroke="#ff8a3d" stroke-dasharray="4 3"/><line x1="540" y1="30" x2="540" y2="110" stroke="#ff8a3d" stroke-dasharray="4 3"/>
+<line x1="357" y1="30" x2="357" y2="120" stroke="#e5484d" stroke-width="2"/>
+<text x="62" y="125" fill="#ff8a3d">0</text><text x="528" y="125" fill="#ff8a3d">1</text>
+<text x="300" y="140" fill="#e5484d">anchorMax.x = 0.62</text>
+<circle cx="357" cy="53" r="20" fill="#fff" stroke="#5b4bd6" stroke-width="2"/>
+<text x="20" y="170" fill="#1f2436">Handle 中心 = Handle Slide Area 的 62% 处；Fill 右端 = Fill Area 的 62% 处（略外扩 offset）</text>
+<text x="20" y="194" fill="#7a8299">两个容器都比 Background 窄一截，是为了 value = 0 / 1 时滑块不会有一半跑出底槽。</text>
+</svg><figcaption><b>图 7-7</b> value 到锚点的映射。Fill Area、Handle Slide Area 的左右内缩量正好是半个 Handle 宽，所以 0 和 1 时滑块边缘与底槽两端对齐</figcaption></figure>
+<p>这也解释了 DefaultControls 里那几个看似随意的数字：Fill Area 的 sizeDelta.x 是 −20（左右各缩 10），Handle Slide Area 也是 −20，而默认 Handle 宽 20——两个容器都内缩了半个 Handle 宽。你换了更大的滑块精灵，就要同步调大这两个容器的内缩量，否则滑块在两端会“出界”。配套工程的 <code>UIKit.Slider</code> 按 Slider 高度自动算这些值。</p>
+<h4>Inspector 字段</h4>
+<div class="kv">
+<span>Fill Rect</span><span>被拉伸的填充条。它的<b>父节点</b>被当作填充容器（源码里的 m_FillContainerRect）。可以为空——只要滑块不要填充时。</span>
+<span>Handle Rect</span><span>滑块。它的父节点是滑动范围，也是鼠标拖拽时换算位置的参考矩形。可以为空——做只读进度条时就去掉它。</span>
+<span>Direction</span><span>LeftToRight / RightToLeft / BottomToTop / TopToBottom。只改这个字段只会改变“值往哪个方向长”；用代码 <code>SetDirection(dir, true)</code> 还会顺带翻转整个层级的 RectTransform 布局（横竖互换），菜单里切换方向时 Unity 调的就是它。</span>
+<span>Min Value / Max Value</span><span>取值范围。</span>
+<span>Whole Numbers</span><span>勾选后 value 四舍五入为整数，键盘方向键每次加减 1。</span>
+<span>Value</span><span>当前值。setter 内部会 Clamp 到范围内（Whole Numbers 时再取整），值没变就不发事件。</span>
+<span>On Value Changed (Single)</span><span>值改变时触发。<b>拖动过程中每帧都会触发</b>，回调里不要做存档、网络请求这类重活。</span>
+</div>
+<figure class="shot"><img src="img/ch07-slider-variants.jpg"><figcaption><b>图 7-8</b> 不同方向与设置的 Slider。右边的圆形进度条没有 Handle，Fill 用了 Filled（Radial 360）类型的 Image，Slider 改的是 fillAmount</figcaption></figure>
+<h4>拖拽与点击：为什么点在滑块上不会“跳”</h4>
+<p>点击 Slider 的空白处，滑块会瞬间跳到点击位置；可如果按在滑块本身上再拖，滑块不会先跳一下让中心对准手指，而是保持按下时的相对位置。这个细节在 <code>OnPointerDown</code> 里：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Slider.cs
+m_Offset = Vector2.zero;
+if (m_HandleContainerRect != null &amp;&amp; RectTransformUtility.RectangleContainsScreenPoint(m_HandleRect, eventData.pointerPressRaycast.screenPosition, eventData.enterEventCamera))
+{
+    Vector2 localMousePos;
+    if (RectTransformUtility.ScreenPointToLocalPointInRectangle(m_HandleRect, eventData.pointerPressRaycast.screenPosition, eventData.pressEventCamera, out localMousePos))
+        m_Offset = localMousePos;
+}
+else
+{
+    // Outside the slider handle - jump to this point instead
+    UpdateDrag(eventData, eventData.pressEventCamera);
+}</pre>
+<p>按在滑块上时记下“手指相对滑块中心的偏移”，之后拖动计算位置时减掉它；按在别处则直接跳过去。另外 Slider 实现了 <code>IInitializePotentialDragHandler</code>，在里面把 <code>useDragThreshold</code> 设为 false——普通控件要拖动超过 EventSystem 的 Drag Threshold（默认 10 像素）才算开始拖拽，而滑块应当“一按就跟手”。本章案例 7.5 的双滑块也照抄了这一手。</p>
+<div class="note warn"><b>Slider 放进 ScrollRect 里</b>因为 Slider 关掉了拖拽阈值并自己处理 OnDrag，放在滚动列表里的 Slider 会“吃掉”拖动：手指按在 Slider 上竖着拖，列表不会滚。设置界面这类长列表里，可以把 Slider 的点击区域做得窄一点，或者参考第 9 章案例 9.4 的思路，在开始拖拽时判断方向，竖向拖动转交给外层 ScrollRect。</div>
+
+<h3 class="sec">7.5 Scrollbar：size、value 与 numberOfSteps</h3>
+<p>Scrollbar（滚动条）长得像 Slider，但含义不同：它表示“在一段更长的内容里，你现在看的是哪一部分”。所以它多了一个 Slider 没有的概念——<b>size</b>，即滑块占整条轨道的比例，对应“可见部分占全部内容的比例”。结构比 Slider 简单：根节点自己带 Image 当轨道，下面一个 <code>Sliding Area</code>，再下面是 <code>Handle</code>。</p>
+<figure class="shot"><img src="img/ch07-scrollbar.jpg"><figcaption><b>图 7-9</b> 不同 size、value、numberOfSteps 下的 Scrollbar。最后一行 numberOfSteps = 5，value 只能取 0、0.25、0.5、0.75、1 五档</figcaption></figure>
+<p>滑块位置的计算在 <code>UpdateVisuals</code> 里，只有几行：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Scrollbar.cs
+float movement = Mathf.Clamp01(value) * (1 - size);
+if (reverseValue)
+{
+    anchorMin[(int)axis] = 1 - movement - size;
+    anchorMax[(int)axis] = 1 - movement;
+}
+else
+{
+    anchorMin[(int)axis] = movement;
+    anchorMax[(int)axis] = movement + size;
+}</pre>
+<div class="formula"><math display="block"><mrow><msub><mi>anchor</mi><mi>min</mi></msub><mo>=</mo><mi>value</mi><mo>×</mo><mo>(</mo><mn>1</mn><mo>−</mo><mi>size</mi><mo>)</mo><mo>,</mo><mspace width="1em"/><msub><mi>anchor</mi><mi>max</mi></msub><mo>=</mo><msub><mi>anchor</mi><mi>min</mi></msub><mo>+</mo><mi>size</mi></mrow></math></div>
+<p>滑块的锚点区间长度永远是 size，能移动的范围是 1 − size。value = 0 时滑块贴在起点，value = 1 时贴在终点，和 Slider 一样，Handle 的锚点同样是“被驱动”的。和 Slider 不同的是，Scrollbar 的 Handle 两个锚点是分开的——它的长度由锚点决定，不是固定像素。</p>
+<div class="kv">
+<span>Handle Rect</span><span>滑块，父节点 Sliding Area 是可滑动范围。</span>
+<span>Direction</span><span>四个方向。竖直滚动条通常用 BottomToTop——value = 1 表示滑块在最上面，和 ScrollRect 的 verticalNormalizedPosition（1 = 顶部）一致。</span>
+<span>Value</span><span>0～1。代码里用 <code>SetValueWithoutNotify</code> 可以只改位置不发事件。</span>
+<span>Size</span><span>0～1，滑块长度占比。配合 ScrollRect 使用时由 ScrollRect 自动设置为“视口 / 内容”。</span>
+<span>Number Of Steps</span><span>0～11。大于 1 时 value 被量化成这么多档（读取 value 时取整，见下）。0 和 1 表示连续。</span>
+<span>On Value Changed (Single)</span><span>值改变时触发。</span>
+</div>
+<p>numberOfSteps 的实现很有意思：它<b>不改存储的 m_Value</b>，而是在 getter 里量化：<code>Mathf.Round(val * (steps - 1)) / (steps - 1)</code>。所以拖动时内部值是连续的，只是对外表现为跳档。点击滑块以外的轨道时，Scrollbar 会以 size 为步长“翻页”，并且按住不放会持续翻（源码里的 <code>ClickRepeat</code> 协程），和桌面系统滚动条的行为一致。</p>
+<p>举一个具体的数：内容高 2000 像素、视口高 500 像素，size = 500 / 2000 = 0.25，滑块占轨道的四分之一；当前滚到正中间时，value = 0.5，anchorMin = 0.5 × 0.75 = 0.375，anchorMax = 0.625，滑块正好居中。内容越长，size 越小，滑块越短——这就是为什么聊天记录越多，滚动条越细。size 太小时滑块会短得难以按住，很多项目会给它设一个最小长度：Scrollbar 本身不支持，可以在 Handle 上用 <code>sizeDelta</code> 给锚点区间之外再加固定的像素长度（DefaultControls 默认就给了 20 像素），或者干脆在 ScrollRect 的 onValueChanged 里自己重算。</p>
+<div class="note"><b>Scrollbar 很少单独用</b>它几乎总是作为 ScrollRect 的附属出现：ScrollRect 每帧根据内容尺寸设置 size、根据滚动位置设置 value；反过来用户拖动滚动条时，ScrollRect 通过监听 onValueChanged 去移动内容。两者的完整配合在第 9 章讲。单独使用的场景有：分页阅读器的页码条、自定义的“缩放比例”条等需要表达“窗口在整体中的位置”的地方。</div>
+
+<h3 class="case"><span class="no">案例 7.3</span>设置界面：音量、画质与开关<span class="lv">入门</span></h3>
+<p><b>目标</b>：做一个标准的游戏设置面板——两个 0～100 的音量滑块（右边实时显示数值）、四档画质的分段选择器、震动和推送两个开关，以及“恢复默认 / 保存”按钮。修改后提示“有未保存的修改”，保存时写入 PlayerPrefs，下次打开自动读回。</p>
+<figure class="shot"><img src="img/ch07-settings.jpg"><figcaption><b>图 7-10</b> 设置界面。画质是一组共用 ToggleGroup 的 Toggle（分段选择器），开关是案例 7.1 的 SwitchToggle</figcaption></figure>
+<p>编辑器里的搭建步骤：</p>
+<ol class="steps">
+<li>建一个 Panel 作为面板背景，左侧放四个 TMP 文字作标签。</li>
+<li>放两个 Slider：<code>Min Value</code> = 0、<code>Max Value</code> = 100、勾选 <code>Whole Numbers</code>。右侧各放一个 TMP 文字显示数值。</li>
+<li>画质：建一个带圆角背景的空物体，挂 <code>Toggle Group</code>，下面放 4 个 Toggle，锚点把宽度四等分；每个 Toggle 的 Checkmark 拉伸铺满、换成实心胶囊图，Label 居中。</li>
+<li>放两个开关（案例 7.1 的结构）和两个按钮，最后在面板根节点挂上 <code>SettingsPanel</code> 脚本，把各个引用拖进去。</li>
+</ol>
+<p>分段选择器有一个小问题：选中项是实心的主题色，文字应该变白，但 Toggle 只会淡入淡出一个 graphic，管不到文字颜色。为此写一个通用小组件，每帧比较一次 isOn，状态变了就换颜色：</p>
+<pre class="code" data-file="Ch07/ToggleLabelColor.cs"></pre>
+<p>为什么不监听 onValueChanged？因为 ToggleGroup 用 <code>SetIsOnWithoutNotify</code> 静默关闭其他成员时（读档时就会走这条路），被关掉的那个不会收到回调，文字会停留在白色。每帧比较一个 bool 的开销可以忽略不计，换来的是在任何情况下都正确。</p>
+<p>设置面板的主体脚本分三段看。第一段是绑定：</p>
+<pre class="code" data-file="Ch07/SettingsPanel.cs" data-region="bind"></pre>
+<p>注意分工：拖动滑块时只更新数字、实时应用音量（玩家需要边拖边听效果），并标记“有修改”；真正写盘留给“保存”按钮。onValueChanged 在拖动中每帧都触发，如果每帧都 <code>PlayerPrefs.Save()</code>，在某些平台上会产生频繁的磁盘写入。</p>
+<pre class="code" data-file="Ch07/SettingsPanel.cs" data-region="load"></pre>
+<p>读档是本案例的重点：全部使用 WithoutNotify 系列方法，所以打开界面不会触发“有未保存的修改”。画质那一行只调用了 <code>m_Quality[quality].SetIsOnWithoutNotify(true)</code>——打开目标项后，ToggleGroup 会用 SetIsOnWithoutNotify(false) 关掉其他成员，正好也不发通知。这里如果写成“循环把每一项设为 i == quality”，当前选中项排在目标项前面时，关它那一步会被组拒绝（7.3 节的第 2 个细节），虽然最终结果碰巧正确，但逻辑上依赖了遍历顺序，不要这么写。</p>
+<pre class="code" data-file="Ch07/SettingsPanel.cs" data-region="save"></pre>
+<div class="scene">Ch07/Scenes/Ch07_Settings.unity</div>
+<div class="note tip"><b>实际项目里</b>① 音量通常不是直接改 <code>AudioListener.volume</code>，而是改 AudioMixer 上“音乐”“音效”分组暴露的参数，并且要把 0～1 的线性值换算成分贝（例如 <code>20 * Mathf.Log10(v)</code>），否则滑块前半段几乎听不出变化。② “恢复默认”最好先弹确认框（第 16 章）。③ 设置项多了以后，可以把每一行做成预制体，用数据驱动生成。</div>
+
+<h3 class="case"><span class="no">案例 7.4</span>加载进度条<span class="lv">入门</span></h3>
+<p><b>目标</b>：加载界面底部有一条进度条，显示百分比和当前阶段说明；进度要平滑前进，不能一下跳满，也不能倒退。</p>
+<figure class="shot"><img src="img/ch07-loading.jpg"><figcaption><b>图 7-11</b> 加载界面：Slider 去掉 Handle 后就是一根只读进度条；配图是加载到第三阶段、62% 时的状态</figcaption></figure>
+<p><b>思路</b>：进度条用 Slider 实现最省事——Fill 随 value 伸缩的逻辑现成可用。做成只读要处理三件事：删掉 <code>Handle Slide Area</code>（并把 Handle Rect 置空）；关闭交互；让进度“追”着目标值走。</p>
+<pre class="code" data-file="Ch07/ProgressBar.cs"></pre>
+<ul>
+<li><b>interactable = false 的副作用</b>：Selectable 会进入 Disabled 状态，Color Tint 过渡会把 targetGraphic 染成半透明灰色。所以同时把 transition 设为 None。另外把所有子图形的 Raycast Target 关掉，进度条不应该挡住点击。</li>
+<li><b>目标值与显示值分离</b>：业务代码只调用 <code>SetProgress(p)</code> 设置目标，显示值在 Update 里用 <code>MoveTowards</code> 以固定速度追上去。这样即使真实进度从 10% 一下跳到 90%，玩家看到的也是平滑增长。</li>
+<li><b>百分比用 FloorToInt</b>：99.6% 不能显示成 100%，否则玩家会以为卡死了。</li>
+<li>改 value 用 <code>SetValueWithoutNotify</code>，进度条通常没人监听它的事件，用它可以省掉一次无意义的事件调用。</li>
+</ul>
+<p>配套场景用一组“假任务”模拟加载；真实项目里接异步加载场景时，有一个必须知道的细节：</p>
+<pre class="code" data-file="Ch07/LoadingScreen.cs" data-region="async"></pre>
+<p><code>allowSceneActivation = false</code> 时，<code>AsyncOperation.progress</code> 最多只走到 0.9，剩下 0.1 代表“激活场景”这一步，要等你把 allowSceneActivation 设回 true 才会完成。所以显示时要除以 0.9，否则进度条永远停在 90%。等显示值也走到 100% 再激活场景，可以避免“进度条还在 70% 画面就切走了”的突兀感。</p>
+<div class="scene">Ch07/Scenes/Ch07_Loading.unity</div>
+<div class="note tip"><b>进度刚开始时的“小椭圆”</b>Fill 用的是九宫格（Sliced）胶囊图。进度很小时，Fill 的宽度比两端圆角加起来还窄，Image 会按比例压缩九宫格边框，填充条就变成一个扁扁的小椭圆，甚至比高度还窄。不在意的话无所谓；在意的话有两个办法：给 Fill 的 sizeDelta.x 留出至少一个高度的长度（DefaultControls 的 10 像素就是这个用意），或者改用 Filled 类型的横向填充，让图片按比例“切掉”而不是“压扁”。</div>
+<div class="note"><b>“假进度”要有度</b>很多游戏的加载条前 80% 走得飞快、最后 20% 很慢，这是故意的：人对“快到了却停住”的容忍度比“一开始就慢”高。但不要让进度条和真实进度脱节太多——加载失败时进度条还在稳步前进，是最糟糕的体验。</div>
+
+<h3 class="case"><span class="no">案例 7.5</span>双滑块价格区间<span class="lv">进阶</span></h3>
+<p><b>目标</b>：商城筛选里的“价格区间”——一条轨道上两个滑块，分别表示最低价和最高价，中间的高亮段表示选中区间；两个滑块不能交叉，并保持一个最小间隔；数值按 10 元吸附。</p>
+<figure class="shot"><img src="img/ch07-range.jpg"><figcaption><b>图 7-12</b> 双滑块区间选择。滑块上方的气泡是滑块的子节点，所以会跟着滑块移动；下方按钮演示用代码设置区间</figcaption></figure>
+<p><b>思路</b>：两个 Slider 叠在一起可以勉强实现，但两个控件抢同一片点击区域，交互很别扭。更好的办法是照着 7.4 节读到的 Slider 原理，自己写一个控件：</p>
+<ol>
+<li><b>值 → 画面</b>：两个滑块的 x 锚点分别设为 low、high 的归一化值，高亮条的左右锚点分别对齐它们——和 <code>Slider.UpdateVisuals</code> 一模一样的手法。</li>
+<li><b>输入 → 值</b>：实现 <code>IPointerDownHandler</code> 和 <code>IDragHandler</code>。按下时把屏幕坐标换算成滑动区域内的 0～1 比例，选离得近的那个滑块作为“当前拖的滑块”，之后拖动只改它。</li>
+<li><b>约束</b>：拖左滑块时，值不能超过“右滑块 − 最小间隔”，反之亦然。</li>
+</ol>
+<pre class="code" data-file="Ch07/RangeSlider.cs"></pre>
+<p>值得注意的几处：</p>
+<ul>
+<li><code>[ExecuteAlways]</code> + <code>OnValidate</code>：在 Inspector 里改 Low / High 时立即刷新画面，编辑时就能看到效果。</li>
+<li><code>OnInitializePotentialDrag</code> 里关掉拖拽阈值，理由同 Slider。</li>
+<li>两个滑块重叠（值相等）时，“谁离得近”判断不出来，就按点击在重叠点的左边还是右边来选，否则用户可能永远拖不开两个叠在一起的滑块。</li>
+<li>屏幕坐标转换用的是 <code>e.pressEventCamera</code>。Screen Space - Overlay 画布下它是 null，Camera 和 World Space 画布下是对应的相机，直接把事件里的相机传给 <code>ScreenPointToLocalPointInRectangle</code> 就能兼容所有画布模式（第 3 章）。</li>
+<li>根节点下放了一张全透明、比轨道大一圈的 <code>HitArea</code> 图片作为点击区域——轨道只有 16 像素高，手指很难按准。</li>
+</ul>
+<p>区间文字和快捷按钮放在单独的 <code>PriceRangeDemo</code> 里，通过 <code>onValueChanged</code> 刷新——控件只负责“取值”，不关心值拿去显示什么，这样它才能在别处复用。</p>
+<div class="scene">Ch07/Scenes/Ch07_RangeSlider.unity</div>
+<div class="note tip"><b>还缺什么</b>这个控件没有继承 Selectable，所以不支持键盘/手柄导航和状态过渡。要支持的话，可以让它继承 Selectable、重写 <code>OnMove</code>（参考 Slider.OnMove），再加一个“当前焦点在哪个滑块”的状态。这留作本章练习。</div>
+
+<h3 class="case"><span class="no">案例 7.6</span>Slider 与输入框双向同步<span class="lv">进阶</span></h3>
+<p><b>目标</b>：亮度、视野、灵敏度这类设置，既能拖滑块粗调，也能在右侧输入框里输入精确数字。拖滑块时输入框数字跟着变；输入数字回车后滑块跳过去；超出范围的输入被自动纠正。</p>
+<figure class="shot"><img src="img/ch07-sync.jpg"><figcaption><b>图 7-13</b> Slider 与 TMP_InputField 双向同步。前两行是整数（Whole Numbers），第三行保留一位小数</figcaption></figure>
+<p>“双向同步”的经典陷阱是<b>互相触发</b>：滑块变了去改输入框，输入框变了又去改滑块，滑块又变了……即使不至于死循环，也会出现“正在输入 120，刚敲下 1 滑块就被拽到最左边，输入框又被改回 1”这种体验问题。解决办法是两条原则：</p>
+<figure><svg viewBox="0 0 600 185" width="600" font-family="PingFang SC" font-size="13">
+<rect x="20" y="50" width="150" height="60" rx="8" fill="#fff" stroke="#5b4bd6" stroke-width="2"/><text x="95" y="85" fill="#1f2436" text-anchor="middle">Slider</text>
+<rect x="430" y="50" width="150" height="60" rx="8" fill="#fff" stroke="#ff8a3d" stroke-width="2"/><text x="505" y="85" fill="#1f2436" text-anchor="middle">TMP_InputField</text>
+<path d="M170 65 L425 65" stroke="#5b4bd6" stroke-width="2"/><polygon points="425,60 433,65 425,70" fill="#5b4bd6"/>
+<text x="300" y="40" fill="#5b4bd6" text-anchor="middle">onValueChanged → SetTextWithoutNotify（不回传）</text>
+<path d="M430 95 L175 95" stroke="#ff8a3d" stroke-width="2"/><polygon points="175,90 167,95 175,100" fill="#ff8a3d"/>
+<text x="300" y="133" fill="#ff8a3d" text-anchor="middle">onEndEdit（回车/失焦才提交）→ slider.value</text>
+<text x="20" y="170" fill="#7a8299">滑块方向用 WithoutNotify 切断回路；输入方向用 onEndEdit 避免“打字打到一半就被改”。</text>
+</svg><figcaption><b>图 7-14</b> 双向同步的两条通路：一条静默、一条延迟</figcaption></figure>
+<pre class="code" data-file="Ch07/SliderInputSync.cs" data-region="sync"></pre>
+<ul>
+<li><b>滑块 → 输入框</b>用 <code>SetTextWithoutNotify</code>，输入框的 onValueChanged 不会被触发，回路在这里断开。</li>
+<li><b>输入框 → 滑块</b>监听 <code>onEndEdit</code> 而不是 onValueChanged：用户按回车或点到别处时才提交（输入框的事件细节见第 8 章）。</li>
+<li>提交时只管把解析出的数字赋给 <code>slider.value</code>，Clamp 和取整交给 Slider 自己——Slider 的 setter 已经实现了这些，不要在外面再写一遍。</li>
+<li>最后无论输入是否合法，都用滑块的最终值<b>重写一遍输入框</b>。输入 “999” 会被纠正为最大值，输入空字符串会恢复原值。这个“以模型为准回写视图”的做法，是所有表单类同步的通用套路。</li>
+<li>小数解析用 <code>CultureInfo.CurrentCulture</code>，与 TMP 的 Decimal Number 校验保持一致：在德语、法语等区域设置下小数点是逗号，TMP 放行的是逗号，用 InvariantCulture 解析就会失败。</li>
+</ul>
+<div class="scene">Ch07/Scenes/Ch07_SliderInput.unity</div>
+
+<h3 class="sec">7.6 导航、移动端与性能：三个控件的共同注意事项</h3>
+<h4>键盘与手柄：方向键到底是“切焦点”还是“调数值”</h4>
+<p>Selectable 的默认行为是：按方向键时把焦点移到相应方向上的下一个控件（第 6 章）。Slider 和 Scrollbar 改写了 <code>OnMove</code>：当方向键与自身轴向一致、并且那个方向上找不到可导航的控件时，改为加减数值。再配合它们重写的 <code>FindSelectableOnLeft/Right/Up/Down</code>——Navigation 为 Automatic 时，横向 Slider 在左右方向上直接返回 null——结果就是：<b>横向滑块上按左右键调值、按上下键换焦点；竖向滑块反过来</b>。这正是手柄操作设置界面时想要的手感。</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Slider.cs
+float stepSize { get { return wholeNumbers ? 1 : (maxValue - minValue) * 0.1f; } }
+
+public override Selectable FindSelectableOnLeft()
+{
+    if (navigation.mode == Navigation.Mode.Automatic &amp;&amp; axis == Axis.Horizontal)
+        return null;
+    return base.FindSelectableOnLeft();
+}</pre>
+<p>每按一次的步长：Whole Numbers 时是 1，否则是范围的 10%。0～100 的整数音量条每按一次只加 1，手柄玩家要按一百下才能从头到尾——这时可以取消 Whole Numbers、自己在 onValueChanged 里取整，或者继承 Slider 改写 OnMove 换一个步长。如果把 Navigation 改成 Explicit 并指定了左右邻居，方向键就会去切焦点而不再调值，这一点常被忽略。</p>
+<p>Toggle 没有改写 OnMove，它响应的是 <code>ISubmitHandler</code>：焦点在 Toggle 上时按“确认”（Standalone Input Module 的 Submit 键，默认是回车 / 手柄 A 键）就会切换，和鼠标点击走同一个 <code>InternalToggle</code>。</p>
+<h4>移动端：点击区域比画面要大</h4>
+<p>手机屏幕上，16 像素高的滑块轨道、40 像素的复选框，用手指几乎按不准。原则是<b>视觉可以小，可点击区域要大</b>。做法有两种：一是像案例 7.5 那样，在根节点放一张全透明的大图当点击区域（透明 Image 照样参与射线检测，只要 Raycast Target 开着）；二是保持图片尺寸不变，用第 4 章提到的“透明边距”扩大精灵。各大平台的设计规范对最小触控尺寸都有建议值，大致相当于指尖的宽度，具体数值以平台文档为准。另外，Slider 关掉了拖拽阈值，手指一碰就会改值——在需要防误触的地方（比如战斗中的灵敏度调节），可以在 OnPointerDown 里记录按下位置，只有拖动超过一定距离才开始改值。</p>
+<h4>性能：onValueChanged 是每帧事件</h4>
+<p>拖动 Slider、Scrollbar 时，onValueChanged 每帧都会触发；ScrollRect 滚动时，它带的两根 Scrollbar 也在每帧更新。这些回调里只做“便宜”的事：改一个数字文字、设置一个音量参数。存档、发网络请求、重建列表这类操作，应该放到拖动结束（实现 <code>IEndDragHandler</code> 或 <code>IPointerUpHandler</code>）或者“保存”按钮里。另一个容易忽视的开销是：Fill 的锚点每帧变化会让它的网格重建（第 12 章会实测各种改动触发的重建类型），一屏几十根同时变化的进度条（例如 MMO 的团队血条）建议放进单独的 Canvas，避免拖累整个界面的合批重建（第 20 章）。</p>
+<div class="note"><b>Gamma 色彩空间下的颜色插值</b>案例 7.1 用 <code>Color.Lerp</code> 在灰色和绿色之间插值。本书工程使用 Gamma 色彩空间，Lerp 直接在 sRGB 数值上线性插值，中间色会比 Linear 空间下的结果略暗、略“脏”一些。对开关这种 0.15 秒的过渡来说肉眼几乎看不出；如果做的是长时间、大面积的颜色渐变（如昼夜天空色），可以先用 <code>color.linear</code> 转到线性空间插值，再用 <code>.gamma</code> 转回。</div>
+
+<h3 class="sec">7.7 常见问题速查</h3>
+<table>
+<tr><th>现象</th><th>原因与解决</th></tr>
+<tr><td>Toggle 点了没反应，但 isOn 在 Inspector 里能改</td><td>Background 和 Label 的 Raycast Target 都关掉了，射线命中不到任何属于这个 Toggle 的图形；或者上层有透明图片挡住（第 1 章新手五坑）。打开 Background 的 Raycast Target，或加一张透明点击区域。</td></tr>
+<tr><td>对勾在 Scene 里一直显示，运行后才正确</td><td>编辑模式下 PlayEffect 直接改 CanvasRenderer 的 alpha，而这个值不会被序列化。如果你用代码在编辑器里批量创建 Toggle 又没触发 OnEnable，预览可能和实际不一致；进 Play 模式后 OnEnable / Start 会重新调用 PlayEffect，以运行时为准。</td></tr>
+<tr><td>Slider 的 Fill 在 value = 0 时还露出一小截</td><td>Fill 的 sizeDelta.x 不为 0（默认是 10，用来让填充条两端圆头盖住滑块中心）。value = 0 时锚点宽度为 0，但 sizeDelta 仍撑出 10 像素。想完全消失，可以在 onValueChanged 里 value 为 0 时关闭 Fill 的 Image，或把 Fill 换成 Filled 类型。</td></tr>
+<tr><td>拖动 Slider 时 Fill 和 Handle 对不齐</td><td>Fill Area 与 Handle Slide Area 的内缩量不同。按图 7-7 的规则，两者都应内缩半个 Handle 宽（Fill 再按需外扩 offset）。</td></tr>
+<tr><td>改了 minValue / maxValue 后 value 变了</td><td>这两个属性的 setter 会立即用新范围重新 Clamp 当前值，并且可能触发 onValueChanged。初始化时先设范围、再设值；需要静默就在设置完范围后再 SetValueWithoutNotify 一次。</td></tr>
+<tr><td>Scrollbar 拖不到底 / 拖不动</td><td>size = 1 时可移动范围是 0，拖动代码里 remainingSize ≤ 0 直接返回。单独使用 Scrollbar 时记得把 size 设成小于 1 的值。</td></tr>
+<tr><td>ToggleGroup 里两个 Toggle 同时是开的</td><td>运行前在 Inspector 里勾了两个 Is On。ToggleGroup 在 Start / OnEnable 时调用 EnsureValidState，只保留第一个注册的开着的那个——“第一个”取决于 OnEnable 顺序，不可靠。在 Inspector 里只勾一个。</td></tr>
+</table>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>Toggle、Slider、Scrollbar 都是“控件本身不画东西、只驱动子节点”的结构：Toggle 控制 graphic 的透明度，Slider 和 Scrollbar 改 Fill / Handle 的锚点（Filled 类型则改 fillAmount）。被驱动的锚点在 Inspector 里是灰的，改了也会被覆盖。</li>
+<li>isOn / value 的 setter 里“值没变就不发事件”；读档、程序同步显示一律用 <code>SetIsOnWithoutNotify</code> / <code>SetValueWithoutNotify</code>。</li>
+<li>ToggleGroup 的回调顺序是“先旧项 false、后新项 true”；点击已选中项仍会收到 true；allowSwitchOff = false 时组里最后一个开着的 Toggle 关不掉；组本身没有选中事件。</li>
+<li>Slider 的 Fill Area 和 Handle Slide Area 要比底槽内缩半个滑块宽；按在滑块上拖动会保留按下偏移；Slider 关闭了拖拽阈值，放在滚动列表里要注意抢事件。</li>
+<li>Scrollbar 的滑块位置：anchorMin = value × (1 − size)，长度 = size；numberOfSteps 只在读取 value 时量化。</li>
+<li>键盘与手柄：横向 Slider 上左右键调值、上下键换焦点；Toggle 响应确认键。移动端点击区域要比画面大，拖动回调里只做便宜的事。</li>
+<li>扩展控件的两种思路：保留原生控件的逻辑、自己接管表现（iOS 开关）；照着原生控件的原理从零写（双滑块）。UI 动画用 unscaledDeltaTime，并把“画成第 t 帧”独立成可直接调用的方法。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>给案例 7.2 的页签加上切换音效，并且“点击已经选中的页签”时不播放（提示：7.3 节第 1 个细节）。</li>
+<li>把案例 7.4 的进度条改成分段式：总共 5 段，每完成一个加载阶段点亮一段。分别用 Slider（Whole Numbers）和 Scrollbar（Number Of Steps）各实现一次，比较两种做法。</li>
+<li>让案例 7.5 的 RangeSlider 继承 Selectable，支持键盘左右键调整当前滑块、Tab 键在两个滑块之间切换焦点。</li>
+<li>在案例 7.3 的设置界面里加一个“界面缩放”滑块（0.8～1.2），拖动时实时修改 CanvasScaler 的 <code>scaleFactor</code> 或参考分辨率。思考：拖动过程中整个界面在变大变小，滑块本身也在动，体验会怎样？如何改进？</li>
+<li>读 <code>Slider.OnMove</code> 的源码，解释为什么 Navigation 为 Automatic 的横向 Slider 上按左右键是调值，而按上下键才是切换焦点。</li>
+</ol></div>
+</section>

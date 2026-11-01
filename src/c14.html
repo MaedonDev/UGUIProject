@@ -1,0 +1,419 @@
+<section class="chapter" id="c14" data-title="UI Shader、遮罩与模板" data-sub="UI/Default 逐段精读、自定义效果、Mask 与 RectMask2D 原理">
+<div class="chap-head"><div class="num">CHAPTER 14<b>第 14 章</b></div><h2>UI Shader、遮罩与模板</h2><p class="lead">上一章在顶点上做文章，这一章往下走一层，到像素。所有 UGUI 元素默认都用同一个 Shader——UI/Default。读懂它的每一行，就知道自定义 UI Shader 时哪些东西一个字都不能删；读懂 Mask 和 RectMask2D 的源码，就知道遮罩为什么会“失灵”、为什么一个贵一个便宜。最后用这些知识做几个项目里天天用得到的东西：新手引导挖洞、圆形头像、软遮罩、模糊背景。</p></div>
+<div class="learn"><div class="h">本章你会学到</div><div>UI/Default Shader 逐段讲解：Stencil、ColorMask、ZTest、预乘混合、CLIP_RECT、ALPHACLIP、_TextureSampleAdd</div><div>以它为底本写出灰度、流光、溶解、扭曲、HSV 五个效果，并保持 Mask / RectMask2D 兼容</div><div>用 uv1 顶点通道给每个元素传参数：同一材质、不同效果值、不打断合批</div><div>Mask 的模板缓冲原理：读源码 + 实拍读取三层嵌套 Mask 生成的模板参数</div><div>RectMask2D 的裁剪矩形原理与 Softness；两种遮罩的对比与选择</div><div>新手引导挖洞（点击穿透）、圆形头像、软遮罩、模糊背景四个实战案例</div></div>
+
+<h3 class="sec">14.1 UI 元素是怎么被画出来的</h3>
+<p>Canvas 把子元素合批成若干个 Draw Call，每个 Draw Call 用一个材质。没有手动指定材质的 Graphic 用的是 <code>Graphic.defaultGraphicMaterial</code>，它的 Shader 就是 <b>UI/Default</b>。旧版 Text 用 UI/Default 的字体变体，TextMeshPro 则有自己的 SDF Shader（第 5 章）。</p>
+<p>本章的底本是 Unity 2022.3.62f3 随编辑器发布的内置 Shader 源码（<code>DefaultResourcesExtra/UI/UI-Default.shader</code> 和 <code>CGIncludes/UnityUI.cginc</code>，可以在 Unity 官网的 Built-in Shaders 下载页获取）。不同 Unity 版本的 UI-Default 有过几次变化，比如混合模式从普通 Alpha 混合改成了预乘 Alpha、增加了 RectMask2D 的 Softness，所以<b>自定义 UI Shader 一定要以你所用版本的内置源码为底本改写</b>，不要从网上抄一份老版本。</p>
+
+<h3 class="sec">14.2 UI/Default 逐段精读</h3>
+<h4>Properties：给 Mask 预留的“接口”</h4>
+<pre class="code" data-lang="hlsl">// 摘自 DefaultResourcesExtra/UI/UI-Default.shader（Unity 2022.3.62f3）
+Properties
+{
+    [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
+    _Color ("Tint", Color) = (1,1,1,1)
+
+    _StencilComp ("Stencil Comparison", Float) = 8
+    _Stencil ("Stencil ID", Float) = 0
+    _StencilOp ("Stencil Operation", Float) = 0
+    _StencilWriteMask ("Stencil Write Mask", Float) = 255
+    _StencilReadMask ("Stencil Read Mask", Float) = 255
+
+    _ColorMask ("Color Mask", Float) = 15
+
+    [Toggle(UNITY_UI_ALPHACLIP)] _UseUIAlphaClip ("Use Alpha Clip", Float) = 0
+}
+</pre>
+<div class="kv">
+<span>_MainTex</span><span>精灵贴图。<code>[PerRendererData]</code> 表示它不是材质上的固定值，而是每个 CanvasRenderer 各自设置（<code>canvasRenderer.SetTexture(mainTexture)</code>）。所以一百个不同精灵的 Image 可以共用一个材质；同一图集里的精灵贴图相同，还能合批。</span>
+<span>_Color</span><span>材质级的整体色调，会乘到顶点色上。注意它和 Graphic.color 不是一回事：Graphic.color 写在顶点色里，每个元素不同；_Color 是材质的，所有用这个材质的元素都受影响。</span>
+<span>_Stencil 等五个</span><span>模板测试的参数。UI/Default 自己永远不改它们，它们是留给 <b>Mask 组件</b>的：Mask 通过 <code>StencilMaterial.Add</code> 复制一份材质，把这五个值改掉。14.6 节会读这段源码。默认值 Comp = 8（Always）、Op = 0（Keep）意味着“不参与模板”。</span>
+<span>_ColorMask</span><span>写哪些颜色通道，15 = RGBA 全写。Mask 的 Show Mask Graphic 关掉时，Mask 自身的材质副本会把它改成 0：只写模板、不写颜色。</span>
+<span>_UseUIAlphaClip</span><span>开关 <code>UNITY_UI_ALPHACLIP</code> 关键字。Mask 写模板时会打开它，让透明像素不写模板（后面详述）。</span>
+</div>
+<div class="note warn"><b>一个字都不能改</b><code>StencilMaterial.Add</code> 在复制材质前会逐个检查 <code>_Stencil</code>、<code>_StencilOp</code>、<code>_StencilComp</code>、<code>_StencilReadMask</code>、<code>_StencilWriteMask</code>、<code>_ColorMask</code> 六个属性是否存在，缺任何一个就放弃，直接返回原材质——你的元素就不受 Mask 控制了。而且这个警告在批处理模式下不输出（源码里专门判断了 <code>Application.isBatchMode</code>），CI 打包时你根本看不到。</div>
+<h4>SubShader 的渲染状态</h4>
+<pre class="code" data-file="Ch14/Shaders/Gray.shader" data-region="stencil"></pre>
+<p>（上面这段摘自本章的 Gray.shader，与 UI-Default 完全相同。）逐行看：</p>
+<ul>
+<li><b>Stencil 块</b>：方括号表示从材质属性读值。正因为是“属性”而不是写死的常量，Mask 才能通过改材质副本来控制每个元素的模板行为。</li>
+<li><b>Cull Off</b>：不剔除背面。UI 网格的三角形绕向不统一（上一章的 MirrorEffect 就产生了反向三角形），也可能被缩放成负数翻转，关掉剔除最省心。</li>
+<li><b>ZWrite Off</b>：UI 是半透明物体，按层级顺序从后往前画，不写深度。</li>
+<li><b>ZTest [unity_GUIZTestMode]</b>：由 Canvas 设置。Screen Space - Overlay 时为 Always（UI 永远在最上面，不和场景比深度）；Camera 和 World Space 模式下为 LessEqual，这样 3D 物体才能挡住 World Space 的 UI。</li>
+<li><b>Blend One OneMinusSrcAlpha</b>：<b>预乘 Alpha 混合</b>。片元着色器最后会执行 <code>color.rgb *= color.a</code>，输出的已经是“颜色 × 透明度”，混合时源颜色乘 1 即可。老版本用的是 <code>Blend SrcAlpha OneMinusSrcAlpha</code>，两种写法在普通情况下结果一样，但预乘对贴图边缘的过滤更正确（不会出现半透明边缘发黑或发白的“描边”），叠加多层半透明时也更稳定。</li>
+<li><b>ColorMask [_ColorMask]</b>：同样留给 Mask 控制。</li>
+</ul>
+<h4>顶点着色器</h4>
+<pre class="code" data-lang="hlsl">// 摘自 UI-Default.shader（节选）
+v2f vert(appdata_t v)
+{
+    float4 vPosition = UnityObjectToClipPos(v.vertex);
+    OUT.worldPosition = v.vertex;           // 注意：存的是 v.vertex，即“画布空间”坐标
+    OUT.vertex = vPosition;
+
+    float2 pixelSize = vPosition.w;
+    pixelSize /= float2(1, 1) * abs(mul((float2x2)UNITY_MATRIX_P, _ScreenParams.xy));
+
+    float4 clampedRect = clamp(_ClipRect, -2e10, 2e10);
+    OUT.texcoord = TRANSFORM_TEX(v.texcoord.xy, _MainTex);
+    OUT.mask = float4(v.vertex.xy * 2 - clampedRect.xy - clampedRect.zw,
+                      0.25 / (0.25 * half2(_UIMaskSoftnessX, _UIMaskSoftnessY) + abs(pixelSize.xy)));
+
+    if (_UIVertexColorAlwaysGammaSpace) { if (!IsGammaSpace()) v.color.rgb = UIGammaToLinear(v.color.rgb); }
+    OUT.color = v.color * _Color;
+    return OUT;
+}
+</pre>
+<p>几个关键点：</p>
+<ul>
+<li><b>v.vertex 是画布空间坐标</b>。Canvas 合批时把所有子元素的顶点变换到根 Canvas 的本地空间，再整体提交，所以 Shader 拿到的顶点位置以根 Canvas 为参照，而不是元素自己。RectMask2D 的裁剪矩形 <code>_ClipRect</code> 也在这个空间，这就是它能直接和 <code>worldPosition</code> 比较的原因（变量名叫 world 其实有误导性）。本章的引导挖洞、软遮罩都利用了这一点。</li>
+<li><b>OUT.mask</b> 为 RectMask2D 的软裁剪预先算好两样东西：xy 是“顶点相对裁剪矩形中心的偏移 × 2”，zw 是“每像素的衰减斜率”。Softness 为 0 时斜率等于 1/像素尺寸，边缘在 1 个像素内从 1 降到 0（硬边但抗锯齿）；Softness 越大，斜率越小，边缘越软。</li>
+<li><b>_UIVertexColorAlwaysGammaSpace</b>：Linear 色彩空间的工程里，Canvas 有一个“顶点色始终按 Gamma 空间处理”的选项，打开后这里把顶点色转换到线性空间，让 UI 颜色和美术在 Photoshop 里看到的一致。本书工程是 Gamma 空间，这个分支不起作用。</li>
+</ul>
+<h4>片元着色器</h4>
+<pre class="code" data-lang="hlsl">// 摘自 UI-Default.shader
+fixed4 frag(v2f IN) : SV_Target
+{
+    const half alphaPrecision = half(0xff);
+    const half invAlphaPrecision = half(1.0/alphaPrecision);
+    IN.color.a = round(IN.color.a * alphaPrecision)*invAlphaPrecision;
+
+    half4 color = IN.color * (tex2D(_MainTex, IN.texcoord) + _TextureSampleAdd);
+
+    #ifdef UNITY_UI_CLIP_RECT
+    half2 m = saturate((_ClipRect.zw - _ClipRect.xy - abs(IN.mask.xy)) * IN.mask.zw);
+    color.a *= m.x * m.y;
+    #endif
+
+    #ifdef UNITY_UI_ALPHACLIP
+    clip (color.a - 0.001);
+    #endif
+
+    color.rgb *= color.a;
+    return color;
+}
+</pre>
+<ol>
+<li><b>Alpha 取整</b>：把插值后的顶点 alpha 对齐到 1/255 的整数倍，消除插值带来的微小抖动（源码注释说这在 HDR 下混合时很敏感）。</li>
+<li><b>_TextureSampleAdd</b>：采样结果加上一个常量再乘顶点色。它的用途是兼容只有 alpha 通道的贴图：旧版 Text 的动态字体贴图是 Alpha8 格式，采样出的 rgb 是 0，引擎会为这类贴图把它设成 (1,1,1,0)，rgb 被补成白色，再乘顶点色就是文字颜色；普通贴图时它是 0，不起作用。自定义 Shader 保留这一项，就能同时用于 Image 和旧版 Text。</li>
+<li><b>UNITY_UI_CLIP_RECT</b>：RectMask2D 的逐像素裁剪。<code>_ClipRect.zw - _ClipRect.xy</code> 是矩形宽高，<code>abs(IN.mask.xy)</code> 是像素到矩形中心距离的 2 倍，二者之差为正说明在矩形内，乘斜率再 saturate 就得到 0~1 的覆盖率。这个关键字由 CanvasRenderer 在元素进入 RectMask2D 时自动开启，所以 Shader 里用 <code>multi_compile_local</code> 声明两个变体。</li>
+<li><b>UNITY_UI_ALPHACLIP</b>：丢弃几乎全透明的像素。它对普通绘制没有意义（透明像素混合后本来就看不见），但对写模板有意义：不 clip 的话，透明像素也会写模板，Mask 就成了一个矩形。</li>
+<li><b>预乘</b>：最后乘 alpha，对应前面的 Blend One OneMinusSrcAlpha。</li>
+</ol>
+<div class="box"><h4>自定义 UI Shader 的检查清单</h4><p>以 UI-Default 为底本改写时，下面这些必须原样保留：① Properties 里的 _Stencil 等五个属性和 _ColorMask；② SubShader 里的 Stencil 块、ColorMask、ZTest [unity_GUIZTestMode]、Cull Off、ZWrite Off；③ <code>multi_compile_local _ UNITY_UI_CLIP_RECT</code> 和 <code>_ UNITY_UI_ALPHACLIP</code> 两行及对应的代码块，以及计算 <code>OUT.mask</code> 需要的 _ClipRect、_UIMaskSoftnessX/Y；④ 顶点色乘法与 _TextureSampleAdd；⑤ 预乘混合与 <code>color.rgb *= color.a</code> 要么都留、要么一起改。你的效果代码只应该改“采样并计算 color”这一段。不要用 <code>UsePass "UI/Default/DEFAULT"</code> 偷懒——那样你什么也改不了。</p></div>
+<p>本章所有效果 Shader 都由同一个模板生成，结构与 UI-Default 一一对应，只多了两样东西：一个 <code>_UseVertexParam</code> 开关和一个 <code>luv</code>（局部坐标）插值量，14.4 节解释。下面是灰度 Shader 的完整源码，后面的效果只展示各自不同的片段。</p>
+<pre class="code" data-file="Ch14/Shaders/Gray.shader"></pre>
+
+<h3 class="sec">14.3 五个效果 Shader</h3>
+<h4>灰度：禁用态图标</h4>
+<pre class="code" data-file="Ch14/Shaders/Gray.shader" data-region="gray"></pre>
+<p>灰度值用加权平均（0.299, 0.587, 0.114），这组权重来自电视信号的亮度公式，反映人眼对绿色最敏感、对蓝色最不敏感。直接取 (r+g+b)/3 的话，蓝色图标会显得过亮。<code>_Brightness</code> 让灰掉的图标稍微暗一点，更像“不可用”。主参数（灰度程度）在模板里叫 <code>IN.param</code>，0 是原色、1 是全灰。</p>
+<figure class="shot"><img src="img/ch14-gray.jpg"><figcaption><b>图 14-1</b> 下排 6 个图标共用一个 Gray 材质，灰度程度分别来自各自的 uv1.x（0、0.2……1.0）</figcaption></figure>
+<p>禁用态按钮常见的做法是 Selectable 切到 Disabled 状态时，把按钮和图标的材质换成 Gray。注意换材质会让这些元素与其他元素分到不同批次；如果禁用态元素很多，可以像图 14-1 一样全部使用 Gray 材质，用参数控制灰度，正常态参数为 0——所有元素始终同一材质，批次不会被打断。</p>
+<h4>流光：一条扫过的高光</h4>
+<pre class="code" data-file="Ch14/Shaders/Shine.shader" data-region="shine"></pre>
+<p>把二维坐标投影到倾斜方向上：x′ = u + v·tan(角度)，同一条倾斜直线上的点 x′ 相同。高光带中心随 progress 从左端外侧扫到右端外侧，像素离带中心的距离除以带宽，再用 smoothstep 做柔和边缘。高光是“加”到颜色上的，alpha 不变，所以按钮透明的圆角外面不会出现光。</p>
+<figure class="shot"><img src="img/ch14-shine.jpg"><figcaption><b>图 14-2</b> 同一个按钮在扫光过程中的 5 个时刻（progress 0.15 ~ 0.95）。按钮是九宫格精灵</figcaption></figure>
+<div class="note warn"><b>九宫格的坑</b>作者第一版流光用的是贴图 uv，结果在九宫格按钮上高光带宽得几乎铺满整个按钮。原因是 Sliced 模式的 uv 并不均匀：四个圆角占据贴图 uv 的大部分，而按钮宽阔的中间部分只对应贴图中间很窄的一条 uv。打进图集的精灵也一样，uv 只占图集的一小块。凡是“按形状铺开”的效果（流光、溶解、渐隐），都应该用元素自身的局部坐标，而不是贴图 uv。下一节的 UIParamEffect 会把局部坐标一并写进顶点。</div>
+<h4>溶解：按噪声烧掉</h4>
+<pre class="code" data-file="Ch14/Shaders/Dissolve.shader" data-region="dissolve"></pre>
+<p>每个像素从噪声图取一个 0~1 的值，阈值随 progress 增长，噪声低于阈值的像素被丢弃（alpha = 0），刚好在阈值附近一窄条的像素染成发光色，看起来像燃烧的边缘。阈值的范围特意设计成从 −edge 到 1，保证 progress = 0 时一个像素都不烧、也看不到发光边，progress = 1 时全部烧光。</p>
+<p>配套的 noise 精灵实际取值大约在 0.15~0.7 之间（作者用 Python 统计过它的直方图），直接用的话前 15% 的进度什么也不发生、过了 70% 就已全部消失，所以 Shader 多了一个 <code>_NoiseRange</code> 把噪声拉伸到 0~1。另外这张噪声图不是无缝贴图，平铺（Tiling &gt; 1）会出现明显的直线接缝，第一次拍图时作者就踩了这个坑。</p>
+<figure class="shot"><img src="img/ch14-dissolve.jpg"><figcaption><b>图 14-3</b> 溶解 progress = 0 / 0.3 / 0.55 / 0.8</figcaption></figure>
+<h4>扭曲：水波与旗帜</h4>
+<pre class="code" data-file="Ch14/Shaders/Distort.shader" data-region="distort"></pre>
+<p>扭曲类效果的共同点是<b>不改颜色、改采样位置</b>：先算出一个 uv 偏移，再用偏移后的 uv 去采样贴图。水波是以 _Center 为圆心的一圈环形波：环的半径随 progress 变大，环附近的像素沿径向偏移 sin(距离 × 频率) × 振幅，用高斯函数限制在环附近，强度随 progress 衰减。乘上宽高比 _Aspect 是为了让波纹在非正方形元素上也是正圆。旗帜飘动则是 y 方向的正弦偏移，振幅随 x 线性增大，左边像固定在旗杆上。</p>
+<figure class="shot"><img src="img/ch14-distort.jpg"><figcaption><b>图 14-4</b> 水波在三个时刻的状态，以及旗帜飘动。网格始终是 4 个顶点</figcaption></figure>
+<p>扭曲效果会采样到 0~1 范围之外，贴图的 Wrap Mode 为 Clamp 时边缘会被拉伸，图 14-4 的旗帜右边缘就能看到。要避免的话，可以让元素比可见区域稍大、外面套一个 RectMask2D，或者在 Shader 里把超出范围的像素 alpha 置 0。</p>
+<h4>HSV：一张图换多种颜色</h4>
+<pre class="code" data-file="Ch14/Shaders/HSV.shader" data-region="hsv"></pre>
+<p>把颜色转到 HSV 空间，色相加一个偏移、饱和度和明度乘系数，再转回 RGB。转换函数是 GPU 上常用的无分支写法，用 lerp/step 代替 if，避免分支发散。</p>
+<figure class="shot"><img src="img/ch14-hsv.jpg"><figcaption><b>图 14-5</b> 一张红药水、一张宝石，换色全靠 Shader。白色、灰色部分饱和度为 0，色相怎么转都不变</figcaption></figure>
+<p>这正是 HSV 调色相比“乘一个颜色”的优势：乘色会把高光的白色也染掉，而 HSV 只转动有颜色的部分。药水瓶的玻璃、宝石的高光都保持原样。游戏里同一件装备的不同品质、同一个怪物的不同变种，都可以用一张图 + HSV 参数实现。</p>
+
+<h3 class="sec">14.4 每个元素一个参数，却不打断合批</h3>
+<p>效果 Shader 的参数（灰度程度、流光进度）怎么传给每个元素？最直接的办法是材质属性：<code>image.material.SetFloat("_Progress", p)</code>。问题是 <code>Graphic.material</code> 的 getter 不会复制材质，所有用这个材质的元素会一起变；要各自不同，就得给每个元素 new 一个材质实例，而<b>材质不同的元素无法合批</b>——十个各自扫光的按钮就是十个 Draw Call。</p>
+<p>另一条路是把参数放进顶点数据。上一章说过，UIVertex 除了 uv0 还有 uv1~uv3 三个通道，平时空着。我们写一个 BaseMeshEffect，把参数写进每个顶点的 <code>uv1.x</code>，顺手把顶点在元素矩形内的局部坐标写进 <code>uv1.zw</code>：</p>
+<pre class="code" data-file="Ch14/UIParamEffect.cs" data-region="param"></pre>
+<p>Shader 这边，模板里的顶点着色器统一做了这件事：</p>
+<pre class="code" data-lang="hlsl">// 本章 Shader 模板的顶点着色器（节选）：主参数与局部坐标
+OUT.param = lerp(_Progress, v.texcoord1.x, _UseVertexParam);   // 0：用材质属性；1：用顶点 uv1.x
+OUT.luv = lerp(v.texcoord.xy, v.texcoord1.zw, _UseVertexParam);
+</pre>
+<p>用 lerp 代替 if/关键字，不会多编译出变体。<code>_UseVertexParam</code> 打开后，材质上的 _Progress 就不再起作用，参数完全由每个元素的 UIParamEffect 决定。代价与收益对比如下：</p>
+<table>
+<tr><th>传参方式</th><th>改参数时的开销</th><th>合批</th><th>适用</th></tr>
+<tr><td>共享材质属性</td><td>只改一个数，无重建</td><td>能合批，但所有元素同一个值</td><td>全局统一的效果（整体变灰、全屏扭曲）</td></tr>
+<tr><td>每个元素一个材质实例</td><td>只改一个数，无重建</td><td>不能合批，每个元素一个 Draw Call</td><td>屏幕上只有一两个的元素（全屏转场、旗帜）</td></tr>
+<tr><td>顶点通道（uv1）</td><td>该元素重建网格（一个 Image 只有 4~16 个顶点）</td><td>能合批，每个元素值不同</td><td>大量同类元素各自变化（列表里的图标、成排按钮）</td></tr>
+</table>
+<p>使用顶点通道有一个前提：Canvas 的 <span class="menu">Additional Shader Channels</span> 要勾选 TexCoord1，否则 uv1 根本不会送进 Shader。UIParamEffect 在 OnEnable 时自动帮你打开。TextMeshPro 自己会打开 TexCoord1、Normal、Tangent 三个通道（它用 uv1 存 SDF 参数），所以 TMP 文字不能用这个方法——TMP 的 uv1 有别的用途。</p>
+<div class="scene">Ch14/Scenes/Ch14_ShaderGallery.unity</div>
+<p>配套场景 Ch14_ShaderGallery 里，所有效果都由一个 <code>ParamDriver</code> 组件驱动 UIParamEffect.value 动起来；旗帜则相反，用的是材质实例（<code>FlagWave</code> 组件），可以在 Frame Debugger 里对比两者的批次。最下面一排图标放在带 Softness 的 RectMask2D 里来回平移，证明这些 Shader 都兼容裁剪。</p>
+
+<h3 class="sec">14.5 两种遮罩：先看现象</h3>
+<p>UGUI 有两种遮罩组件，第 9 章的 ScrollRect 已经用过。先做一个对照实验：两种遮罩各放两张图，左上那张用本章的 Gray 材质（保留了全部遮罩相关代码），右下那张用一个故意写坏的 Shader <code>BadNoStencil</code>——它能正常显示贴图和顶点色，但删掉了 Stencil 块和 CLIP_RECT 分支。</p>
+<figure class="shot"><img src="img/ch14-mask-compat.jpg"><figcaption><b>图 14-6</b> 左：Mask；右：RectMask2D。用 Gray 材质的风景图被正确裁剪，用 BadNoStencil 的夜景图在两种遮罩下都“漏”了出来</figcaption></figure>
+<div class="scene">Ch14/Scenes/Ch14_MaskCompat.unity</div>
+<p>两种遮罩的失效方式不同，正好对应它们不同的原理：Mask 依赖模板测试，Shader 没有 Stencil 块就完全不受控制；RectMask2D 依赖 Shader 里的 CLIP_RECT 代码做逐像素裁剪，Shader 没有这段代码就不裁剪——但 RectMask2D 还有一层 CPU 端的剔除，<b>完全</b>在矩形外的元素会被整个跳过绘制，所以坏 Shader 在 RectMask2D 下“只漏一部分”。下面分别读源码。</p>
+
+<h3 class="sec">14.6 Mask：模板缓冲</h3>
+<h4>模板缓冲是什么</h4>
+<p>模板缓冲（Stencil Buffer）是和颜色缓冲一样大的一块显存，每个像素 8 位。绘制时，每个像素可以先做一次<b>模板测试</b>：拿材质指定的参考值 Ref 与缓冲里的值比较（比较前两边都先与 ReadMask 按位与），比较通过才画这个像素；画的同时还可以按 Pass 指定的操作（Keep 保持、Replace 替换为 Ref、Zero 清零……）修改缓冲里的值，修改时只改 WriteMask 允许的位。</p>
+<p>Mask 的思路很直接：先把遮罩图形画一遍，在它覆盖的像素上把模板值写成 1；再画子元素，只允许模板值等于 1 的像素通过；子元素画完，再把遮罩图形画一遍，把模板值清回 0，免得影响后面的元素。</p>
+<figure><svg viewBox="0 0 600 250" width="600" font-family="PingFang SC">
+<g font-size="13">
+<rect x="10" y="20" width="180" height="140" rx="10" fill="#f6f5fc" stroke="#e0deef"/>
+<circle cx="100" cy="90" r="50" fill="#5b4bd6" opacity="0.85"/><text x="100" y="95" fill="#fff" text-anchor="middle">写 1</text>
+<text x="100" y="182" text-anchor="middle" fill="#1f2436">① 画 Mask 图形</text><text x="100" y="200" text-anchor="middle" fill="#7a8299" font-size="12">Always · Replace</text>
+<rect x="210" y="20" width="180" height="140" rx="10" fill="#f6f5fc" stroke="#e0deef"/>
+<circle cx="300" cy="90" r="50" fill="#e0deef"/><rect x="235" y="55" width="130" height="70" fill="#ff8a3d" opacity="0.35"/>
+<path d="M 268.5,55 A 50 50 0 0 1 331.5,55 L 331.5 125 A 50 50 0 0 1 268.5 125 Z" fill="#ff8a3d"/>
+<rect x="250" y="40" width="0" height="0"/>
+<text x="300" y="182" text-anchor="middle" fill="#1f2436">② 画子元素</text><text x="300" y="200" text-anchor="middle" fill="#7a8299" font-size="12">Comp Equal · 圆外被丢弃</text>
+<rect x="410" y="20" width="180" height="140" rx="10" fill="#f6f5fc" stroke="#e0deef"/>
+<circle cx="500" cy="90" r="50" fill="none" stroke="#5b4bd6" stroke-dasharray="4 3"/><text x="500" y="95" fill="#5b4bd6" text-anchor="middle">清 0</text>
+<text x="500" y="182" text-anchor="middle" fill="#1f2436">③ 再画一次 Mask 图形</text><text x="500" y="200" text-anchor="middle" fill="#7a8299" font-size="12">Op Zero · 只改模板</text>
+</g>
+<text x="10" y="235" font-size="13" fill="#1f2436">一个 Mask 至少多 2 个 Draw Call（①③），①②③ 不能与外面的元素合批</text>
+</svg><figcaption><b>图 14-7</b> 单层 Mask 的三步绘制（示意）</figcaption></figure>
+<h4>源码：Mask.GetModifiedMaterial</h4>
+<p>Mask 实现了 <code>IMaterialModifier</code>，在自身 Graphic 生成材质时介入：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/Mask.cs（节选）
+public virtual Material GetModifiedMaterial(Material baseMaterial)
+{
+    if (!MaskEnabled()) return baseMaterial;
+
+    var rootSortCanvas = MaskUtilities.FindRootSortOverrideCanvas(transform);
+    var stencilDepth = MaskUtilities.GetStencilDepth(transform, rootSortCanvas);
+    if (stencilDepth &gt;= 8) { Debug.LogWarning("Attempting to use a stencil mask with depth &gt; 8", gameObject); return baseMaterial; }
+
+    int desiredStencilBit = 1 &lt;&lt; stencilDepth;
+
+    if (desiredStencilBit == 1)    // 第一层：直接写 1，弹出时清 0
+    {
+        var maskMaterial = StencilMaterial.Add(baseMaterial, 1, StencilOp.Replace, CompareFunction.Always, m_ShowMaskGraphic ? ColorWriteMask.All : 0);
+        ...
+        var unmaskMaterial = StencilMaterial.Add(baseMaterial, 1, StencilOp.Zero, CompareFunction.Always, 0);
+        ...
+        graphic.canvasRenderer.popMaterialCount = 1;
+        graphic.canvasRenderer.SetPopMaterial(m_UnmaskMaterial, 0);
+        return m_MaskMaterial;
+    }
+
+    // 嵌套的第 N 层：只在上一层通过的区域里，把第 N 位也置 1
+    var maskMaterial2 = StencilMaterial.Add(baseMaterial, desiredStencilBit | (desiredStencilBit - 1), StencilOp.Replace, CompareFunction.Equal,
+        m_ShowMaskGraphic ? ColorWriteMask.All : 0, desiredStencilBit - 1, desiredStencilBit | (desiredStencilBit - 1));
+    ...
+    var unmaskMaterial2 = StencilMaterial.Add(baseMaterial, desiredStencilBit - 1, StencilOp.Replace, CompareFunction.Equal, 0,
+        desiredStencilBit - 1, desiredStencilBit | (desiredStencilBit - 1));
+    ...
+}
+</pre>
+<p>要点：<code>GetStencilDepth</code> 数的是这个物体的父级链上有几个启用的 Mask（遇到 Override Sorting 的 Canvas 就停）。第 d 层 Mask 负责模板值的第 d 位，所以嵌套最多 8 层（8 位）。“弹出材质”（Pop Material）挂在 CanvasRenderer 上，原生层会在这个 Mask 的所有子元素画完之后，用它再画一次 Mask 图形，恢复模板值。</p>
+<p>子元素这边，MaskableGraphic 同样实现了 IMaterialModifier：</p>
+<pre class="code" data-lang="csharp">// 摘自 MaskableGraphic.cs（节选）
+if (m_StencilValue &gt; 0 &amp;&amp; !isMaskingGraphic)
+{
+    var maskMat = StencilMaterial.Add(toUse, (1 &lt;&lt; m_StencilValue) - 1, StencilOp.Keep, CompareFunction.Equal,
+                                      ColorWriteMask.All, (1 &lt;&lt; m_StencilValue) - 1, 0);
+    ...
+}
+</pre>
+<p>处在 d 层 Mask 里的元素，要求模板值的低 d 位全部为 1（Ref = 2ᵈ − 1，ReadMask = 2ᵈ − 1，Comp = Equal），并且不改模板（WriteMask = 0）。也就是说必须同时位于所有外层 Mask 之内才画得出来——嵌套 Mask 取的是交集。</p>
+<h4>实拍：三层嵌套 Mask 生成的模板参数</h4>
+<p>理论讲完，直接读取 UGUI 运行时生成的材质来验证。下面的配图里有三层嵌套的 Mask（圆角矩形 ⊃ 圆 ⊃ 星形），右侧文字是截图前用代码读出的每个元素 <code>materialForRendering</code> 的模板属性，以及每个 Mask 的弹出材质（通过反射读 Mask 的私有字段 <code>m_UnmaskMaterial</code>）：</p>
+<figure class="shot"><img src="img/ch14-stencil.jpg"><figcaption><b>图 14-8</b> 三层嵌套 Mask 与 UGUI 实际生成的模板参数（Ref 参考值、Comp 比较、Op 操作、Read/Write 掩码）</figcaption></figure>
+<div class="scene">Ch14/Scenes/Ch14_Stencil.unity</div>
+<p>对照着读：① 第一层 Mask 在任何地方都把模板写成 1；② 第一层里的条纹要求模板值的最低位等于 1；③ 第二层 Mask 只在模板值最低位为 1（Read = 1）的地方画，并把值替换成 3（二进制 11）；它的弹出材质在同样的区域把值改回 1；④ 第二层里的棋盘格要求低两位都是 1；⑤⑥ 依此类推。和源码逐一吻合。</p>
+
+<h4>Mask 为什么会打断合批</h4>
+<p>Canvas 合批的基本规则是：相邻（按绘制顺序）且材质、贴图相同的元素可以合成一个批次。Mask 的三步绘制在绘制序列里插入了三段使用不同材质的内容：Mask 图形自己（写模板的材质）、所有子元素（带模板测试的材质副本）、弹出（清模板的材质）。子元素的材质副本与 Mask 外面元素的原始材质不同，即使它们用的是同一张图集，也无法合到一起；Mask 内部的子元素之间则可以正常合批。所以在一个滚动列表里，如果每一项都有自己的圆角 Mask，就意味着每一项至少三个批次，五十项就是一百五十个——这是很多项目 Draw Call 爆炸的根源。</p>
+<p>此外，Mask 不做剔除：被遮住、完全看不见的子元素依然会提交绘制，只是在模板测试时被逐像素丢弃。对于内容远大于可视区域的滚动列表，这意味着屏幕外的项也在消耗顶点处理和填充率，这又是一个“矩形区域优先用 RectMask2D”的理由。</p>
+<h4>StencilMaterial：材质副本的引用计数</h4>
+<p>每个 Mask、每个被遮罩的元素都要一个改过模板参数的材质，UGUI 不会每次都 new。<code>StencilMaterial</code> 维护一个列表，以“原材质 + 六个模板参数”为键：</p>
+<pre class="code" data-lang="csharp">// 摘自 StencilMaterial.cs（节选）
+for (int i = 0; i &lt; listCount; ++i)
+{
+    MatEntry ent = m_List[i];
+    if (ent.baseMat == baseMat &amp;&amp; ent.stencilId == stencilID &amp;&amp; ent.operation == operation
+        &amp;&amp; ent.compareFunction == compareFunction &amp;&amp; ent.readMask == readMask
+        &amp;&amp; ent.writeMask == writeMask &amp;&amp; ent.colorMask == colorWriteMask)
+    {
+        ++ent.count;
+        return ent.customMat;
+    }
+}
+var newEnt = new MatEntry();
+newEnt.customMat = new Material(baseMat);
+newEnt.customMat.hideFlags = HideFlags.HideAndDontSave;
+...
+newEnt.useAlphaClip = operation != StencilOp.Keep &amp;&amp; writeMask &gt; 0;
+...
+if (newEnt.useAlphaClip) newEnt.customMat.EnableKeyword("UNITY_UI_ALPHACLIP");
+</pre>
+<p>所以同一层 Mask 下、原材质相同的子元素拿到的是<b>同一个</b>材质副本，它们之间仍然可以合批。最后一行解释了 ALPHACLIP 的用途：凡是要写模板的材质（Mask 自身）都打开 alpha 裁剪，透明像素被 clip 掉、不写模板，Mask 的形状才是精灵的形状而不是矩形。</p>
+<p>这也带来 Mask 最大的视觉缺陷：<b>模板只有“写”和“不写”两种状态</b>。alpha 大于 0.001 的像素全部算在遮罩内，精灵边缘的半透明抗锯齿像素被当成“完全在内”，遮罩边缘必然是硬边、带锯齿，而且比精灵看起来的轮廓略大。14.9 节的放大实拍可以看得很清楚。</p>
+
+<h3 class="sec">14.7 RectMask2D：裁剪矩形</h3>
+<p>RectMask2D 走的是完全不同的路，不碰模板缓冲。它实现了 <code>IClipper</code>，在每帧布局完成之后、图形重建之前被调用（第 12 章 PerformUpdate 中的 <code>ClipperRegistry.instance.Cull()</code>）：</p>
+<pre class="code" data-lang="csharp">// 摘自 com.unity.ugui 1.0.0 Runtime/UI/Core/RectMask2D.cs（节选）
+public virtual void PerformClipping()
+{
+    if (m_ShouldRecalculateClipRects)
+    {
+        MaskUtilities.GetRectMasksForClip(this, m_Clippers);   // 收集父级链上所有 RectMask2D
+        m_ShouldRecalculateClipRects = false;
+    }
+
+    bool validRect = true;
+    Rect clipRect = Clipping.FindCullAndClipWorldRect(m_Clippers, out validRect);
+    ...
+    if (clipRect != m_LastClipRectCanvasSpace)
+    {
+        foreach (MaskableGraphic maskableTarget in m_MaskableTargets)
+        {
+            maskableTarget.SetClipRect(clipRect, validRect);   // → canvasRenderer.EnableRectClipping
+            maskableTarget.Cull(clipRect, validRect);          // 完全在矩形外 → canvasRenderer.cull = true
+        }
+    }
+    ...
+    UpdateClipSoftness();
+}
+</pre>
+<pre class="code" data-lang="csharp">// 摘自 Clipping.cs：嵌套的 RectMask2D 取交集
+Rect current = rectMaskParents[0].canvasRect;
+...
+for (var i = 1; i &lt; rectMaskParentsCount; ++i)
+{
+    current = rectMaskParents[i].canvasRect;
+    if (xMin &lt; current.xMin + offset.x) xMin = current.xMin + offset.x;
+    ...
+}
+validRect = xMax &gt; xMin &amp;&amp; yMax &gt; yMin;
+</pre>
+<p>整个流程是：把自己和所有父级 RectMask2D 的矩形（转换到根 Canvas 空间、减去 padding）求交集，得到一个裁剪矩形；对每个子元素，如果它的矩形和裁剪矩形完全不重叠，就设置 <code>canvasRenderer.cull = true</code>，这个元素根本不会提交绘制；否则通过 <code>EnableRectClipping</code> 把矩形交给 CanvasRenderer，原生层为它打开 UNITY_UI_CLIP_RECT 关键字、设置 <code>_ClipRect</code>，由 Shader 逐像素裁掉矩形外的部分。Softness 同理，通过 <code>clippingSoftness</code> 传给 Shader 的 _UIMaskSoftnessX/Y。</p>
+<figure><svg viewBox="0 0 600 220" width="600" font-family="PingFang SC">
+<rect x="150" y="40" width="300" height="140" fill="#f6f5fc" stroke="#5b4bd6" stroke-width="2"/><text x="300" y="34" font-size="13" text-anchor="middle" fill="#5b4bd6">RectMask2D 的裁剪矩形（根 Canvas 空间）</text>
+<rect x="180" y="60" width="110" height="60" fill="#2fb36a" opacity="0.8"/><text x="235" y="95" font-size="12" text-anchor="middle" fill="#fff">完全在内</text>
+<rect x="390" y="110" width="120" height="50" fill="#ff8a3d" opacity="0.4"/><rect x="390" y="110" width="60" height="50" fill="#ff8a3d"/><text x="420" y="175" font-size="12" text-anchor="middle" fill="#1f2436">部分在内：Shader 裁</text>
+<rect x="490" y="30" width="90" height="50" fill="#e5484d" opacity="0.35"/><text x="535" y="60" font-size="12" text-anchor="middle" fill="#e5484d">完全在外</text>
+<text x="535" y="96" font-size="12" text-anchor="middle" fill="#e5484d">cull，不绘制</text>
+<text x="20" y="208" font-size="13" fill="#1f2436">不加 Draw Call、不占模板；代价是 CPU 每帧做矩形判断，且只能是轴对齐矩形</text>
+</svg><figcaption><b>图 14-9</b> RectMask2D 对子元素的三种处理（示意）</figcaption></figure>
+<p>由此也能推出 RectMask2D 的限制：裁剪区域只能是一个矩形；这个矩形是在根 Canvas 空间里轴对齐计算的，RectMask2D 旋转后裁剪区域不会跟着旋转（源码注释也写明它“只在 2D 平面工作”）；它的子元素要和它在同一平面上。另外，每个元素的 _ClipRect 不同就意味着材质参数不同，<b>不同 RectMask2D 下的元素之间</b>不能合批；同一个 RectMask2D 下的元素则共用一个裁剪矩形，可以合批。</p>
+<h4>对比与选择</h4>
+<table>
+<tr><th></th><th>Mask</th><th>RectMask2D</th></tr>
+<tr><td>形状</td><td>任意（由精灵 alpha 决定）</td><td>只能是轴对齐矩形</td></tr>
+<tr><td>边缘</td><td>硬边，有锯齿</td><td>抗锯齿，可设 Softness 软边</td></tr>
+<tr><td>额外 Draw Call</td><td>每个 Mask 至少 +2（写模板、清模板）</td><td>0</td></tr>
+<tr><td>合批</td><td>Mask 内外的元素不能互相合批</td><td>同一 RectMask2D 下可合批，不同 RectMask2D 之间不行</td></tr>
+<tr><td>剔除</td><td>不剔除，遮罩外的元素照样提交绘制、被模板丢弃</td><td>完全在外的子元素直接 cull，不绘制</td></tr>
+<tr><td>CPU 开销</td><td>材质修改，状态变化时才计算</td><td>每帧对子元素做矩形判断（元素很多时可观）</td></tr>
+<tr><td>嵌套</td><td>最多 8 层</td><td>不限，取交集</td></tr>
+<tr><td>旋转</td><td>支持</td><td>不支持（裁剪矩形不旋转）</td></tr>
+<tr><td>对 Shader 的要求</td><td>Stencil 属性块 + ALPHACLIP</td><td>UNITY_UI_CLIP_RECT 分支</td></tr>
+</table>
+<p>结论很简单：<b>矩形区域一律用 RectMask2D</b>（滚动列表、裁剪面板），只有非矩形的形状才用 Mask，而且这时也要先想想有没有不需要遮罩的做法——下面的圆形头像案例就是一个例子。配套工程里 <code>UIKit.ScrollView()</code> 创建滚动视图后，会把 Viewport 默认的 Mask + Image 换成 RectMask2D，原因就在这张表里。</p>
+
+<h3 class="case"><span class="no">案例 14.1</span>新手引导挖洞：镂空 + 点击穿透<span class="lv">进阶</span></h3>
+<p><b>目标</b>：引导玩家依次点击指定按钮。全屏压暗，只在目标按钮处“挖”一个圆角矩形的洞；洞内可以正常点击目标按钮，洞外的点击全部被挡住。切换目标时，洞从全屏收缩到新目标。</p>
+<h4>思路</h4>
+<p>很多项目用“反向 Mask”做挖洞：先用模板标出洞的区域，遮罩层只在洞外画。这需要额外的模板 Draw Call，洞的边缘也是硬的。更简单的办法是<b>让遮罩层自己的 Shader 算出洞</b>：遮罩层是一张全屏 Image，Shader 里用圆角矩形的有向距离函数（SDF）判断每个像素在洞内还是洞外，洞内 alpha 为 0、边缘羽化。洞的位置用画布空间坐标传入——前面说过，Shader 里的 <code>worldPosition</code> 就是画布空间坐标，和 RectMask2D 的做法一致。</p>
+<pre class="code" data-file="Ch14/Shaders/GuideHole.shader" data-region="sdf"></pre>
+<pre class="code" data-file="Ch14/Shaders/GuideHole.shader" data-region="hole"></pre>
+<p>圆角矩形 SDF 的含义：q 是“点到矩形中心的距离减去（半尺寸 − 半径）”，在角落区域退化成到圆角圆心的距离减半径，在边上退化成到边的距离。返回值在洞内为负、洞外为正、边界上为 0，smoothstep(0, feather, d) 就得到从洞边缘开始、宽度为 feather 的过渡。</p>
+<h4>组件：GuideMask</h4>
+<pre class="code" data-file="Ch14/GuideMask.cs" data-region="fields"></pre>
+<p>洞的参数怎么送进材质？如果直接改 <code>image.material</code> 上的属性，会改到共享的材质资源。这里模仿 Mask 组件的做法，实现 <code>IMaterialModifier</code>：Graphic 每次生成渲染材质时，都会把材质交给同物体上所有 IMaterialModifier 依次加工，我们返回一个带洞参数的材质副本。</p>
+<pre class="code" data-file="Ch14/GuideMask.cs" data-region="modifier"></pre>
+<p>注意 <code>CopyPropertiesFromMaterial(baseMaterial)</code>：传进来的 baseMaterial 可能已经被 MaskableGraphic 改过模板参数（引导层放在某个 Mask 里时），先拷贝再设置洞参数，模板参数才不会丢。洞的位置计算与 RectMask2D 相同，把目标的四个角变换到根 Canvas 的本地空间：</p>
+<pre class="code" data-file="Ch14/GuideMask.cs" data-region="compute"></pre>
+<p>动画起点是“以目标为中心、刚好盖住整个画布的大洞”，progress 从 0 到 1 时洞收缩到目标大小。点击穿透只需实现 <code>ICanvasRaycastFilter</code>：落在目标矩形内的点返回 false，表示“这一点不归我”，GraphicRaycaster 就会继续把它交给下面的目标按钮；其他位置返回 true，遮罩层（Raycast Target 开着）吃掉点击。</p>
+<pre class="code" data-file="Ch14/GuideMask.cs" data-region="raycast"></pre>
+<pre class="code" data-file="Ch14/GuideMask.cs" data-region="api"></pre>
+<figure class="shot"><img src="img/ch14-guide.jpg"><figcaption><b>图 14-10</b> 引导洞收缩到“开始冒险”按钮的两个中间状态（progress 0.3 / 0.7），以及第二步引导（洞在“背包”按钮上，小手指示）</figcaption></figure>
+<div class="scene">Ch14/Scenes/Ch14_Guide.unity</div>
+<p>运行场景：只有洞里的按钮能点，点了之后引导自动移到下一个按钮，三步完成后遮罩消失、所有按钮恢复可点。控制脚本 <code>GuideDemo</code> 在循环里给按钮加监听时，先把循环变量拷贝到局部变量再在闭包里使用——第 6 章讲过的闭包陷阱在这里同样存在。</p>
+<div class="note tip"><b>扩展</b>① 洞的形状可以按目标切换：圆形按钮把 <code>_HoleRadius</code> 设为半边长即可得到圆洞。② 多个洞（同时高亮两个控件）可以把 _HoleRect 换成数组、Shader 里取多个 SDF 的最小值。③ 引导系统通常还要处理“目标在滚动列表里”的情况：先滚动到目标（第 9 章），等布局稳定后再 SetTarget；GuideMask 的 Update 里检查 <code>target.hasChanged</code>，目标被布局移动后洞会自动跟上。</div>
+
+<h3 class="case"><span class="no">案例 14.2</span>圆形头像的三种做法<span class="lv">入门</span></h3>
+<p><b>目标</b>：把方形头像显示成圆形。这是 UI 里最常见的需求之一，也是最容易用错 Mask 的地方。</p>
+<ol>
+<li><b>Mask + 圆形精灵</b>：最常见。代价是每个头像 2 个额外 Draw Call、打断合批、边缘有锯齿。一个排行榜 50 个头像就是 100 多个 Draw Call。</li>
+<li><b>圆形 Shader</b>：在片元着色器里用 uv 到中心的距离算出圆形 alpha，边缘用 smoothstep 平滑，还能顺带画描边圈。所有头像共用一个材质，可以合批。</li>
+<li><b>网格裁剪</b>：上一章的 RoundedRect 把半径设为边长一半、指定头像 Sprite，网格本身就是圆形（带羽化抗锯齿），也不需要任何遮罩。</li>
+</ol>
+<pre class="code" data-file="Ch14/Shaders/CircleAvatar.shader" data-region="circle"></pre>
+<p>下面用与第 13 章相同的“低分辨率实拍放大”对比前两种方法：头像以 30×30 像素渲染到 48×36 的 RenderTexture（关闭 MSAA），再点采样放大。</p>
+<figure class="shot"><img src="img/ch14-avatar.jpg"><figcaption><b>图 14-11</b> 左：Mask + circle 精灵，边缘像素要么全有要么全无；中：CircleAvatar Shader，边缘是半透明过渡；右：6 个头像共用一个带白色描边的 CircleAvatar 材质，可以合成一个批次</figcaption></figure>
+<p>Shader 方案要求头像精灵的 uv 是完整的 0~1（单独的贴图，或 Full Rect 的精灵）。头像打进图集时，uv 只是图集中的一小块，圆心就不在 (0.5, 0.5) 了——这时可以像 14.4 节一样，用 UIParamEffect 把局部坐标写进 uv1，Shader 改用 <code>IN.luv</code> 计算距离。实际项目中，网络头像一般是运行时下载的单独贴图，通常直接满足条件。</p>
+
+<h3 class="case"><span class="no">案例 14.3</span>软遮罩 SoftMask<span class="lv">高阶</span></h3>
+<p><b>目标</b>：遮罩边缘是任意柔和的渐变——Mask 只能硬边，RectMask2D 只能矩形。典型用途：圆形小地图的边缘淡出、技能图标的光晕形裁切、聚光灯效果。</p>
+<h4>思路</h4>
+<p>把遮罩形状做成一张贴图，用它的 alpha 乘到被遮元素的 alpha 上。被遮元素的 Shader 需要知道“当前像素对应遮罩贴图的哪个位置”：遮罩矩形在画布空间中的位置传进来，像素的画布空间坐标减去矩形左下角、除以矩形尺寸，就得到 0~1 的遮罩 uv。</p>
+<pre class="code" data-file="Ch14/Shaders/SoftMasked.shader" data-region="softmask"></pre>
+<p>组件分两部分：父节点上的 <code>SoftMask</code> 持有遮罩贴图和一个共享的材质实例，在遮罩移动时更新矩形参数；子元素上的 <code>SoftMaskable</code> 通过 IMaterialModifier 把自己的材质换成这个共享实例。同一个软遮罩下的所有元素共用一个材质，仍然可以合批。</p>
+<pre class="code" data-file="Ch14/SoftMask.cs" data-region="material"></pre>
+<pre class="code" data-file="Ch14/SoftMaskable.cs" data-region="maskable"></pre>
+<figure class="shot"><img src="img/ch14-softmask.jpg"><figcaption><b>图 14-12</b> 同一张风景图的三种遮罩：Mask（硬边）、SoftMask（贴图边缘 30% 羽化）、RectMask2D Softness = 60</figcaption></figure>
+<div class="scene">Ch14/Scenes/Ch14_SoftMask.unity</div>
+<p>仔细看图 14-12 左边的 Mask：圆的上下左右四处被“削平”了。这不是 bug：circle 精灵的边缘有一圈抗锯齿的半透明像素，Mask 的 alpha 裁剪阈值是 0.001，只要有一点点 alpha 就写模板；精灵被放大 3 倍多显示时，靠近贴图边缘那几排低 alpha 像素被双线性插值放大成了一条“平边”。这正是 Mask 边缘质量差的另一个表现。</p>
+<div class="note warn"><b>限制</b>① SoftMasked 是普通精灵 Shader，<b>不能用于 TMP 文字</b>（TMP 需要 SDF Shader，换上后字形会变成方块——作者第一次拍图就看到了一排灰色方块）；要遮 TMP，需要另写一份基于 TMP SDF Shader 的软遮罩版本。② 软遮罩替换了子元素的材质，如果子元素本身用了别的效果 Shader，需要把软遮罩的采样合并进那个 Shader。③ 遮罩矩形同样是在画布空间里轴对齐计算的，遮罩旋转后需要把旋转也传给 Shader。成熟的第三方软遮罩插件处理了这些情况，原理与这里相同。</div>
+
+<h3 class="case"><span class="no">案例 14.4</span>模糊背景：降采样快照<span class="lv">高阶</span></h3>
+<p><b>目标</b>：打开弹窗时，背后的界面变成毛玻璃般的模糊。</p>
+<h4>思路：为什么用快照</h4>
+<p>实时模糊（每帧抓取屏幕再模糊）在移动端很贵：每帧多一次全屏渲染 + 多次全屏后处理。而绝大多数弹窗打开期间，背后的界面并不需要动。所以项目里普遍采用<b>快照</b>方案：只在打开弹窗的那一刻把画面渲染到一张降采样的 RenderTexture，做几次模糊，交给 RawImage 显示；之后每帧的开销只是画一张贴图。</p>
+<p>降采样本身就很关键：把 1920×1080 缩到 1/4 是 480×270，像素数只有 1/16，后续每次模糊的开销也降到 1/16；而且缩小再放大本身就是一次低通滤波，模糊半径等效放大了 4 倍。模糊用可分离的高斯：一次横向、一次纵向，9 个采样点的两遍等价于 9×9 的二维高斯，却只要 18 次采样。</p>
+<pre class="code" data-file="Ch14/Shaders/Blur.shader" data-region="gauss"></pre>
+<pre class="code" data-file="Ch14/BlurSnapshot.cs" data-region="capture"></pre>
+<p>流程：先临时隐藏弹窗自己，让相机渲染一帧到全分辨率临时 RT；Blit 到 1/4 大小的 RT；在两张小 RT 之间来回做 N 次“横 + 竖”模糊，每次迭代把采样间距放大一点，让模糊范围增长更快；最后拷到组件自己持有的 RT 交给 RawImage。临时 RT 用 <code>GetTemporary</code> 获取、用完立刻 <code>ReleaseTemporary</code>，结果 RT 则必须自己持有——临时 RT 释放后可能被别处复用，内容随时被覆盖。</p>
+<figure class="shot"><img src="img/ch14-blur.jpg"><figcaption><b>图 14-13</b> 原画面；1/4 降采样 + 1 次模糊；1/4 降采样 + 4 次模糊 + 轻微压暗 + 弹窗</figcaption></figure>
+<div class="scene">Ch14/Scenes/Ch14_Blur.unity</div>
+<div class="note"><b>Overlay 画布怎么办</b>相机 Render() 只能拍到由相机绘制的内容：Screen Space - Camera 和 World Space 的画布。Screen Space - Overlay 的画布在所有相机之后直接绘制到屏幕，相机拍不到。配套场景把画布改成了 Camera 模式。Overlay 画布可以改用 <code>ScreenCapture.CaptureScreenshotIntoRenderTexture</code>：在协程里 <code>yield return new WaitForEndOfFrame()</code> 之后调用，把整个屏幕（含 Overlay UI）抓进 RT，再走同样的降采样和模糊流程。</div>
+<p>模糊算法本身也有很多选择。本章用的可分离高斯实现简单、效果稳定；移动端追求更大模糊半径时，常用 Kawase 模糊或 Dual Kawase（降采样金字塔逐级缩小再逐级放大），在相同开销下能得到更大的模糊范围。无论用哪种，“只在打开时算一次”的快照思路都比算法本身更能省电。</p>
+<p>调参建议：降采样 4 倍、迭代 2~4 次对大多数弹窗足够；模糊后叠一层 20%~40% 的深色，弹窗内容的可读性会好很多。快照拍完后，如果背后的界面数据变了（比如倒计时），模糊图不会更新——通常没人会注意到，但如果背后有明显的动画，就要权衡是否值得实时模糊。</p>
+
+<h3 class="sec">14.8 遮罩的常见问题</h3>
+<p>理解了两种遮罩的原理，很多“遮罩不好使”的问题都能直接从源码推出原因：</p>
+<div class="kv">
+<span>Mask 的 Image 设成全透明后，子元素全消失</span><span>想隐藏遮罩图形本身，把 Image 的 alpha 调成 0——结果子元素也不见了。原因是 Mask 写模板时打开了 ALPHACLIP，alpha 低于 0.001 的像素被 clip，一个模板值都没写上。正确做法是保持 Image 不透明，取消勾选 Mask 的 <b>Show Mask Graphic</b>：它把 ColorMask 设为 0，只写模板不写颜色。</span>
+<span>子 Canvas 不受外层 Mask 控制</span><span>Mask 下面的某个子物体加了 Canvas 并勾选 Override Sorting。<code>MaskUtilities.GetStencilDepth</code> 向上数 Mask 时，遇到 Override Sorting 的 Canvas 就停止，外层的 Mask 不再被计入，这个子 Canvas 里的元素也就不做模板测试。RectMask2D 同样受子 Canvas 影响。需要在遮罩里放独立排序的内容时，要重新设计层级。</span>
+<span>RectMask2D 下的元素突然整个消失</span><span>元素的 RectTransform 矩形完全落在裁剪区外（哪怕它的网格或子物体还在里面），就会被 cull。常见于“尺寸为 0 的容器节点上挂了 Graphic”，或者自定义 Graphic 把网格画在了矩形外。</span>
+<span>RectMask2D 旋转后裁剪不对</span><span>裁剪矩形是在根 Canvas 空间里轴对齐计算的，不随 RectMask2D 旋转。需要旋转的裁剪区域只能用 Mask 或自定义 Shader。</span>
+<span>Mask 里的粒子 / 3D 模型不被裁剪</span><span>粒子系统、MeshRenderer 不是 Graphic，不会经过 MaskableGraphic 的材质修改，自然不受 Mask 控制。要让它们被 UI 遮罩裁剪，需要给它们的 Shader 加上相同的 Stencil 测试（Ref 与 Mask 层级对应），或者用 RenderTexture 把它们先渲染成图片再放进 RawImage（第 19 章）。</span>
+<span>TMP 文字在 Mask 下正常，在自定义软遮罩下变成方块</span><span>TMP 的 SDF Shader 自己带了 Stencil 和 CLIP_RECT 支持，所以两种内置遮罩都能用；但任何替换材质的自定义方案都必须为 TMP 单独准备 SDF 版本的 Shader（见案例 14.3 的说明）。</span>
+<span>Mask 嵌套很深后部分元素不显示</span><span>超过 8 层时 Mask 输出警告并放弃写模板。实际项目中 3 层以上的 Mask 嵌套通常意味着层级设计有问题，例如滚动列表的每一项又各自带圆角 Mask——这种情况应该改用圆角精灵或本书第 13 章的 RoundedRect。</span>
+</div>
+<p>排查遮罩问题时，Frame Debugger 是最直接的工具：选中某个 Draw Call，右侧会列出它使用的材质名称。StencilMaterial 生成的材质名形如 “Stencil Id:1, Op:Keep, Comp:Equal, …”，与图 14-8 读出的参数一一对应，一眼就能看出某个元素是否被套上了模板测试、处在第几层。</p>
+
+<h3 class="sec">14.9 UI Shader 的工程注意事项</h3>
+<ul>
+<li><b>变体数量</b>：每个 multi_compile 都会让变体翻倍。本章 Shader 只有 UI-Default 原有的两组（CLIP_RECT × ALPHACLIP = 4 个变体），效果开关都用 float + lerp 实现。新增 multi_compile 前想清楚是否真的需要编译期分支；只在材质上静态切换的开关用 <code>shader_feature_local</code>，未用到的变体在打包时会被剔除。</li>
+<li><b>打包时 Shader 丢失</b>：只被代码 <code>Shader.Find</code> 引用的 Shader 不会自动打进包里，运行时会找不到（材质变粉）。本章组件都通过序列化的材质资源引用 Shader，不用 Shader.Find；如果一定要 Find，把 Shader 加入 <span class="menu">Project Settings › Graphics › Always Included Shaders</span>。</li>
+<li><b>target 2.0 与插值器</b>：UI-Default 用 <code>#pragma target 2.0</code>。本章模板多用了两个插值量（param、luv），在 target 2.0 的插值器数量限制之内；继续往 v2f 里加东西时要留意，或提高 target。</li>
+<li><b>片元开销与填充率</b>：UI 元素往往层层叠叠，全屏的效果 Shader（引导遮罩、转场）每个像素都要执行。效果写得再简单，也要乘上覆盖的像素数和叠加层数来估算。第 20 章会用 Overdraw 视图分析这类问题。</li>
+<li><b>Gamma 与 Linear</b>：本书工程是 Gamma 空间，Shader 里的颜色运算直接在 Gamma 值上进行；Linear 工程中贴图采样会自动转到线性空间，同样的 HSV、灰度公式结果会略有不同，调参要在目标色彩空间下进行。</li>
+</ul>
+
+<div class="summary"><h4>本章小结</h4><ul>
+<li>UI/Default 的 Stencil 属性、ColorMask、ZTest [unity_GUIZTestMode]、CLIP_RECT 与 ALPHACLIP 分支都是给 Canvas、Mask、RectMask2D 用的“接口”，自定义 UI Shader 必须原样保留。2022.3 的 UI-Default 使用预乘 Alpha 混合。</li>
+<li>Shader 中的顶点位置是根 Canvas 空间坐标，RectMask2D 的 _ClipRect 也在这个空间；需要按屏幕区域计算的效果（挖洞、软遮罩）都可以利用它。</li>
+<li>每个元素不同的效果参数可以写进 uv1 顶点通道：同一材质、可以合批，代价是改参数时重建该元素的网格。按形状铺开的效果要用局部坐标，九宫格和图集的贴图 uv 不均匀。</li>
+<li>Mask 通过 StencilMaterial 生成改过模板参数的材质副本，第 d 层负责模板值的第 d 位，最多 8 层；每个 Mask 至少多 2 个 Draw Call，边缘是硬边。</li>
+<li>RectMask2D 在 CPU 端求嵌套矩形的交集，完全在外的子元素直接剔除，部分在内的由 Shader 逐像素裁剪；不占模板、不加 Draw Call，但只能是轴对齐矩形。矩形区域一律优先用它。</li>
+<li>引导挖洞用 SDF Shader + ICanvasRaycastFilter 实现镂空和点击穿透；圆形头像优先用 Shader 或网格而不是 Mask；软遮罩按画布坐标采样遮罩贴图；模糊背景用一次性的降采样快照。</li>
+</ul></div>
+<div class="exercise"><h4>练习</h4><ol>
+<li>写一个“描边光晕”Shader：对贴图 alpha 在周围 8 个方向采样，在图标外侧生成指定颜色的发光边（提示：用 _MainTex_TexelSize 计算采样偏移，注意图集精灵之间的间距）。</li>
+<li>把 Gray Shader 和 Shine Shader 合并成一个“道具格子”Shader：未拥有时灰度，品质为传说时自动扫光，参数全部通过 uv1 传入（uv1.x 灰度、uv1.y 扫光开关）。</li>
+<li>在 Ch14_Stencil 场景里再嵌套到第 9 层 Mask，观察 Console 的警告和显示结果，并对照 Mask.GetModifiedMaterial 的源码解释现象。</li>
+<li>把 GuideMask 改成支持两个洞，并让 IsRaycastLocationValid 对两个洞都放行。</li>
+<li>用 Frame Debugger 对比 Ch14_ShaderGallery 场景中“同一材质 + UIParamEffect”的一排图标与“各自材质实例”的旗帜，数一数各自占几个 Draw Call。</li>
+<li>为 BlurSnapshot 增加 Overlay 画布支持：用协程在 WaitForEndOfFrame 之后调用 ScreenCapture.CaptureScreenshotIntoRenderTexture，并处理好弹窗自身需要先隐藏一帧的问题。</li>
+</ol></div>
+</section>

@@ -1,0 +1,37 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|ShopPanel|NumberStepper,StepperDemo,NumberStepper,StepperDemo
+2|Shadow|Image
+2|Bg|Image
+2|Slot|Image
+3|Icon_item_potion_red|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|IconButton_minus|Image,Button,PressRepeat
+3|Icon_minus|Image
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|IconButton_plus|Image,Button,PressRepeat
+3|Icon_plus|Image
+2|Total|TextMeshProUGUI
+2|Slot|Image
+3|Icon_item_scroll|Image
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|Text|TextMeshProUGUI
+2|IconButton_minus|Image,Button,PressRepeat
+3|Icon_minus|Image
+2|InputField|Image,TMP_InputField
+3|Outline|Image
+3|Text Area|RectMask2D
+4|Placeholder|TextMeshProUGUI,LayoutElement
+4|Text|TextMeshProUGUI
+2|IconButton_plus|Image,Button,PressRepeat
+3|Icon_plus|Image
+2|Total|TextMeshProUGUI
+2|Line|Image
+0|EventSystem|EventSystem,StandaloneInputModule

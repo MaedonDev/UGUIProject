@@ -1,0 +1,15 @@
+0|Main Camera|Camera,AudioListener
+0|Canvas|Canvas,CanvasScaler,GraphicRaycaster
+1|Panel|Image,EventLogger
+2|Text|TextMeshProUGUI
+2|A|Image,EventLogger
+3|Text|TextMeshProUGUI
+2|B|Image,EventLogger
+3|Fill|Image
+3|Text|TextMeshProUGUI
+1|LogPanel|Image,EventLogView
+2|Log|TextMeshProUGUI
+2|Button_清空|Image,Button
+3|Text (TMP)|TextMeshProUGUI
+1|Text|TextMeshProUGUI
+0|EventSystem|EventSystem,StandaloneInputModule
