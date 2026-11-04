@@ -288,6 +288,7 @@ def cases_index(chs):
 def index_page(chs):
     front = (SRC / "front.html").read_text(encoding="utf-8")
     front = re.sub(r"^\s*<section[^>]*>|</section>\s*$", "", front.strip())
+    front = re.sub(r"<h1>(.*?)</h1>", r'<h2 class="front-h">\1</h2>', front)   # 首页只留一个 h1（SEO）
     part_at = {p[0]: p for p in B.PARTS}
     toc = ['<ol class="site-toc">']
     for c in chs:
