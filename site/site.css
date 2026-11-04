@@ -121,7 +121,7 @@ pre.code { font-size: 13px; line-height: 1.6; padding: 10px 14px; white-space: p
 .site-toc .t small { color: var(--muted); font-size: 13px; margin-left: 8px; }
 .site-toc em { flex: none; font-style: normal; font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 0 8px; }
 .front-inline { margin-bottom: 40px; }
-.front-inline h1 { font: 700 28px "Songti SC", serif; color: var(--ink); border-bottom: 3px solid var(--main); padding-bottom: 8px; }
+.front-inline h1, .front-inline .front-h { font: 700 28px "Songti SC", serif; color: var(--ink); border-bottom: 3px solid var(--main); padding-bottom: 8px; }
 
 /* 源码页 */
 .dl-main { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 18px 0; }
